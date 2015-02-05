@@ -172,15 +172,21 @@ def main(mode, save_path, num_batches, use_old, from_dump):
             singleton=True)
         min_energy = named_copy(energies.min(), "min_energy")
         max_energy = named_copy(energies.max(), "max_energy")
+        (bottom_output,) = VariableFilter(
+            application=mlp.apply, name="output")(cg)
+        (attended,) = VariableFilter(
+            application=generator.transition.apply, name="attended$")(cg)
         (activations,) = VariableFilter(
-            application=generator.transition.apply,
-            name="states")(cg.variables)
+            application=generator.transition.apply, name="states")(cg)
         (weights,) = VariableFilter(
-            application=generator.cost,
-            name="weights")(cg.variables)
+            application=generator.cost, name="weights")(cg)
         weights1, activations1 = weights[1:], activations[1:]
         mean_activation = named_copy(abs(activations1).mean(),
                                      "mean_activation")
+        mean_attended = named_copy(abs(attended).mean(),
+                                   "mean_attended")
+        mean_bottom_output = named_copy(abs(bottom_output).mean(),
+                                        "mean_bottom_output")
         weights_penalty = aggregation.mean(
             named_copy(monotonicity_penalty(weights1, labels_mask),
                        "weights_penalty_per_recording"),
@@ -206,7 +212,8 @@ def main(mode, save_path, num_batches, use_old, from_dump):
 
         observables = [
             cost, cost_per_phoneme,
-            min_energy, max_energy, mean_activation,
+            min_energy, max_energy,
+            mean_activation, mean_attended, mean_bottom_output,
             weights_penalty, weights_entropy,
             batch_size, max_recording_length, max_num_phonemes,
             algorithm.total_step_norm, algorithm.total_gradient_norm]
@@ -232,7 +239,11 @@ def main(mode, save_path, num_batches, use_old, from_dump):
                         math.isnan(log.current_row.total_gradient_norm)),
                 Plot(os.path.basename(save_path),
                      [["average_" + cost.name],
-                      ["average_" + cost_per_phoneme.name]],
+                      ["average_" + cost_per_phoneme.name],
+                      ["average_" + algorithm.total_gradient_norm.name],
+                      ["average_" + mean_activation.name,
+                       "average_" + mean_bottom_output.name,
+                       "average_" + mean_attended.name]],
                      every_n_batches=10),
                 SerializeMainLoop(save_path, every_n_batches=500,
                                   save_separately=["model", "log"]),
