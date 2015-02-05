@@ -179,7 +179,8 @@ def main(mode, save_path, num_batches, use_old, from_dump):
             application=generator.cost,
             name="weights")(cg.variables)
         weights1, activations1 = weights[1:], activations[1:]
-        mean_activation = named_copy(activations1.mean(), "mean_activation")
+        mean_activation = named_copy(abs(activations1.mean()),
+                                     "mean_activation")
         weights_penalty = aggregation.mean(
             named_copy(monotonicity_penalty(weights1, labels_mask),
                        "weights_penalty_per_recording"),
