@@ -5,6 +5,7 @@ import sys
 import math
 import os
 import functools
+import dill
 
 import numpy
 import theano
@@ -81,60 +82,55 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def main(mode, save_path, num_batches, from_dump):
+def main(mode, save_path, num_batches, use_old, from_dump):
     if mode == "train":
         # Experiment configuration
         dimension = 100
-
-        # Data processing pipeline
         timit = TIMIT()
-        data_stream=DataStream(
-            timit, iteration_scheme=SequentialScheme(timit.num_examples, 10))
-        data_stream=DataStreamMapping(
-            data_stream, functools.partial(apply_preprocessing, spectrogram))
-        data_stream=PaddingDataStream(data_stream)
-        data_stream = DataStreamMapping(
-            data_stream, switch_first_two_axes)
+        root_path, extension = os.path.splitext(save_path)
+        model_path = root_path + "_model" + extension
 
-        # Build the model
-        recordings = tensor.tensor3("recordings")
-        recordings_mask = tensor.matrix("recordings_mask")
-        labels = tensor.lmatrix("labels")
-        labels_mask = tensor.matrix("labels_mask")
-
-        encoder = Bidirectional(
-            GatedRecurrent(dim=dimension, activation=Tanh()),
-            weights_init=Orthogonal())
-        encoder.initialize()
-        fork = Fork([name for name in encoder.prototype.apply.sequences
-                     if name != 'mask'],
+        # Build the bricks
+        if not use_old:
+            encoder = Bidirectional(
+                GatedRecurrent(dim=dimension, activation=Tanh()),
+                weights_init=Orthogonal())
+            encoder.initialize()
+            fork = Fork([name for name in encoder.prototype.apply.sequences
+                        if name != 'mask'],
+                        weights_init=IsotropicGaussian(0.1),
+                        biases_init=Constant(0))
+            fork.input_dim = dimension
+            fork.fork_dims = {name: dimension for name in fork.fork_names}
+            mlp = MLP([Tanh()], [129, dimension], name="bottom",
                     weights_init=IsotropicGaussian(0.1),
                     biases_init=Constant(0))
-        fork.input_dim = dimension
-        fork.fork_dims = {name: dimension for name in fork.fork_names}
-        mlp = MLP([Tanh()], [129, dimension], name="bottom",
-                  weights_init=IsotropicGaussian(0.1),
-                  biases_init=Constant(0))
-        transition = Transition(
-            activation=Tanh(),
-            dim=dimension, attended_dim=2 * dimension, name="transition")
-        attention = SequenceContentAttention(
-            state_names=transition.apply.states,
-            match_dim=dimension, name="attention")
-        readout = LinearReadout(
-            readout_dim=timit.num_phonemes, source_names=["states"],
-            emitter=SoftmaxEmitter(name="emitter"),
-            feedbacker=LookupFeedback(timit.num_phonemes, dimension),
-            name="readout")
-        generator = SequenceGenerator(
-            readout=readout, transition=transition, attention=attention,
-            weights_init=IsotropicGaussian(0.1), biases_init=Constant(0),
-            name="generator")
-        generator.push_initialization_config()
-        transition.weights_init = Orthogonal()
-        bricks = [encoder, fork, mlp, generator]
-        for brick in bricks:
-            brick.initialize()
+            transition = Transition(
+                activation=Tanh(),
+                dim=dimension, attended_dim=2 * dimension, name="transition")
+            attention = SequenceContentAttention(
+                state_names=transition.apply.states,
+                match_dim=dimension, name="attention")
+            readout = LinearReadout(
+                readout_dim=timit.num_phonemes, source_names=["states"],
+                emitter=SoftmaxEmitter(name="emitter"),
+                feedbacker=LookupFeedback(timit.num_phonemes, dimension),
+                name="readout")
+            generator = SequenceGenerator(
+                readout=readout, transition=transition, attention=attention,
+                weights_init=IsotropicGaussian(0.1), biases_init=Constant(0),
+                name="generator")
+            generator.push_initialization_config()
+            transition.weights_init = Orthogonal()
+            bricks = [encoder, fork, mlp, generator]
+            for brick in bricks:
+                brick.initialize()
+        else:
+            with open(model_path, "rb") as source:
+                bricks = dill.load(source)
+            encoder, fork, mlp, generator = bricks
+            readout = generator.readout
+            logging.info("Loaded an old model")
 
         # Give an idea of what's going on
         params = Selector(bricks).get_params()
@@ -145,6 +141,10 @@ def main(mode, save_path, num_batches, from_dump):
                         width=120))
 
         # Build the cost computation graph
+        recordings = tensor.tensor3("recordings")
+        recordings_mask = tensor.matrix("recordings_mask")
+        labels = tensor.lmatrix("labels")
+        labels_mask = tensor.matrix("labels_mask")
         batch_cost = generator.cost(
             labels, labels_mask,
             attended=encoder.apply(
@@ -178,16 +178,26 @@ def main(mode, save_path, num_batches, from_dump):
         (weights,) = VariableFilter(
             application=generator.cost,
             name="weights")(cg.variables)
-        weights, activations = weights[1:], activations[1:]
-        mean_activation = named_copy(activations.mean(), "mean_activation")
+        weights1, activations1 = weights[1:], activations[1:]
+        mean_activation = named_copy(activations1.mean(), "mean_activation")
         weights_penalty = aggregation.mean(
-            named_copy(monotonicity_penalty(weights, labels_mask),
+            named_copy(monotonicity_penalty(weights1, labels_mask),
                        "weights_penalty_per_recording"),
             batch_size)
         weights_entropy = aggregation.mean(
-            named_copy(entropy(weights, labels_mask),
+            named_copy(entropy(weights1, labels_mask),
                        "weights_entropy_per_phoneme"),
             labels_mask.sum())
+
+        # Data processing pipeline
+        data_stream=DataStream(
+            timit, iteration_scheme=SequentialScheme(timit.num_examples, 10))
+        data_stream=DataStreamMapping(
+            data_stream, functools.partial(apply_preprocessing, spectrogram))
+        data_stream=PaddingDataStream(data_stream)
+        data_stream = DataStreamMapping(
+            data_stream, switch_first_two_axes)
+        import ipdb; ipdb.set_trace()
 
         # Define the training algorithm.
         algorithm = GradientDescent(
