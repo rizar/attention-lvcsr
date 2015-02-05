@@ -35,6 +35,7 @@ from blocks.utils import named_copy, unpack, dict_union
 
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import spectrogram
+from lvsr.expressions import monotonicity_penalty, entropy
 
 sys.setrecursionlimit(100000)
 floatX = theano.config.floatX
@@ -174,16 +175,29 @@ def main(mode, save_path, num_batches, from_dump):
         (activations,) = VariableFilter(
             application=generator.transition.apply,
             name="states")(cg.variables)
+        (weights,) = VariableFilter(
+            application=generator.cost,
+            name="weights")(cg.variables)
+        weights, activations = weights[1:], activations[1:]
         mean_activation = named_copy(activations.mean(), "mean_activation")
+        weights_penalty = aggregation.mean(
+            named_copy(monotonicity_penalty(weights, labels_mask),
+                       "weights_penalty_per_recording"),
+            batch_size)
+        weights_entropy = aggregation.mean(
+            named_copy(entropy(weights, labels_mask),
+                       "weights_entropy_per_phoneme"),
+            labels_mask.sum())
 
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, step_rule=CompositeRule([GradientClipping(10.0),
+            cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
                                                 SteepestDescent(0.01)]))
 
         observables = [
             cost, cost_per_phoneme,
             min_energy, max_energy, mean_activation,
+            weights_penalty, weights_entropy,
             batch_size, max_recording_length, max_num_phonemes,
             algorithm.total_step_norm, algorithm.total_gradient_norm]
         for name, param in params.items():
