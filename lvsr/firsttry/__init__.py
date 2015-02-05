@@ -191,7 +191,7 @@ def main(mode, save_path, num_batches, from_dump):
 
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
+            cost=cost, step_rule=CompositeRule([GradientClipping(10.0),
                                                 SteepestDescent(0.01)]))
 
         observables = [
