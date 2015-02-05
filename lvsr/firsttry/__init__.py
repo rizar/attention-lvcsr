@@ -197,7 +197,6 @@ def main(mode, save_path, num_batches, use_old, from_dump):
         data_stream=PaddingDataStream(data_stream)
         data_stream = DataStreamMapping(
             data_stream, switch_first_two_axes)
-        import ipdb; ipdb.set_trace()
 
         # Define the training algorithm.
         algorithm = GradientDescent(
