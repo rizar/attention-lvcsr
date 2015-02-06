@@ -11,20 +11,21 @@ class TIMIT(InMemoryDataset):
     provides_sources = ('recordings', 'labels')
     default_scheme = None
 
-    def __init__(self, path=None):
+    def __init__(self, part="train", path=None):
         if not path:
             path = os.path.join(config.data_path, "timit")
         self.path = path
+        self.part = part
 
     def load(self):
         self.recordings = numpy.load(
-            os.path.join(self.path, "train_x_raw.npy"))
+            os.path.join(self.path, self.part + "_x_raw.npy"))
         self.num_examples = len(self.recordings)
 
         phonemes = numpy.load(
-            os.path.join(self.path, "train_phn.npy"))
+            os.path.join(self.path, self.part + "_phn.npy"))
         phoneme_ranges = numpy.load(
-            os.path.join(self.path, "train_seq_to_phn.npy"))
+            os.path.join(self.path, self.part + "_seq_to_phn.npy"))
         assert len(phoneme_ranges) == self.num_examples
         self.num_phonemes = max(phonemes[:, 2]) + 1
 

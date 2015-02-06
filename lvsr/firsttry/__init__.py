@@ -28,7 +28,8 @@ from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.extensions import FinishAfter, Printing, Timing
 from blocks.extensions.saveload import SerializeMainLoop, LoadFromDump
-from blocks.extensions.monitoring import TrainingDataMonitoring
+from blocks.extensions.monitoring import (
+    TrainingDataMonitoring, DataStreamMonitoring)
 from blocks.extensions.plot import Plot
 from blocks.main_loop import MainLoop
 from blocks.select import Selector
@@ -83,11 +84,24 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
+def build_stream(dataset, batch_size):
+    data_stream=DataStream(
+        dataset,
+        iteration_scheme=SequentialScheme(dataset.num_examples, 10))
+    data_stream=DataStreamMapping(
+        data_stream, functools.partial(apply_preprocessing, spectrogram))
+    data_stream=PaddingDataStream(data_stream)
+    data_stream = DataStreamMapping(
+        data_stream, switch_first_two_axes)
+    return data_stream
+
+
 def main(mode, save_path, num_batches, use_old, from_dump):
     if mode == "train":
         # Experiment configuration
         dimension = 100
         timit = TIMIT()
+        timit_valid = TIMIT("valid")
         root_path, extension = os.path.splitext(save_path)
         model_path = root_path + "_model" + extension
 
@@ -197,15 +211,6 @@ def main(mode, save_path, num_batches, use_old, from_dump):
                        "weights_entropy_per_phoneme"),
             labels_mask.sum())
 
-        # Data processing pipeline
-        data_stream=DataStream(
-            timit, iteration_scheme=SequentialScheme(timit.num_examples, 10))
-        data_stream=DataStreamMapping(
-            data_stream, functools.partial(apply_preprocessing, spectrogram))
-        data_stream=PaddingDataStream(data_stream)
-        data_stream = DataStreamMapping(
-            data_stream, switch_first_two_axes)
-
         # Define the training algorithm.
         algorithm = GradientDescent(
             cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
@@ -227,13 +232,18 @@ def main(mode, save_path, num_batches, use_old, from_dump):
 
         main_loop = MainLoop(
             model=bricks,
-            data_stream=data_stream,
+            data_stream=build_stream(timit, 10),
             algorithm=algorithm,
             extensions=([LoadFromDump(from_dump)] if from_dump else []) +
             [Timing(),
                 TrainingDataMonitoring(observables, after_every_batch=True),
                 TrainingDataMonitoring(observables, prefix="average",
                                        every_n_batches=10),
+                DataStreamMonitoring(
+                    [cost, cost_per_phoneme],
+                    build_stream(timit_valid, 100), prefix="valid",
+                    before_first_epoch=True, on_resumption=True,
+                    after_every_epoch=True),
                 FinishAfter(after_n_batches=num_batches)
                 .add_condition(
                     "after_batch",
