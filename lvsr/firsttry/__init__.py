@@ -37,7 +37,7 @@ from blocks.filter import VariableFilter
 from blocks.utils import named_copy, unpack, dict_union
 
 from lvsr.datasets import TIMIT
-from lvsr.preprocessing import spectrogram
+from lvsr.preprocessing import log_spectrogram
 from lvsr.expressions import monotonicity_penalty, entropy
 
 sys.setrecursionlimit(100000)
@@ -89,7 +89,8 @@ def build_stream(dataset, batch_size):
         dataset,
         iteration_scheme=SequentialScheme(dataset.num_examples, 10))
     data_stream=DataStreamMapping(
-        data_stream, functools.partial(apply_preprocessing, spectrogram))
+        data_stream, functools.partial(apply_preprocessing,
+                                       log_spectrogram))
     data_stream=PaddingDataStream(data_stream)
     data_stream = DataStreamMapping(
         data_stream, switch_first_two_axes)
@@ -214,7 +215,7 @@ def main(mode, save_path, num_batches, use_old, from_dump):
         # Define the training algorithm.
         algorithm = GradientDescent(
             cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
-                                                SteepestDescent(0.001),
+                                                SteepestDescent(0.01),
                                                 Momentum(0.99)]))
 
         observables = [
