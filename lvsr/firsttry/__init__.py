@@ -22,7 +22,8 @@ from blocks.datasets import (
     DataStreamMapping, BatchDataStream, PaddingDataStream)
 from blocks.datasets.schemes import ConstantScheme, SequentialScheme
 from blocks.algorithms import (GradientDescent, SteepestDescent,
-                               GradientClipping, CompositeRule)
+                               GradientClipping, CompositeRule,
+                               Momentum)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.extensions import FinishAfter, Printing, Timing
@@ -207,8 +208,9 @@ def main(mode, save_path, num_batches, use_old, from_dump):
 
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, step_rule=CompositeRule([GradientClipping(10.0),
-                                                SteepestDescent(0.01)]))
+            cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
+                                                SteepestDescent(0.001),
+                                                Momentum(0.99)]))
 
         observables = [
             cost, cost_per_phoneme,
