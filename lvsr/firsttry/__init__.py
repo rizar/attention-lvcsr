@@ -17,10 +17,9 @@ from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, LinearReadout, SoftmaxEmitter, LookupFeedback)
 from blocks.graph import ComputationGraph
-from blocks.datasets import (
-    DataStream,
-    DataStreamMapping, BatchDataStream, PaddingDataStream)
-from blocks.datasets.schemes import ConstantScheme, SequentialScheme
+from blocks.datasets.streams import (
+    DataStream, DataStreamMapping, PaddingDataStream)
+from blocks.datasets.schemes import SequentialScheme
 from blocks.algorithms import (GradientDescent, SteepestDescent,
                                GradientClipping, CompositeRule,
                                Momentum)
@@ -117,7 +116,7 @@ def main(mode, save_path, num_batches, use_old, from_dump):
                         weights_init=IsotropicGaussian(0.1),
                         biases_init=Constant(0))
             fork.input_dim = dimension
-            fork.fork_dims = {name: dimension for name in fork.fork_names}
+            fork.output_dims = {name: dimension for name in fork.output_names}
             mlp = MLP([Tanh()], [129, dimension], name="bottom",
                     weights_init=IsotropicGaussian(0.1),
                     biases_init=Constant(0))

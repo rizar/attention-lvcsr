@@ -1,11 +1,11 @@
 import os.path
 
 import numpy
-from blocks.datasets import InMemoryDataset, lazy_properties
+from blocks.datasets import InMemoryDataset
 from blocks import config
 
-@lazy_properties('recordings', 'labels',
-                 'num_examples', 'num_phonemes')
+@InMemoryDataset.lazy_properties(
+    'recordings', 'labels', 'num_examples', 'num_phonemes')
 class TIMIT(InMemoryDataset):
 
     provides_sources = ('recordings', 'labels')
