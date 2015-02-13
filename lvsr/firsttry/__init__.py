@@ -127,7 +127,8 @@ def main(mode, save_path, num_batches, use_old, from_dump):
                 state_names=transition.apply.states,
                 match_dim=dimension, name="attention")
             readout = LinearReadout(
-                readout_dim=timit.num_phonemes, source_names=["states"],
+                readout_dim=timit.num_phonemes,
+                source_names=transition.apply.states,
                 emitter=SoftmaxEmitter(name="emitter"),
                 feedbacker=LookupFeedback(timit.num_phonemes, dimension),
                 name="readout")
@@ -231,7 +232,7 @@ def main(mode, save_path, num_batches, use_old, from_dump):
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
         average = TrainingDataMonitoring(
-            observables, prefix="average", every_n_batches=10),
+            observables, prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             [cost, cost_per_phoneme],
             build_stream(timit_valid, 100), prefix="valid",
