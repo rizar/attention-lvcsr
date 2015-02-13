@@ -1,7 +1,6 @@
 from __future__ import print_function
 import logging
 import pprint
-import sys
 import math
 import os
 import functools
@@ -18,7 +17,8 @@ from blocks.bricks.sequence_generators import (
     SequenceGenerator, LinearReadout, SoftmaxEmitter, LookupFeedback)
 from blocks.graph import ComputationGraph
 from blocks.datasets.streams import (
-    DataStream, DataStreamMapping, PaddingDataStream)
+    DataStream, DataStreamMapping, PaddingDataStream,
+    ForceFloatX)
 from blocks.datasets.schemes import SequentialScheme
 from blocks.algorithms import (GradientDescent, SteepestDescent,
                                GradientClipping, CompositeRule,
@@ -39,7 +39,6 @@ from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram
 from lvsr.expressions import monotonicity_penalty, entropy
 
-sys.setrecursionlimit(100000)
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
 
@@ -84,15 +83,16 @@ def switch_first_two_axes(batch):
 
 
 def build_stream(dataset, batch_size):
-    data_stream=DataStream(
+    data_stream = DataStream(
         dataset,
-        iteration_scheme=SequentialScheme(dataset.num_examples, 10))
-    data_stream=DataStreamMapping(
+        iteration_scheme = SequentialScheme(dataset.num_examples, 10))
+    data_stream = DataStreamMapping(
         data_stream, functools.partial(apply_preprocessing,
                                        log_spectrogram))
-    data_stream=PaddingDataStream(data_stream)
+    data_stream = PaddingDataStream(data_stream)
     data_stream = DataStreamMapping(
         data_stream, switch_first_two_axes)
+    data_stream = ForceFloatX(data_stream)
     return data_stream
 
 
@@ -215,7 +215,7 @@ def main(mode, save_path, num_batches, use_old, from_dump):
         algorithm = GradientDescent(
             cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
                                                 SteepestDescent(0.01),
-                                                Momentum(0.99)]))
+                                                Momentum(0.00)]))
 
         observables = [
             cost, cost_per_phoneme,
@@ -230,6 +230,13 @@ def main(mode, save_path, num_batches, use_old, from_dump):
             observables.append(named_copy(
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
+        average = TrainingDataMonitoring(
+            observables, prefix="average", every_n_batches=10),
+        validation = DataStreamMonitoring(
+            [cost, cost_per_phoneme],
+            build_stream(timit_valid, 100), prefix="valid",
+            before_first_epoch=True, on_resumption=True,
+            after_every_epoch=True)
         main_loop = MainLoop(
             model=bricks,
             data_stream=build_stream(timit, 10),
@@ -237,25 +244,18 @@ def main(mode, save_path, num_batches, use_old, from_dump):
             extensions=([LoadFromDump(from_dump)] if from_dump else []) +
             [Timing(),
                 TrainingDataMonitoring(observables, after_every_batch=True),
-                TrainingDataMonitoring(observables, prefix="average",
-                                       every_n_batches=10),
-                DataStreamMonitoring(
-                    [cost, cost_per_phoneme],
-                    build_stream(timit_valid, 100), prefix="valid",
-                    before_first_epoch=True, on_resumption=True,
-                    after_every_epoch=True),
+                average, validation,
                 FinishAfter(after_n_batches=num_batches)
                 .add_condition(
                     "after_batch",
                     lambda log:
                         math.isnan(log.current_row.total_gradient_norm)),
                 Plot(os.path.basename(save_path),
-                     [["average_" + cost.name],
-                      ["average_" + cost_per_phoneme.name],
-                      ["average_" + algorithm.total_gradient_norm.name],
-                      ["average_" + mean_activation.name,
-                       "average_" + mean_bottom_output.name,
-                       "average_" + mean_attended.name]],
+                     [[average.record_name(cost),
+                       validation.record_name(cost)],
+                      [average.record_name(cost_per_phoneme)],
+                      [average.record_name(algorithm.total_gradient_norm)],
+                      [average.record_name(weights_entropy)]],
                      every_n_batches=10),
                 SerializeMainLoop(save_path, every_n_batches=500,
                                   save_separately=["model", "log"]),
