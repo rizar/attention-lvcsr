@@ -10,7 +10,8 @@ import numpy
 import theano
 from theano import tensor
 from blocks.bricks import Tanh, application, MLP
-from blocks.bricks.recurrent import GatedRecurrent, Bidirectional
+from blocks.bricks.recurrent import (
+    BaseRecurrent, SimpleRecurrent, GatedRecurrent, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
@@ -20,8 +21,8 @@ from blocks.datasets.streams import (
     DataStream, DataStreamMapping, PaddingDataStream,
     ForceFloatX)
 from blocks.datasets.schemes import SequentialScheme
-from blocks.algorithms import (GradientDescent, SteepestDescent,
-                               GradientClipping, CompositeRule,
+from blocks.algorithms import (GradientDescent, Scale,
+                               StepClipping, CompositeRule,
                                Momentum)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
@@ -43,7 +44,7 @@ floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
 
 
-class Transition(GatedRecurrent):
+class Transition(SimpleRecurrent):
     def __init__(self, attended_dim, **kwargs):
         super(Transition, self).__init__(**kwargs)
         self.attended_dim = attended_dim
@@ -96,10 +97,16 @@ def build_stream(dataset, batch_size):
     return data_stream
 
 
-def main(mode, save_path, num_batches, use_old, from_dump):
+def main(mode, save_path, num_batches, use_old, from_dump, config_path):
+    with open(config_path, 'rt') as config_file:
+        config = eval(config_file.read())
+
     if mode == "train":
         # Experiment configuration
-        dimension = 100
+        dimension = config['dim']
+        dim_bidir = config['dim_bidir']
+        dims_bottom = config['dims_bottom']
+
         timit = TIMIT()
         timit_valid = TIMIT("valid")
         root_path, extension = os.path.splitext(save_path)
@@ -108,21 +115,23 @@ def main(mode, save_path, num_batches, use_old, from_dump):
         # Build the bricks
         if not use_old:
             encoder = Bidirectional(
-                GatedRecurrent(dim=dimension, activation=Tanh()),
+                SimpleRecurrent(dim=dim_bidir, activation=Tanh()),
                 weights_init=Orthogonal())
             encoder.initialize()
             fork = Fork([name for name in encoder.prototype.apply.sequences
                         if name != 'mask'],
                         weights_init=IsotropicGaussian(0.1),
                         biases_init=Constant(0))
-            fork.input_dim = dimension
-            fork.output_dims = {name: dimension for name in fork.output_names}
-            mlp = MLP([Tanh()], [129, dimension], name="bottom",
+            fork.input_dim = dims_bottom[-1]
+            fork.output_dims = {name: dim_bidir for name in fork.output_names}
+            mlp = MLP([Tanh()] * len(config['dims_bottom']),
+                    [129] + config['dims_bottom'],
+                    name="bottom",
                     weights_init=IsotropicGaussian(0.1),
                     biases_init=Constant(0))
             transition = Transition(
                 activation=Tanh(),
-                dim=dimension, attended_dim=2 * dimension, name="transition")
+                dim=dimension, attended_dim=2 * dim_bidir, name="transition")
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
                 match_dim=dimension, name="attention")
@@ -193,7 +202,8 @@ def main(mode, save_path, num_batches, use_old, from_dump):
         (attended,) = VariableFilter(
             application=generator.transition.apply, name="attended$")(cg)
         (activations,) = VariableFilter(
-            application=generator.transition.apply, name="states")(cg)
+            application=generator.transition.apply,
+            name=transition.apply.states[0])(cg)
         (weights,) = VariableFilter(
             application=generator.cost, name="weights")(cg)
         weights1, activations1 = weights[1:], activations[1:]
@@ -214,8 +224,8 @@ def main(mode, save_path, num_batches, use_old, from_dump):
 
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, step_rule=CompositeRule([GradientClipping(100.0),
-                                                SteepestDescent(0.01),
+            cost=cost, step_rule=CompositeRule([StepClipping(100.0),
+                                                Scale(0.01),
                                                 Momentum(0.00)]))
 
         observables = [
