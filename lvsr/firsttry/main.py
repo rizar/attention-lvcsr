@@ -18,7 +18,7 @@ if __name__ == "__main__":
         "save_path", default="chain",
         help="The path to save the training process.")
     parser.add_argument(
-        "config_path", default=None,
+        "config_path", default=None, nargs="*",
         help="The configuration")
     parser.add_argument(
         "--num-batches", default=20000, type=int,

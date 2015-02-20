@@ -9,9 +9,9 @@ import dill
 import numpy
 import theano
 from theano import tensor
-from blocks.bricks import Tanh, application, MLP
+from blocks.bricks import Tanh, MLP
 from blocks.bricks.recurrent import (
-    BaseRecurrent, SimpleRecurrent, GatedRecurrent, Bidirectional)
+    SimpleRecurrent, GatedRecurrent, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
@@ -32,7 +32,7 @@ from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
 from blocks.extensions.plot import Plot
 from blocks.main_loop import MainLoop
-from blocks.select import Selector
+from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, unpack, dict_union
 
@@ -43,29 +43,8 @@ from lvsr.expressions import monotonicity_penalty, entropy
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
 
-
-class Transition(SimpleRecurrent):
-    def __init__(self, attended_dim, **kwargs):
-        super(Transition, self).__init__(**kwargs)
-        self.attended_dim = attended_dim
-
-    @application(contexts=['attended', 'attended_mask'])
-    def apply(self, *args, **kwargs):
-        for context in Transition.apply.contexts:
-            kwargs.pop(context)
-        return super(Transition, self).apply(*args, **kwargs)
-
-    @apply.delegate
-    def apply_delegate(self):
-        return super(Transition, self).apply
-
-    def get_dim(self, name):
-        if name == 'attended':
-            return self.attended_dim
-        if name == 'attended_mask':
-            return 0
-        return super(Transition, self).get_dim(name)
-
+def _gradient_norm_is_none(log):
+    return math.isnan(log.current_row.total_gradient_norm)
 
 def apply_preprocessing(preprocessing, batch):
     recordings, labels = batch
@@ -96,13 +75,16 @@ def build_stream(dataset, batch_size):
     data_stream = ForceFloatX(data_stream)
     return data_stream
 
+def default_config():
+    return dict(dim=100, dim_bidir=100, dims_bottom=[100])
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
-    with open(config_path, 'rt') as config_file:
-        config = eval(config_file.read())
-
     if mode == "train":
         # Experiment configuration
+        config = default_config()
+        if config_path:
+            with open(config_path, 'rt') as config_file:
+                config.update(eval(config_file.read()))
         dimension = config['dim']
         dim_bidir = config['dim_bidir']
         dims_bottom = config['dims_bottom']
@@ -129,12 +111,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                     name="bottom",
                     weights_init=IsotropicGaussian(0.1),
                     biases_init=Constant(0))
-            transition = Transition(
-                activation=Tanh(),
-                dim=dimension, attended_dim=2 * dim_bidir, name="transition")
+            transition = SimpleRecurrent(
+                activation=Tanh(), dim=dimension, name="transition")
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
-                match_dim=dimension, name="attention")
+                sequence_dim=2 * dimension, match_dim=dimension,
+                name="attention")
             readout = LinearReadout(
                 readout_dim=timit.num_phonemes,
                 source_names=transition.apply.states,
@@ -147,23 +129,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                 name="generator")
             generator.push_initialization_config()
             transition.weights_init = Orthogonal()
-            bricks = [encoder, fork, mlp, generator]
-            for brick in bricks:
-                brick.initialize()
         else:
             with open(model_path, "rb") as source:
                 bricks = dill.load(source)
             encoder, fork, mlp, generator = bricks
             readout = generator.readout
             logging.info("Loaded an old model")
-
-        # Give an idea of what's going on
-        params = Selector(bricks).get_params()
-        logger.info("Parameters:\n" +
-                    pprint.pformat(
-                        [(key, value.get_value().shape) for key, value
-                         in params.items()],
-                        width=120))
 
         # Build the cost computation graph
         recordings = tensor.tensor3("recordings")
@@ -181,6 +152,19 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         cost = aggregation.mean(batch_cost,  batch_size)
         cost.name = "sequence_log_likelihood"
         logger.info("Cost graph is built")
+
+        # Initialize
+        model = Model(cost)
+        for brick in model.get_top_bricks():
+            brick.initialize()
+
+        # Give an idea of what's going on
+        params = model.get_params()
+        logger.info("Parameters:\n" +
+                    pprint.pformat(
+                        [(key, value.get_value().shape) for key, value
+                         in params.items()],
+                        width=120))
 
         # Fetch variables useful for debugging
         max_recording_length = named_copy(recordings.shape[0],
@@ -225,8 +209,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         # Define the training algorithm.
         algorithm = GradientDescent(
             cost=cost, step_rule=CompositeRule([StepClipping(100.0),
-                                                Scale(0.01),
-                                                Momentum(0.00)]))
+                                                Scale(0.01)]))
 
         observables = [
             cost, cost_per_phoneme,
@@ -249,7 +232,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
         main_loop = MainLoop(
-            model=bricks,
+            model=model,
             data_stream=build_stream(timit, 10),
             algorithm=algorithm,
             extensions=([LoadFromDump(from_dump)] if from_dump else []) +
@@ -257,10 +240,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                 TrainingDataMonitoring(observables, after_every_batch=True),
                 average, validation,
                 FinishAfter(after_n_batches=num_batches)
-                .add_condition(
-                    "after_batch",
-                    lambda log:
-                        math.isnan(log.current_row.total_gradient_norm)),
+                .add_condition("after_batch", _gradient_norm_is_none),
                 Plot(os.path.basename(save_path),
                      [[average.record_name(cost),
                        validation.record_name(cost)],
