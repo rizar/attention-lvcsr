@@ -4,14 +4,13 @@ import pprint
 import math
 import os
 import functools
-import dill
 
 import numpy
 import theano
 from theano import tensor
-from blocks.bricks import Tanh, MLP
+from blocks.bricks import Tanh, MLP, Brick, application
 from blocks.bricks.recurrent import (
-    SimpleRecurrent, GatedRecurrent, Bidirectional)
+    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
@@ -34,7 +33,7 @@ from blocks.extensions.plot import Plot
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
-from blocks.utils import named_copy, unpack, dict_union
+from blocks.utils import named_copy, dict_union
 
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram
@@ -75,8 +74,85 @@ def build_stream(dataset, batch_size):
     data_stream = ForceFloatX(data_stream)
     return data_stream
 
+
+class Config(dict):
+
+    def __getattr__(self, name):
+        return self[name]
+
+
 def default_config():
-    return dict(dim=100, dim_bidir=100, dims_bottom=[100])
+    return Config(
+        dim_dec=100, dim_bidir=100, dims_bottom=[100],
+        enc_transition='SimpleRecurrent',
+        dec_transition='SimpleRecurrent',
+        weights_init='IsotropicGaussian(0.1)',
+        rec_weights_init='Orthogonal()',
+        biases_init='Constant(0)')
+
+
+class PhonemeRecognizer(Brick):
+
+    def __init__(self, num_features, num_phonemes,
+                 dim_dec, dim_bidir, dims_bottom,
+                 enc_transition, dec_transition,
+                 rec_weights_init,
+                 weights_init, biases_init, **kwargs):
+        super(PhonemeRecognizer, self).__init__(**kwargs)
+
+        self.rec_weights_init = eval(rec_weights_init)
+        self.weights_init = eval(weights_init)
+        self.biases_init = eval(biases_init)
+        self.enc_transition = eval(enc_transition)
+        self.dec_transition = eval(dec_transition)
+
+        encoder = Bidirectional(self.enc_transition(dim=dim_bidir))
+        fork = Fork([name for name in encoder.prototype.apply.sequences
+                    if name != 'mask'])
+        fork.input_dim = dims_bottom[-1]
+        fork.output_dims = {name: dim_bidir for name in fork.output_names}
+        bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
+                     name="bottom")
+        transition = self.dec_transition(dim=dim_dec, name="transition")
+        attention = SequenceContentAttention(
+            state_names=transition.apply.states,
+            sequence_dim=2 * dim_bidir, match_dim=dim_dec,
+            name="attention")
+        readout = LinearReadout(
+            readout_dim=num_phonemes,
+            source_names=transition.apply.states,
+            emitter=SoftmaxEmitter(name="emitter"),
+            feedbacker=LookupFeedback(num_phonemes, dim_dec),
+            name="readout")
+        generator = SequenceGenerator(
+            readout=readout, transition=transition, attention=attention,
+            name="generator")
+
+        self.encoder = encoder
+        self.fork = fork
+        self.bottom = bottom
+        self.generator = generator
+        self.children = [encoder, fork, bottom, generator]
+
+    def _push_initialization_config(self):
+        for child in self.children:
+            child.weights_init = self.weights_init
+            child.biases_init = self.biases_init
+        self.encoder.weights_init = self.rec_weights_init
+        self.generator.push_initialization_config()
+        self.generator.transition.weights_init = self.rec_weights_init
+
+    @application
+    def cost(self, recordings, recordings_mask, labels, labels_mask):
+        return self.generator.cost(
+            labels, labels_mask,
+            attended=self.encoder.apply(
+                **dict_union(
+                    self.fork.apply(self.bottom.apply(recordings),
+                                    return_dict=True),
+                    mask=recordings_mask)),
+            attended_mask=recordings_mask).sum()
+
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
     if mode == "train":
@@ -85,80 +161,31 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         if config_path:
             with open(config_path, 'rt') as config_file:
                 config.update(eval(config_file.read()))
-        dimension = config['dim']
-        dim_bidir = config['dim_bidir']
-        dims_bottom = config['dims_bottom']
 
         timit = TIMIT()
         timit_valid = TIMIT("valid")
         root_path, extension = os.path.splitext(save_path)
-        model_path = root_path + "_model" + extension
 
         # Build the bricks
-        if not use_old:
-            encoder = Bidirectional(
-                SimpleRecurrent(dim=dim_bidir, activation=Tanh()),
-                weights_init=Orthogonal())
-            encoder.initialize()
-            fork = Fork([name for name in encoder.prototype.apply.sequences
-                        if name != 'mask'],
-                        weights_init=IsotropicGaussian(0.1),
-                        biases_init=Constant(0))
-            fork.input_dim = dims_bottom[-1]
-            fork.output_dims = {name: dim_bidir for name in fork.output_names}
-            mlp = MLP([Tanh()] * len(config['dims_bottom']),
-                    [129] + config['dims_bottom'],
-                    name="bottom",
-                    weights_init=IsotropicGaussian(0.1),
-                    biases_init=Constant(0))
-            transition = SimpleRecurrent(
-                activation=Tanh(), dim=dimension, name="transition")
-            attention = SequenceContentAttention(
-                state_names=transition.apply.states,
-                sequence_dim=2 * dimension, match_dim=dimension,
-                name="attention")
-            readout = LinearReadout(
-                readout_dim=timit.num_phonemes,
-                source_names=transition.apply.states,
-                emitter=SoftmaxEmitter(name="emitter"),
-                feedbacker=LookupFeedback(timit.num_phonemes, dimension),
-                name="readout")
-            generator = SequenceGenerator(
-                readout=readout, transition=transition, attention=attention,
-                weights_init=IsotropicGaussian(0.1), biases_init=Constant(0),
-                name="generator")
-            generator.push_initialization_config()
-            transition.weights_init = Orthogonal()
-        else:
-            with open(model_path, "rb") as source:
-                bricks = dill.load(source)
-            encoder, fork, mlp, generator = bricks
-            readout = generator.readout
-            logging.info("Loaded an old model")
+        assert not use_old
+        recognizer = PhonemeRecognizer(
+            129, timit.num_phonemes, name="recognizer", **config)
+        recognizer.initialize()
 
         # Build the cost computation graph
         recordings = tensor.tensor3("recordings")
         recordings_mask = tensor.matrix("recordings_mask")
         labels = tensor.lmatrix("labels")
         labels_mask = tensor.matrix("labels_mask")
-        batch_cost = generator.cost(
-            labels, labels_mask,
-            attended=encoder.apply(
-                **dict_union(
-                    fork.apply(mlp.apply(recordings), return_dict=True),
-                    mask=recordings_mask)),
-            attended_mask=recordings_mask).sum()
+        batch_cost = recognizer.cost(
+            recordings, recordings_mask, labels, labels_mask)
         batch_size = named_copy(recordings.shape[1], "batch_size")
         cost = aggregation.mean(batch_cost,  batch_size)
         cost.name = "sequence_log_likelihood"
         logger.info("Cost graph is built")
 
-        # Initialize
-        model = Model(cost)
-        for brick in model.get_top_bricks():
-            brick.initialize()
-
         # Give an idea of what's going on
+        model = Model(cost)
         params = model.get_params()
         logger.info("Parameters:\n" +
                     pprint.pformat(
@@ -166,6 +193,8 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                          in params.items()],
                         width=120))
 
+        cg = ComputationGraph(cost)
+        r = recognizer
         # Fetch variables useful for debugging
         max_recording_length = named_copy(recordings.shape[0],
                                           "max_recording_length")
@@ -174,22 +203,20 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         cost_per_phoneme = named_copy(
             aggregation.mean(batch_cost, batch_size * max_num_phonemes),
             "phoneme_log_likelihood")
-        cg = ComputationGraph(cost)
-        energies = unpack(
-            VariableFilter(application=readout.readout, name="output")(
-                cg.variables),
-            singleton=True)
+        (energies,) = VariableFilter(
+            application=r.generator.readout.readout, name="output")(
+                    cg.variables)
         min_energy = named_copy(energies.min(), "min_energy")
         max_energy = named_copy(energies.max(), "max_energy")
         (bottom_output,) = VariableFilter(
-            application=mlp.apply, name="output")(cg)
+            application=r.bottom.apply, name="output")(cg)
         (attended,) = VariableFilter(
-            application=generator.transition.apply, name="attended$")(cg)
+            application=r.generator.transition.apply, name="attended$")(cg)
         (activations,) = VariableFilter(
-            application=generator.transition.apply,
-            name=transition.apply.states[0])(cg)
+            application=r.generator.transition.apply,
+            name=r.generator.transition.apply.states[0])(cg)
         (weights,) = VariableFilter(
-            application=generator.cost, name="weights")(cg)
+            application=r.generator.cost, name="weights")(cg)
         weights1, activations1 = weights[1:], activations[1:]
         mean_activation = named_copy(abs(activations1).mean(),
                                      "mean_activation")
