@@ -122,7 +122,7 @@ class PhonemeRecognizer(Brick):
             name="attention")
         readout = LinearReadout(
             readout_dim=num_phonemes,
-            source_names=transition.apply.states,
+            source_names=[attention.take_glimpses.outputs[0]],
             emitter=SoftmaxEmitter(name="emitter"),
             feedbacker=LookupFeedback(num_phonemes, dim_dec),
             name="readout")
@@ -214,14 +214,9 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             application=r.bottom.apply, name="output")(cg)
         (attended,) = VariableFilter(
             application=r.generator.transition.apply, name="attended$")(cg)
-        (activations,) = VariableFilter(
-            application=r.generator.transition.apply,
-            name=r.generator.transition.apply.states[0])(cg)
         (weights,) = VariableFilter(
             application=r.generator.cost, name="weights")(cg)
-        weights1, activations1 = weights[1:], activations[1:]
-        mean_activation = named_copy(abs(activations1).mean(),
-                                     "mean_activation")
+        weights1 = weights[1:]
         mean_attended = named_copy(abs(attended).mean(),
                                    "mean_attended")
         mean_bottom_output = named_copy(abs(bottom_output).mean(),
@@ -243,7 +238,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         observables = [
             cost, cost_per_phoneme,
             min_energy, max_energy,
-            mean_activation, mean_attended, mean_bottom_output,
+            mean_attended, mean_bottom_output,
             weights_penalty, weights_entropy,
             batch_size, max_recording_length, max_num_phonemes,
             algorithm.total_step_norm, algorithm.total_gradient_norm]
