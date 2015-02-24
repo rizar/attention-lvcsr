@@ -106,14 +106,16 @@ class PhonemeRecognizer(Brick):
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
-        encoder = Bidirectional(self.enc_transition(dim=dim_bidir))
+        encoder = Bidirectional(self.enc_transition(
+            dim=dim_bidir, activation=Tanh()))
         fork = Fork([name for name in encoder.prototype.apply.sequences
                     if name != 'mask'])
         fork.input_dim = dims_bottom[-1]
         fork.output_dims = {name: dim_bidir for name in fork.output_names}
         bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
                      name="bottom")
-        transition = self.dec_transition(dim=dim_dec, name="transition")
+        transition = self.dec_transition(
+            dim=dim_dec, activation=Tanh(), name="transition")
         attention = SequenceContentAttention(
             state_names=transition.apply.states,
             sequence_dim=2 * dim_bidir, match_dim=dim_dec,

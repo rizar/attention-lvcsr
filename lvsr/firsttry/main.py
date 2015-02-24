@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """Learn to reverse the words in a text."""
 import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 import argparse
 from lvsr.firsttry import main
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(
         "Phoneme recognition on TIMIT",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
