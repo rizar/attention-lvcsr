@@ -98,7 +98,8 @@ def default_config():
             dec_transition='SimpleRecurrent',
             weights_init='IsotropicGaussian(0.1)',
             rec_weights_init='Orthogonal()',
-            biases_init='Constant(0)'))
+            biases_init='Constant(0)'),
+        data=Config())
 
 
 class PhonemeRecognizer(Brick):
@@ -257,6 +258,8 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             named_copy(entropy(weights1, labels_mask),
                        "weights_entropy_per_phoneme"),
             labels_mask.sum())
+        mask_density = named_copy(labels_mask.mean(),
+                                  "mask_density")
 
         # Define the training algorithm.
         algorithm = GradientDescent(
@@ -268,7 +271,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
             weights_penalty, weights_entropy,
-            batch_size, max_recording_length, max_num_phonemes,
+            batch_size, max_recording_length, max_num_phonemes, mask_density,
             algorithm.total_step_norm, algorithm.total_gradient_norm]
         for name, param in params.items():
             observables.append(named_copy(
