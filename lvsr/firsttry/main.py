@@ -12,7 +12,8 @@ if __name__ == "__main__":
         "Phoneme recognition on TIMIT",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        "mode", choices=["train", "test"],
+        "mode", choices=[
+            "train", "test", "init_norm", "show_data"],
         help="The mode to run")
     parser.add_argument(
         "save_path", default="chain",

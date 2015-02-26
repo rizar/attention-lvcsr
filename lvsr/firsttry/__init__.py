@@ -4,6 +4,7 @@ import pprint
 import math
 import os
 import functools
+import cPickle
 
 import numpy
 import theano
@@ -18,8 +19,8 @@ from blocks.bricks.sequence_generators import (
 from blocks.graph import ComputationGraph
 from blocks.datasets.streams import (
     DataStream, DataStreamMapping, PaddingDataStream,
-    ForceFloatX)
-from blocks.datasets.schemes import SequentialScheme
+    ForceFloatX, BatchDataStream)
+from blocks.datasets.schemes import SequentialScheme, ConstantScheme
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
                                Momentum)
@@ -35,8 +36,8 @@ from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
 
-from lvsr.datasets import TIMIT
-from lvsr.preprocessing import log_spectrogram
+from lvsr.datasets import TIMIT, ExampleScheme
+from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy
 
 floatX = theano.config.floatX
@@ -45,10 +46,9 @@ logger = logging.getLogger(__name__)
 def _gradient_norm_is_none(log):
     return math.isnan(log.current_row.total_gradient_norm)
 
-def apply_preprocessing(preprocessing, batch):
-    recordings, labels = batch
-    recordings = [preprocessing(r) for r in recordings]
-    return (numpy.asarray(recordings), labels)
+def apply_preprocessing(preprocessing, example):
+    recording, label = example
+    return (numpy.asarray(preprocessing(recording)), label)
 
 
 def switch_first_two_axes(batch):
@@ -61,18 +61,27 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def build_stream(dataset, batch_size):
-    data_stream = DataStream(
-        dataset,
-        iteration_scheme = SequentialScheme(dataset.num_examples, 10))
-    data_stream = DataStreamMapping(
-        data_stream, functools.partial(apply_preprocessing,
+def build_stream(dataset, batch_size, normalization=None):
+    if normalization:
+        with open(normalization, "rb") as src:
+            normalization = cPickle.load(src)
+
+    stream = DataStream(dataset,
+                        iteration_scheme=ExampleScheme(dataset.num_examples))
+    stream = DataStreamMapping(
+        stream, functools.partial(apply_preprocessing,
                                        log_spectrogram))
-    data_stream = PaddingDataStream(data_stream)
-    data_stream = DataStreamMapping(
-        data_stream, switch_first_two_axes)
-    data_stream = ForceFloatX(data_stream)
-    return data_stream
+    if normalization:
+        stream = normalization.wrap_stream(stream)
+    if not batch_size:
+        return stream
+
+    stream = BatchDataStream(stream, iteration_scheme=ConstantScheme(10))
+    stream = PaddingDataStream(stream)
+    stream = DataStreamMapping(
+        stream, switch_first_two_axes)
+    stream = ForceFloatX(stream)
+    return stream
 
 
 class Config(dict):
@@ -83,12 +92,13 @@ class Config(dict):
 
 def default_config():
     return Config(
-        dim_dec=100, dim_bidir=100, dims_bottom=[100],
-        enc_transition='SimpleRecurrent',
-        dec_transition='SimpleRecurrent',
-        weights_init='IsotropicGaussian(0.1)',
-        rec_weights_init='Orthogonal()',
-        biases_init='Constant(0)')
+        net=Config(
+            dim_dec=100, dim_bidir=100, dims_bottom=[100],
+            enc_transition='SimpleRecurrent',
+            dec_transition='SimpleRecurrent',
+            weights_init='IsotropicGaussian(0.1)',
+            rec_weights_init='Orthogonal()',
+            biases_init='Constant(0)'))
 
 
 class PhonemeRecognizer(Brick):
@@ -157,13 +167,31 @@ class PhonemeRecognizer(Brick):
 
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
-    if mode == "train":
-        # Experiment configuration
-        config = default_config()
-        if config_path:
-            with open(config_path, 'rt') as config_file:
-                config.update(eval(config_file.read()))
+    # Experiment configuration
+    config = default_config()
+    if config_path:
+        with open(config_path, 'rt') as config_file:
+            changes = eval(config_file.read())
+        def rec_update(conf, chg):
+            for key in chg:
+                if key in conf and isinstance(conf[key], Config):
+                    rec_update(conf[key], chg[key])
+                else:
+                    conf[key] = chg[key]
+        rec_update(config, changes)
+    logging.info("Config:\n" + pprint.pformat(config))
 
+    if mode == "init_norm":
+        stream = build_stream(TIMIT("train"), None)
+        normalization = Normalization(stream, "recordings")
+        with open(save_path, "wb") as dst:
+            cPickle.dump(normalization, dst)
+
+    elif mode == "show_data":
+        stream = build_stream(TIMIT("train"), 10, **config.data)
+        pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
+
+    elif mode == "train":
         timit = TIMIT()
         timit_valid = TIMIT("valid")
         root_path, extension = os.path.splitext(save_path)
@@ -171,7 +199,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         # Build the bricks
         assert not use_old
         recognizer = PhonemeRecognizer(
-            129, timit.num_phonemes, name="recognizer", **config)
+            129, timit.num_phonemes, name="recognizer", **config["net"])
         recognizer.initialize()
 
         # Build the cost computation graph
@@ -252,12 +280,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             observables, prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             [cost, cost_per_phoneme],
-            build_stream(timit_valid, 100), prefix="valid",
+            build_stream(timit_valid, 100, **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
         main_loop = MainLoop(
             model=model,
-            data_stream=build_stream(timit, 10),
+            data_stream=build_stream(timit, 10, **config["data"]),
             algorithm=algorithm,
             extensions=([LoadFromDump(from_dump)] if from_dump else []) +
             [Timing(),
@@ -276,5 +304,6 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                                   save_separately=["model", "log"]),
                 Printing(every_n_batches=1)])
         main_loop.run()
+
     elif mode == "test":
         raise NotImplemented
