@@ -35,6 +35,8 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
+from fuel.transformers import Mapping, Padding, ForceFloatX, Batch
+from fuel.schemes import SequentialScheme, ConstantScheme
 
 from lvsr.datasets import TIMIT, ExampleScheme
 from lvsr.preprocessing import log_spectrogram, Normalization
@@ -66,9 +68,8 @@ def build_stream(dataset, batch_size, normalization=None):
         with open(normalization, "rb") as src:
             normalization = cPickle.load(src)
 
-    stream = DataStream(dataset,
-                        iteration_scheme=ExampleScheme(dataset.num_examples))
-    stream = DataStreamMapping(
+    stream = dataset.get_example_stream()
+    stream = Mapping(
         stream, functools.partial(apply_preprocessing,
                                        log_spectrogram))
     if normalization:
@@ -76,9 +77,9 @@ def build_stream(dataset, batch_size, normalization=None):
     if not batch_size:
         return stream
 
-    stream = BatchDataStream(stream, iteration_scheme=ConstantScheme(10))
-    stream = PaddingDataStream(stream)
-    stream = DataStreamMapping(
+    stream = Batch(stream, iteration_scheme=ConstantScheme(10))
+    stream = Padding(stream)
+    stream = Mapping(
         stream, switch_first_two_axes)
     stream = ForceFloatX(stream)
     return stream
@@ -162,7 +163,7 @@ class PhonemeRecognizer(Brick):
             attended=self.encoder.apply(
                 **dict_union(
                     self.fork.apply(self.bottom.apply(recordings),
-                                    return_dict=True),
+                                    as_dict=True),
                     mask=recordings_mask)),
             attended_mask=recordings_mask).sum()
 
@@ -263,8 +264,9 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
 
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, step_rule=CompositeRule([StepClipping(100.0),
-                                                Scale(0.01)]))
+            cost=cost, params=cg.parameters,
+            step_rule=CompositeRule([StepClipping(100.0),
+                                     Scale(0.01)]))
 
         observables = [
             cost, cost_per_phoneme,

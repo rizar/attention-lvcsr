@@ -1,4 +1,4 @@
-from blocks.datasets.streams import DataStreamMapping
+from fuel.transformers import Mapping
 
 import numpy
 from matplotlib.mlab import specgram
@@ -37,7 +37,7 @@ class Normalization(object):
         return tuple(data)
 
     def wrap_stream(self, stream):
-        return DataStreamMapping(stream, Invoke(self, 'apply'))
+        return Mapping(stream, Invoke(self, 'apply'))
 
 
 class Invoke(object):

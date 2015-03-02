@@ -1,23 +1,29 @@
 import os.path
+from collections import OrderedDict
 
 import numpy
-from blocks.datasets import InMemoryDataset
-from blocks import config
+from fuel.datasets import IndexableDataset
+from fuel.utils import do_not_pickle_attributes
+from fuel import config as fuel_config
 
-@InMemoryDataset.lazy_properties(
-    'recordings', 'labels', 'num_examples', 'num_phonemes')
-class TIMIT(InMemoryDataset):
+@do_not_pickle_attributes(
+    'num_examples', 'num_phonemes', 'indexables')
+class TIMIT(IndexableDataset):
 
     provides_sources = ('recordings', 'labels')
-    default_scheme = None
 
     def __init__(self, part="train", path=None):
         if not path:
-            path = os.path.join(config.data_path, "timit")
+            path = os.path.join(fuel_config.data_path, "timit")
         self.path = path
         self.part = part
+        super(TIMIT, self).__init__(
+            OrderedDict(zip(self.provides_sources, self._load())))
 
     def load(self):
+        self.indexables = self._load()
+
+    def _load(self):
         self.recordings = numpy.load(
             os.path.join(self.path, self.part + "_x_raw.npy"))
         self.num_examples = len(self.recordings)
@@ -36,9 +42,4 @@ class TIMIT(InMemoryDataset):
                                         phoneme_ranges[i][1]):
                 labels[i].append(phonemes[phoneme_number][2])
         self.labels = numpy.asarray(labels)
-
-    def get_data(self, state=None, request=None):
-        if state:
-            raise ValueError
-        return self.filter_sources((self.recordings[request],
-                                    self.labels[request]))
+        return self.recordings, self.labels
