@@ -21,6 +21,7 @@ from blocks.datasets.streams import (
     DataStream, DataStreamMapping, PaddingDataStream,
     ForceFloatX, BatchDataStream)
 from blocks.datasets.schemes import SequentialScheme, ConstantScheme
+from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
                                Momentum)
@@ -35,10 +36,11 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
+from blocks.search import BeamSearch
 from fuel.transformers import Mapping, Padding, ForceFloatX, Batch
 from fuel.schemes import SequentialScheme, ConstantScheme
 
-from lvsr.datasets import TIMIT, ExampleScheme
+from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy
 
@@ -136,7 +138,7 @@ class PhonemeRecognizer(Brick):
             readout_dim=num_phonemes,
             source_names=[attention.take_glimpses.outputs[0]],
             emitter=SoftmaxEmitter(name="emitter"),
-            feedbacker=LookupFeedback(num_phonemes, dim_dec),
+            feedback_brick=LookupFeedback(num_phonemes, dim_dec),
             name="readout")
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
@@ -165,7 +167,16 @@ class PhonemeRecognizer(Brick):
                     self.fork.apply(self.bottom.apply(recordings),
                                     as_dict=True),
                     mask=recordings_mask)),
-            attended_mask=recordings_mask).sum()
+            attended_mask=recordings_mask)
+
+    @application
+    def generate(self, recordings):
+        return self.generator.generate(
+            n_steps=recordings.shape[0], batch_size=recordings.shape[1],
+            attended=self.encoder.apply(
+                **dict_union(self.fork.apply(self.bottom.apply(recordings),
+                             as_dict=True))),
+            attended_mask=tensor.ones_like(recordings[:, :, 0]))
 
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
@@ -194,14 +205,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
 
     elif mode == "train":
-        timit = TIMIT()
-        timit_valid = TIMIT("valid")
         root_path, extension = os.path.splitext(save_path)
 
         # Build the bricks
         assert not use_old
         recognizer = PhonemeRecognizer(
-            129, timit.num_phonemes, name="recognizer", **config["net"])
+            129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         recognizer.initialize()
 
         # Build the cost computation graph
@@ -210,7 +219,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         labels = tensor.lmatrix("labels")
         labels_mask = tensor.matrix("labels_mask")
         batch_cost = recognizer.cost(
-            recordings, recordings_mask, labels, labels_mask)
+            recordings, recordings_mask, labels, labels_mask).sum()
         batch_size = named_copy(recordings.shape[1], "batch_size")
         cost = aggregation.mean(batch_cost,  batch_size)
         cost.name = "sequence_log_likelihood"
@@ -246,17 +255,16 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             application=r.generator.transition.apply, name="attended$")(cg)
         (weights,) = VariableFilter(
             application=r.generator.cost, name="weights")(cg)
-        weights1 = weights[1:]
         mean_attended = named_copy(abs(attended).mean(),
                                    "mean_attended")
         mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                         "mean_bottom_output")
         weights_penalty = aggregation.mean(
-            named_copy(monotonicity_penalty(weights1, labels_mask),
+            named_copy(monotonicity_penalty(weights, labels_mask),
                        "weights_penalty_per_recording"),
             batch_size)
         weights_entropy = aggregation.mean(
-            named_copy(entropy(weights1, labels_mask),
+            named_copy(entropy(weights, labels_mask),
                        "weights_entropy_per_phoneme"),
             labels_mask.sum())
         mask_density = named_copy(labels_mask.mean(),
@@ -285,12 +293,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             observables, prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             [cost, cost_per_phoneme],
-            build_stream(timit_valid, 100, **config["data"]), prefix="valid",
+            build_stream(TIMIT("valid"), 100, **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
         main_loop = MainLoop(
             model=model,
-            data_stream=build_stream(timit, 10, **config["data"]),
+            data_stream=build_stream(TIMIT("train"), 10, **config["data"]),
             algorithm=algorithm,
             extensions=([LoadFromDump(from_dump)] if from_dump else []) +
             [Timing(),
@@ -309,6 +317,42 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                                   save_separately=["model", "log"]),
                 Printing(every_n_batches=1)])
         main_loop.run()
+    elif mode == "search":
+        recognizer = PhonemeRecognizer(
+            129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+        recordings = tensor.tensor3("recordings")
+        generated = recognizer.generate(recordings)
+        samples, = VariableFilter(
+            bricks=[recognizer.generator], name="outputs")(
+                ComputationGraph(generated[1]))
+        Model(samples).set_param_values(load_parameter_values(save_path))
+        beam_search = BeamSearch(10, samples)
+        beam_search.compile()
 
-    elif mode == "test":
-        raise NotImplemented
+        stream = build_stream(TIMIT("valid"), None, **config["data"])
+        data = next(stream.get_epoch_iterator())
+
+        input_ = numpy.tile(data[0], (10, 1, 1)).transpose(1, 0, 2)
+        output = numpy.tile(data[1], (10, 1)).T
+
+        x = tensor.tensor3('x')
+        xm = tensor.matrix('xm')
+        y = tensor.lmatrix('y')
+        costs2 = recognizer.cost(x, xm, y, None)
+        snapshot = ComputationGraph(costs2).get_snapshot(
+            dict(x=input_, xm=numpy.ones_like(input_[..., 0]), y=output))
+        attended, = VariableFilter(
+            bricks=[recognizer.generator], name="attended$")(snapshot)
+        readout, = VariableFilter(
+            application=recognizer.generator.readout.readout,
+            name="output")(snapshot)
+        print(snapshot[attended].sum())
+        print(snapshot[readout][0].sum())
+
+        outputs, _, costs = beam_search.search(
+            {recordings: input_}, 4, input_.shape[0] / 2,
+            ignore_first_eol=True)
+        print(outputs.T[0])
+        print(costs)
+        print(data[1])
+

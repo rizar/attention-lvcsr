@@ -7,10 +7,11 @@ from fuel.utils import do_not_pickle_attributes
 from fuel import config as fuel_config
 
 @do_not_pickle_attributes(
-    'num_examples', 'num_phonemes', 'indexables')
+    'num_examples', 'indexables')
 class TIMIT(IndexableDataset):
 
     provides_sources = ('recordings', 'labels')
+    num_phonemes = 61
 
     def __init__(self, part="train", path=None):
         if not path:

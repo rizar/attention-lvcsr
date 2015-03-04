@@ -13,7 +13,7 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "mode", choices=[
-            "train", "test", "init_norm", "show_data"],
+            "train", "test", "init_norm", "show_data", "search"],
         help="The mode to run")
     parser.add_argument(
         "save_path", default="chain",

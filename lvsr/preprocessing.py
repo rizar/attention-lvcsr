@@ -48,5 +48,3 @@ class Invoke(object):
 
     def __call__(self, *args, **kwargs):
         return getattr(self.object_, self.method)(*args, **kwargs)
-
-
