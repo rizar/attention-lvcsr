@@ -336,6 +336,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         error_sum = 0
         for number, data in enumerate(it):
             input_ = numpy.tile(data[0], (10, 1, 1)).transpose(1, 0, 2)
+            input_ = input_.astype(floatX)
             outputs, _, costs = beam_search.search(
                 {recordings: input_}, 4, input_.shape[0] / 2,
                 ignore_first_eol=True)
@@ -343,4 +344,6 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             ground_truth = timit.decode(data[1])
             error = wer(recognized, ground_truth)
             error_sum += error
+            print(recognized)
+            print(ground_truth)
             print(error, error_sum / (number + 1))
