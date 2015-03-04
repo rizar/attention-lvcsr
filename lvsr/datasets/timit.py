@@ -1,4 +1,5 @@
 import os.path
+import cPickle
 from collections import OrderedDict
 
 import numpy
@@ -25,6 +26,13 @@ class TIMIT(IndexableDataset):
         self.indexables = self._load()
 
     def _load(self):
+        with open(os.path.join(self.path, "phonemes.pkl"), "rb") as src:
+            self.phonemes = cPickle.load(src)
+        with open(os.path.join(self.path, "reduced_phonemes.pkl"), "rb") as src:
+            self.reduced_phonemes = cPickle.load(src)
+        with open(os.path.join(self.path, "phone_map.pkl"), "rb") as src:
+            self.phone2group = cPickle.load(src)
+
         self.recordings = numpy.load(
             os.path.join(self.path, self.part + "_x_raw.npy"))
         self.num_examples = len(self.recordings)
@@ -44,3 +52,9 @@ class TIMIT(IndexableDataset):
                 labels[i].append(phonemes[phoneme_number][2])
         self.labels = numpy.asarray(labels)
         return self.recordings, self.labels
+
+    def decode(self, labels, groups=True):
+        phonemes = [self.phonemes[label] for label in labels]
+        if groups:
+            phonemes = [self.phone2group.get(phoneme, phoneme) for phoneme in phonemes]
+        return phonemes

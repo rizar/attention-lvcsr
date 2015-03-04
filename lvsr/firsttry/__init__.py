@@ -43,6 +43,7 @@ from fuel.schemes import SequentialScheme, ConstantScheme
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy
+from lvsr.error_rate import wer
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -329,30 +330,17 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         beam_search = BeamSearch(10, samples)
         beam_search.compile()
 
+        timit = TIMIT("valid")
         stream = build_stream(TIMIT("valid"), None, **config["data"])
-        data = next(stream.get_epoch_iterator())
-
-        input_ = numpy.tile(data[0], (10, 1, 1)).transpose(1, 0, 2)
-        output = numpy.tile(data[1], (10, 1)).T
-
-        x = tensor.tensor3('x')
-        xm = tensor.matrix('xm')
-        y = tensor.lmatrix('y')
-        costs2 = recognizer.cost(x, xm, y, None)
-        snapshot = ComputationGraph(costs2).get_snapshot(
-            dict(x=input_, xm=numpy.ones_like(input_[..., 0]), y=output))
-        attended, = VariableFilter(
-            bricks=[recognizer.generator], name="attended$")(snapshot)
-        readout, = VariableFilter(
-            application=recognizer.generator.readout.readout,
-            name="output")(snapshot)
-        print(snapshot[attended].sum())
-        print(snapshot[readout][0].sum())
-
-        outputs, _, costs = beam_search.search(
-            {recordings: input_}, 4, input_.shape[0] / 2,
-            ignore_first_eol=True)
-        print(outputs.T[0])
-        print(costs)
-        print(data[1])
-
+        it = stream.get_epoch_iterator()
+        error_sum = 0
+        for number, data in enumerate(it):
+            input_ = numpy.tile(data[0], (10, 1, 1)).transpose(1, 0, 2)
+            outputs, _, costs = beam_search.search(
+                {recordings: input_}, 4, input_.shape[0] / 2,
+                ignore_first_eol=True)
+            recognized = timit.decode(outputs.T[0])
+            ground_truth = timit.decode(data[1])
+            error = wer(recognized, ground_truth)
+            error_sum += error
+            print(error, error_sum / (number + 1))
