@@ -1,9 +1,10 @@
 from theano import tensor
 
-def monotonicity_penalty(weights, mask_x):
+def monotonicity_penalty(weights, mask_x=None):
     cumsums = tensor.cumsum(weights, axis=2)
-    penalties = tensor.maximum(cumsums[:-1] - cumsums[1:], 0).sum(axis=2)
-    penalties *= mask_x[1:]
+    penalties = tensor.maximum(cumsums[1:] - cumsums[:-1], 0).sum(axis=2)
+    if mask_x:
+        penalties *= mask_x[1:]
     return penalties.sum()
 
 def entropy(weights, mask_x):
