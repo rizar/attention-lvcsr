@@ -8,6 +8,7 @@ import cPickle
 
 import numpy
 import theano
+from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import Tanh, MLP, Brick, application
 from blocks.bricks.recurrent import (
@@ -106,14 +107,14 @@ def default_config():
         data=Config())
 
 
-class PhonemeRecognizer(Brick):
+class PhonemeRecognizerBrick(Brick):
 
     def __init__(self, num_features, num_phonemes,
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
                  rec_weights_init,
                  weights_init, biases_init, **kwargs):
-        super(PhonemeRecognizer, self).__init__(**kwargs)
+        super(PhonemeRecognizerBrick, self).__init__(**kwargs)
 
         self.rec_weights_init = eval(rec_weights_init)
         self.weights_init = eval(weights_init)
@@ -180,6 +181,48 @@ class PhonemeRecognizer(Brick):
             attended_mask=tensor.ones_like(recordings[:, :, 0]))
 
 
+class PhonemeRecognizer(object):
+
+    def __init__(self, brick):
+        self.brick = brick
+
+        self.recordings = tensor.tensor3("recordings")
+        self.recordings_mask = tensor.matrix("recordings_mask")
+        self.labels = tensor.lmatrix("labels")
+        self.labels_mask = tensor.matrix("labels_mask")
+        self.single_recording = tensor.matrix("single_recording")
+        self.single_transcription = tensor.lvector("single_transcription")
+
+    def load_params(self, path):
+        generated = self.get_generate_graph()
+        Model(generated[1]).set_param_values(load_parameter_values(path))
+
+    def get_generate_graph(self):
+        return self.brick.generate(self.recordings)
+
+    def get_cost_graph(self, batch=True):
+        if batch:
+            return self.brick.cost(
+                       self.recordings, self.recordings_mask,
+                       self.labels, self.labels_mask)
+        recordings = self.single_recording[:, None, :]
+        labels = self.single_transcription[:, None]
+        return self.brick.cost(
+            recordings, tensor.ones_like(recordings[:, :, 0]),
+            labels, None)
+
+    def analyze(self, *args, **kwargs):
+        if not hasattr(self, "_analyze"):
+            cost = self.get_cost_graph(batch=False)
+            cg = ComputationGraph(cost)
+            weights, = VariableFilter(
+                bricks=[self.brick.generator], name="weights")(cg)
+            self._analyze = theano.function(
+                [self.single_recording, self.single_transcription],
+                [cost[:, 0], weights[:, 0, :]])
+        return self._analyze(*args, **kwargs)
+
+
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
     # Experiment configuration
     config = default_config()
@@ -210,7 +253,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
 
         # Build the bricks
         assert not use_old
-        recognizer = PhonemeRecognizer(
+        recognizer = PhonemeRecognizerBrick(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         recognizer.initialize()
 
@@ -319,31 +362,54 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                 Printing(every_n_batches=1)])
         main_loop.run()
     elif mode == "search":
-        recognizer = PhonemeRecognizer(
+        from matplotlib import pyplot, cm
+
+        beam_size = 5
+
+        recognizer_brick = PhonemeRecognizerBrick(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
-        recordings = tensor.tensor3("recordings")
-        generated = recognizer.generate(recordings)
+        recognizer = PhonemeRecognizer(recognizer_brick)
+        recognizer.load_params(save_path)
+
+        generated = recognizer.get_generate_graph()
         samples, = VariableFilter(
-            bricks=[recognizer.generator], name="outputs")(
+            bricks=[recognizer_brick.generator], name="outputs")(
                 ComputationGraph(generated[1]))
-        Model(samples).set_param_values(load_parameter_values(save_path))
-        beam_search = BeamSearch(10, samples)
+        beam_search = BeamSearch(beam_size, samples)
         beam_search.compile()
 
         timit = TIMIT("valid")
         stream = build_stream(TIMIT("valid"), None, **config["data"])
+        stream = ForceFloatX(stream)
         it = stream.get_epoch_iterator()
         error_sum = 0
         for number, data in enumerate(it):
-            input_ = numpy.tile(data[0], (10, 1, 1)).transpose(1, 0, 2)
-            input_ = input_.astype(floatX)
-            outputs, _, costs = beam_search.search(
-                {recordings: input_}, 4, input_.shape[0] / 2,
-                ignore_first_eol=True)
-            recognized = timit.decode(outputs.T[0])
-            ground_truth = timit.decode(data[1])
-            error = wer(recognized, ground_truth)
+            input_ = numpy.tile(data[0], (beam_size, 1, 1)).transpose(1, 0, 2)
+            outputs, search_costs = beam_search.search(
+                {recognizer.recordings: input_}, 4, input_.shape[0] / 2,
+                ignore_first_eol=True, as_lists=True)
+
+            recognized = timit.decode(outputs[0])
+            groundtruth = timit.decode(data[1])
+            error = min(1, wer(groundtruth, recognized))
             error_sum += error
+            print("Beam search cost:", search_costs[0])
             print(recognized)
-            print(ground_truth)
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(data[0], outputs[0]))
+            print(costs_recognized.sum())
+            print(groundtruth)
+            costs_groundtruth, weights_groundtruth = (
+                recognizer.analyze(data[0], data[1]))
+            print(costs_groundtruth.sum())
             print(error, error_sum / (number + 1))
+
+            #f, (ax1, ax2) = pyplot.subplots(2, 1)
+            #ax1.matshow(weights_recognized, cmap=cm.gray)
+            #ax2.matshow(weights_groundtruth, cmap=cm.gray)
+            #pyplot.show()
+            print("Monotonicity:")
+            print(monotonicity_penalty(weights_recognized[:, None, :]).eval())
+            print(monotonicity_penalty(weights_groundtruth[:, None, :]).eval())
+
+            assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
