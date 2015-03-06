@@ -25,38 +25,29 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         self.predictor.output_dim = self.span
 
     @application
-    def convolve_weights(self, weights, shift_probs):
-        # weights: (batch_size, length)
-        # shift_probs: (batch_size, span)
-        batch_size = weights.shape[0]
-        weights = tensor.concatenate([
-            tensor.zeros((batch_size, self.max_right)),
-            weights,
-            tensor.zeros((batch_size, self.max_left))],
-            axis=1)
-        image = weights.dimshuffle(0, 'x', 'x', 1)
-        filters = shift_probs.dimshuffle(0, 'x', 'x', 1)
-        result = tensor.nnet.conv2d(image, filters)
-        # result: (batch_size, batch_size, 1, length)
-        return tensor.diagonal(
-            result[:, :, 0, :].dimshuffle(2, 0, 1), axis1=1, axis2=2).T
-
-    @application
     def compute_energies(self, states, previous_weights):
-        # previous_weights = put_hook(previous_weights, ipdb_breakpoint)
+        """Compute energies.
+
+        Parameters
+        ----------
+        states : dict
+        previous_weights : Theano variable
+            Weights from the previous step, (batch_size, attended_len).
+
+        """
         state, = states.values()
         length = previous_weights.shape[1]
 
         shift_energies = self.predictor.apply(state)
         positions = tensor.arange(length)
-        expected_positions = (
-            (previous_weights * positions).sum(axis=1).astype('int64'))
+        # Positions are broadcasted along the first dimension
+        expected_positions = ((previous_weights * positions)
+                              .sum(axis=1).astype('int64'))
         zero_row = tensor.zeros((length + self.span,))
         def fun(expected, shift_energies):
-            result = tensor.set_subtensor(
+            return tensor.set_subtensor(
                 zero_row[expected:expected + self.span],
                 shift_energies)
-            return result
         energies, _ = theano.scan(fun,
             sequences=[expected_positions, shift_energies])
         return energies[:, self.max_left:self.max_left + length]
@@ -68,9 +59,12 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         if not weights:
             raise ValueError
         energies = self.compute_energies(states, weights).T
+        # Energies become (attended_len, batch_size) as required
+        # by inherited methods.
         new_weights = self.compute_weights(energies, attended_mask)
         weighted_averages = self.compute_weighted_averages(new_weights,
                                                            attended)
+        # Weights are transposed back to (batch_size, attended_len)
         return weighted_averages, new_weights.T
 
     @take_glimpses.property('inputs')
