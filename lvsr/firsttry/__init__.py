@@ -104,7 +104,8 @@ def default_config():
             dec_transition='SimpleRecurrent',
             weights_init='IsotropicGaussian(0.1)',
             rec_weights_init='Orthogonal()',
-            biases_init='Constant(0)'),
+            biases_init='Constant(0)',
+            attention_type='content'),
         data=Config())
 
 
@@ -114,7 +115,9 @@ class PhonemeRecognizerBrick(Brick):
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
                  rec_weights_init,
-                 weights_init, biases_init, **kwargs):
+                 weights_init, biases_init,
+                 attention_type,
+                 shift_predictor_dims=None, max_left=None, max_right=None, **kwargs):
         super(PhonemeRecognizerBrick, self).__init__(**kwargs)
 
         self.rec_weights_init = eval(rec_weights_init)
@@ -133,20 +136,23 @@ class PhonemeRecognizerBrick(Brick):
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
-        if 0:
+        if attention_type == "content":
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 name="attention")
-        else:
+        elif attention_type == "location":
             predictor = MLP([Tanh(), None],
-                            [None, dim_dec, None])
+                            [None] + shift_predictor_dims + [None],
+                            name="predictor")
             attention = ShiftPredictor(
                 state_names=transition.apply.states,
-                max_left=10, max_right=100,
+                max_left=max_left, max_right=max_right,
                 predictor=predictor,
                 attended_dim=2 * dim_bidir,
                 name="attention")
+        else:
+            raise ValueError
         readout = LinearReadout(
             readout_dim=num_phonemes,
             source_names=[attention.take_glimpses.outputs[0]],
