@@ -45,6 +45,7 @@ from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy
 from lvsr.error_rate import wer
+from lvsr.attention import ShiftPredictor
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -132,10 +133,20 @@ class PhonemeRecognizerBrick(Brick):
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
-        attention = SequenceContentAttention(
-            state_names=transition.apply.states,
-            sequence_dim=2 * dim_bidir, match_dim=dim_dec,
-            name="attention")
+        if 0:
+            attention = SequenceContentAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                name="attention")
+        else:
+            predictor = MLP([Tanh(), None],
+                            [None, dim_dec, None])
+            attention = ShiftPredictor(
+                state_names=transition.apply.states,
+                max_left=10, max_right=100,
+                predictor=predictor,
+                attended_dim=2 * dim_bidir,
+                name="attention")
         readout = LinearReadout(
             readout_dim=num_phonemes,
             source_names=[attention.take_glimpses.outputs[0]],
