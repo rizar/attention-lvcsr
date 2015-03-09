@@ -41,7 +41,7 @@ from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy
 from lvsr.error_rate import wer
-from lvsr.attention import ShiftPredictor
+from lvsr.attention import ShiftPredictor, HybridAttention
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -132,23 +132,34 @@ class PhonemeRecognizerBrick(Brick):
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
-        if attention_type == "content":
-            attention = SequenceContentAttention(
-                state_names=transition.apply.states,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
-                name="attention")
-        elif attention_type == "location":
+
+        # Choose attention mechanism according to the configuration
+        content_attention = SequenceContentAttention(
+            state_names=transition.apply.states,
+            attended_dim=2 * dim_bidir, match_dim=dim_dec,
+            name="cont_att")
+        if attention_type != "context":
             predictor = MLP([Tanh(), None],
                             [None] + shift_predictor_dims + [None],
                             name="predictor")
-            attention = ShiftPredictor(
+            location_attention = ShiftPredictor(
                 state_names=transition.apply.states,
                 max_left=max_left, max_right=max_right,
                 predictor=predictor,
                 attended_dim=2 * dim_bidir,
-                name="attention")
-        else:
-            raise ValueError
+                name="loc_att")
+            hybrid_attention = HybridAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                location_attention=location_attention,
+                name="hybrid_att")
+        if attention_type == "content":
+            attention = content_attention
+        elif attention_type == "location":
+            attention = location_attention
+        elif attention_type == "hybrid":
+            attention = hybrid_attention
+
         readout = LinearReadout(
             readout_dim=num_phonemes,
             source_names=[attention.take_glimpses.outputs[0]],

@@ -3,7 +3,8 @@ from theano import tensor
 
 from blocks.bricks import Initializable
 from blocks.bricks.base import lazy, application
-from blocks.bricks.attention import GenericSequenceAttention
+from blocks.bricks.attention import (
+    GenericSequenceAttention, SequenceContentAttention)
 from blocks.utils import put_hook, ipdb_breakpoint
 
 
@@ -90,3 +91,37 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         if name in ['weights']:
             return 0
         return super(ShiftPredictor, self).get_dim(name)
+
+
+class HybridAttention(SequenceContentAttention):
+
+    def __init__(self, location_attention, **kwargs):
+        super(HybridAttention, self).__init__(**kwargs)
+        self.location_attention = location_attention
+        self.children += [self.location_attention]
+
+    @application
+    def take_glimpses(self, attended, preprocessed_attended=None,
+                      attended_mask=None, weights=None, **states):
+        content_energies = self.compute_energies(
+            attended, preprocessed_attended, states)
+        location_energies = self.location_attention.compute_energies(
+            states, weights).T
+        energies = content_energies + location_energies
+        new_weights = self.compute_weights(energies, attended_mask)
+        weighted_averages = self.compute_weighted_averages(new_weights,
+                                                           attended)
+        return weighted_averages, new_weights.T
+
+    def _push_allocation_config(self):
+        super(HybridAttention, self)._push_allocation_config()
+        self.location_attention.state_dims = self.state_dims
+        self.location_attention.attended_dim = self.attended_dim
+
+    @take_glimpses.delegate
+    def take_glimpses_delegate(self):
+        return self.location_attention.take_glimpses
+
+    @application
+    def initial_glimpses(self, *args, **kwargs):
+        return self.location_attention.initial_glimpses(*args, **kwargs)
