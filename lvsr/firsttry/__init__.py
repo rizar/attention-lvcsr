@@ -18,10 +18,6 @@ from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, LinearReadout, SoftmaxEmitter, LookupFeedback)
 from blocks.graph import ComputationGraph
-from blocks.datasets.streams import (
-    DataStream, DataStreamMapping, PaddingDataStream,
-    ForceFloatX, BatchDataStream)
-from blocks.datasets.schemes import SequentialScheme, ConstantScheme
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
