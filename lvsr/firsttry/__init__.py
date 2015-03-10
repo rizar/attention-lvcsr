@@ -411,7 +411,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             input_ = numpy.tile(data[0], (beam_size, 1, 1)).transpose(1, 0, 2)
             outputs, search_costs = beam_search.search(
                 {recognizer.recordings: input_}, 4, input_.shape[0] / 2,
-                ignore_first_eol=True, as_lists=True)
+                ignore_first_eol=True)
 
             recognized = timit.decode(outputs[0])
             groundtruth = timit.decode(data[1])

@@ -37,6 +37,7 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
 
         """
         state, = states.values()
+        batch_size = previous_weights.shape[0]
         length = previous_weights.shape[1]
 
         shift_energies = self.predictor.apply(state)
@@ -45,12 +46,14 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         expected_positions = ((previous_weights * positions)
                               .sum(axis=1).astype('int64'))
         zero_row = tensor.zeros((length + self.span,))
-        def fun(expected, shift_energies):
+        def fun(expected, shift_energies, zero_row_):
             return tensor.set_subtensor(
-                zero_row[expected:expected + self.span],
+                zero_row_[expected:expected + self.span],
                 shift_energies)
         energies, _ = theano.scan(fun,
-            sequences=[expected_positions, shift_energies])
+            sequences=[expected_positions, shift_energies],
+            non_sequences=[zero_row],
+            n_steps=batch_size)
         return energies[:, self.max_left:self.max_left + length]
 
     @application(outputs=['weighted_averages', 'weights'])
