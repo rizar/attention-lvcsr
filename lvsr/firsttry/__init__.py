@@ -138,7 +138,7 @@ class PhonemeRecognizerBrick(Brick):
             state_names=transition.apply.states,
             attended_dim=2 * dim_bidir, match_dim=dim_dec,
             name="cont_att")
-        if attention_type != "context":
+        if attention_type != "content":
             predictor = MLP([Tanh(), None],
                             [None] + shift_predictor_dims + [None],
                             name="predictor")
