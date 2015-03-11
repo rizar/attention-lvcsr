@@ -39,7 +39,7 @@ from fuel.schemes import SequentialScheme, ConstantScheme
 
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
-from lvsr.expressions import monotonicity_penalty, entropy
+from lvsr.expressions import monotonicity_penalty, entropy, weights_std
 from lvsr.error_rate import wer
 from lvsr.attention import ShiftPredictor, HybridAttention
 
@@ -78,7 +78,7 @@ def build_stream(dataset, batch_size, normalization=None):
     if not batch_size:
         return stream
 
-    stream = Batch(stream, iteration_scheme=ConstantScheme(10))
+    stream = Batch(stream, iteration_scheme=ConstantScheme(batch_size))
     stream = Padding(stream)
     stream = Mapping(
         stream, switch_first_two_axes)
@@ -101,7 +101,8 @@ def default_config():
             weights_init='IsotropicGaussian(0.1)',
             rec_weights_init='Orthogonal()',
             biases_init='Constant(0)',
-            attention_type='content'),
+            attention_type='content',
+            use_states_for_readout=False),
         data=Config())
 
 
@@ -112,6 +113,7 @@ class PhonemeRecognizerBrick(Brick):
                  enc_transition, dec_transition,
                  rec_weights_init,
                  weights_init, biases_init,
+                 use_states_for_readout,
                  attention_type,
                  shift_predictor_dims=None, max_left=None, max_right=None, **kwargs):
         super(PhonemeRecognizerBrick, self).__init__(**kwargs)
@@ -162,7 +164,8 @@ class PhonemeRecognizerBrick(Brick):
 
         readout = LinearReadout(
             readout_dim=num_phonemes,
-            source_names=[attention.take_glimpses.outputs[0]],
+            source_names=(transition.apply.states if use_states_for_readout else [])
+                + [attention.take_glimpses.outputs[0]],
             emitter=SoftmaxEmitter(name="emitter"),
             feedback_brick=LookupFeedback(num_phonemes, dim_dec),
             name="readout")
@@ -388,7 +391,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
     elif mode == "search":
         from matplotlib import pyplot, cm
 
-        beam_size = 5
+        beam_size = 10
 
         recognizer_brick = PhonemeRecognizerBrick(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
@@ -403,11 +406,18 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         beam_search.compile()
 
         timit = TIMIT("valid")
-        stream = build_stream(TIMIT("valid"), None, **config["data"])
+        stream = build_stream(timit, None, **config["data"])
         stream = ForceFloatX(stream)
         it = stream.get_epoch_iterator()
         error_sum = 0
+
+        weights = tensor.matrix('weights')
+        weight_std_func = theano.function(
+            [weights], [weights_std(weights.dimshuffle(0, 'x', 1))])
+
         for number, data in enumerate(it):
+            print("Utterance", number)
+
             input_ = numpy.tile(data[0], (beam_size, 1, 1)).transpose(1, 0, 2)
             outputs, search_costs = beam_search.search(
                 {recognizer.recordings: input_}, 4, input_.shape[0] / 2,
@@ -421,19 +431,19 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             print(recognized)
             costs_recognized, weights_recognized = (
                 recognizer.analyze(data[0], outputs[0]))
-            print(costs_recognized.sum())
+            print("Recognized cost:", costs_recognized.sum())
+            print("Recognized weight std:", weight_std_func(weights_recognized)[0])
             print(groundtruth)
             costs_groundtruth, weights_groundtruth = (
                 recognizer.analyze(data[0], data[1]))
-            print(costs_groundtruth.sum())
-            print(error, error_sum / (number + 1))
+            print("Groundtruth cost:", costs_groundtruth.sum())
+            print("Groundtruth weight std:", weight_std_func(weights_groundtruth)[0])
+            print("PER:", error)
+            print("Average PER:", error_sum / (number + 1))
 
             #f, (ax1, ax2) = pyplot.subplots(2, 1)
             #ax1.matshow(weights_recognized, cmap=cm.gray)
             #ax2.matshow(weights_groundtruth, cmap=cm.gray)
             #pyplot.show()
-            print("Monotonicity:")
-            print(monotonicity_penalty(weights_recognized[:, None, :]).eval())
-            print(monotonicity_penalty(weights_groundtruth[:, None, :]).eval())
 
             assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
