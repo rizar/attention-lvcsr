@@ -45,7 +45,7 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         # Positions are broadcasted along the first dimension
         expected_positions = ((previous_weights * positions)
                               .sum(axis=1).astype('int64'))
-        zero_row = tensor.zeros((length + self.span,))
+        zero_row = 0 * tensor.ones((length + self.span,))
         def fun(expected, shift_energies, zero_row_):
             return tensor.set_subtensor(
                 zero_row_[expected:expected + self.span],
