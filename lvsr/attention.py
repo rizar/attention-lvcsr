@@ -22,7 +22,7 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         self.children = [self.predictor]
 
     def _push_allocation_config(self):
-        self.predictor.input_dim, = self.state_dims.values()
+        self.predictor.input_dim, = self.state_dims
         self.predictor.output_dim = self.span
 
     @application

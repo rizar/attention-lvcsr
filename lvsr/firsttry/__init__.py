@@ -24,8 +24,8 @@ from blocks.algorithms import (GradientDescent, Scale,
                                Momentum)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
-from blocks.extensions import FinishAfter, Printing, Timing
-from blocks.extensions.saveload import SerializeMainLoop, LoadFromDump
+from blocks.extensions import FinishAfter, Printing, Timing, ProgressBar
+from blocks.extensions.saveload import Checkpoint, Dump
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
 from blocks.extensions.plot import Plot
@@ -34,7 +34,8 @@ from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
-from fuel.transformers import Mapping, Padding, ForceFloatX, Batch
+from fuel.transformers import (
+    SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack)
 from fuel.schemes import SequentialScheme, ConstantScheme
 
 from lvsr.datasets import TIMIT
@@ -46,8 +47,14 @@ from lvsr.attention import ShiftPredictor, HybridAttention
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
 
+
+def _length(example):
+    return len(example[0])
+
+
 def _gradient_norm_is_none(log):
     return math.isnan(log.current_row.total_gradient_norm)
+
 
 def apply_preprocessing(preprocessing, example):
     recording, label = example
@@ -64,12 +71,20 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def build_stream(dataset, batch_size, normalization=None):
+def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
     if normalization:
         with open(normalization, "rb") as src:
             normalization = cPickle.load(src)
 
     stream = dataset.get_example_stream()
+    if sort_k_batches:
+        assert batch_size
+        stream = Batch(stream,
+                       iteration_scheme=ConstantScheme(
+                           batch_size * sort_k_batches))
+        stream = Mapping(stream, SortMapping(_length))
+        stream = Unpack(stream)
+
     stream = Mapping(
         stream, functools.partial(apply_preprocessing,
                                        log_spectrogram))
@@ -103,7 +118,8 @@ def default_config():
             biases_init='Constant(0)',
             attention_type='content',
             use_states_for_readout=False),
-        data=Config())
+        data=Config(batch_size=10,
+                    sort_k_batches=10))
 
 
 class PhonemeRecognizerBrick(Brick):
@@ -129,7 +145,7 @@ class PhonemeRecognizerBrick(Brick):
         fork = Fork([name for name in encoder.prototype.apply.sequences
                     if name != 'mask'])
         fork.input_dim = dims_bottom[-1]
-        fork.output_dims = {name: dim_bidir for name in fork.output_names}
+        fork.output_dims = [dim_bidir for name in fork.output_names]
         bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
                      name="bottom")
         transition = self.dec_transition(
@@ -360,21 +376,23 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             observables.append(named_copy(
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
+        every_batch = TrainingDataMonitoring(
+            [algorithm.total_gradient_norm], after_every_batch=True)
         average = TrainingDataMonitoring(
             observables, prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             [cost, cost_per_phoneme],
-            build_stream(TIMIT("valid"), 100, **config["data"]), prefix="valid",
+            build_stream(TIMIT("valid"), **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
         main_loop = MainLoop(
             model=model,
-            data_stream=build_stream(TIMIT("train"), 10, **config["data"]),
+            data_stream=build_stream(
+                TIMIT("train"), **config["data"]),
             algorithm=algorithm,
-            extensions=([LoadFromDump(from_dump)] if from_dump else []) +
-            [Timing(),
-                TrainingDataMonitoring(observables, after_every_batch=True),
-                average, validation,
+            extensions=([
+                Timing(),
+                every_batch, average, validation,
                 FinishAfter(after_n_batches=num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
                 Plot(os.path.basename(save_path),
@@ -384,9 +402,11 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                       [average.record_name(algorithm.total_gradient_norm)],
                       [average.record_name(weights_entropy)]],
                      every_n_batches=10),
-                SerializeMainLoop(save_path, every_n_batches=500,
-                                  save_separately=["model", "log"]),
-                Printing(every_n_batches=1)])
+                Checkpoint(save_path, after_every_epoch=True,
+                           save_separately=["model"]),
+                Dump(save_path, after_every_epoch=True),
+                ProgressBar(),
+                Printing(every_n_batches=1)]))
         main_loop.run()
     elif mode == "search":
         from matplotlib import pyplot, cm
