@@ -393,10 +393,11 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
 
         beam_size = 10
 
-        recognizer_brick = PhonemeRecognizerBrick(
-            129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+        #recognizer_brick = PhonemeRecognizerBrick(
+        #    129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+        recognizer_brick, = cPickle.load(open(save_path)).get_top_bricks()
         recognizer = PhonemeRecognizer(recognizer_brick)
-        recognizer.load_params(save_path)
+        #recognizer.load_params(save_path)
 
         generated = recognizer.get_generate_graph()
         samples, = VariableFilter(
