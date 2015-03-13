@@ -5,12 +5,13 @@ import math
 import os
 import functools
 import cPickle
+from collections import OrderedDict
 
 import numpy
 import theano
 from numpy.testing import assert_allclose
 from theano import tensor
-from blocks.bricks import Tanh, MLP, Brick, application
+from blocks.bricks import Tanh, MLP, Brick, application, Initializable
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -21,7 +22,7 @@ from blocks.graph import ComputationGraph
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
-                               Momentum)
+                               Momentum, RemoveNotFinite)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.extensions import FinishAfter, Printing, Timing, ProgressBar
@@ -34,6 +35,7 @@ from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
+from blocks.select import Selector
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack)
 from fuel.schemes import SequentialScheme, ConstantScheme
@@ -42,7 +44,7 @@ from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
 from lvsr.error_rate import wer
-from lvsr.attention import ShiftPredictor, HybridAttention
+from lvsr.attention import ShiftPredictor, ShiftPredictor2, HybridAttention
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -113,30 +115,26 @@ def default_config():
             dim_dec=100, dim_bidir=100, dims_bottom=[100],
             enc_transition='SimpleRecurrent',
             dec_transition='SimpleRecurrent',
-            weights_init='IsotropicGaussian(0.1)',
-            rec_weights_init='Orthogonal()',
-            biases_init='Constant(0)',
             attention_type='content',
             use_states_for_readout=False),
-        data=Config(batch_size=10,
-                    sort_k_batches=10))
+        initialization=[
+            ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
+            ('/recognizer', 'biases_init', 'Constant(0.0)'),
+            ('/recognizer', 'rec_weights_init', 'Orthogonal()')],
+        data=Config(batch_size=10))
 
 
-class PhonemeRecognizerBrick(Brick):
+class PhonemeRecognizerBrick(Initializable):
 
     def __init__(self, num_features, num_phonemes,
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
-                 rec_weights_init,
-                 weights_init, biases_init,
                  use_states_for_readout,
                  attention_type,
                  shift_predictor_dims=None, max_left=None, max_right=None, **kwargs):
         super(PhonemeRecognizerBrick, self).__init__(**kwargs)
+        self.rec_weights_init = None
 
-        self.rec_weights_init = eval(rec_weights_init)
-        self.weights_init = eval(weights_init)
-        self.biases_init = eval(biases_init)
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
@@ -152,11 +150,12 @@ class PhonemeRecognizerBrick(Brick):
             dim=dim_dec, activation=Tanh(), name="transition")
 
         # Choose attention mechanism according to the configuration
-        content_attention = SequenceContentAttention(
-            state_names=transition.apply.states,
-            attended_dim=2 * dim_bidir, match_dim=dim_dec,
-            name="cont_att")
-        if attention_type != "content":
+        if attention_type == "content":
+            attention = SequenceContentAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                name="cont_att")
+        elif attention_type == "hybrid":
             predictor = MLP([Tanh(), None],
                             [None] + shift_predictor_dims + [None],
                             name="predictor")
@@ -166,17 +165,24 @@ class PhonemeRecognizerBrick(Brick):
                 predictor=predictor,
                 attended_dim=2 * dim_bidir,
                 name="loc_att")
-            hybrid_attention = HybridAttention(
+            attention = HybridAttention(
                 state_names=transition.apply.states,
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 location_attention=location_attention,
                 name="hybrid_att")
-        if attention_type == "content":
-            attention = content_attention
-        elif attention_type == "location":
-            attention = location_attention
-        elif attention_type == "hybrid":
-            attention = hybrid_attention
+        elif attention_type == "hybrid2":
+            predictor = MLP([Tanh(), None],
+                            [None] + shift_predictor_dims + [None],
+                            name="predictor")
+            location_attention = ShiftPredictor2(
+                state_names=transition.apply.states,
+                predictor=predictor, attended_dim=2 * dim_bidir,
+                name="loc_att")
+            attention = HybridAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                location_attention=location_attention,
+                name="hybrid_att")
 
         readout = LinearReadout(
             readout_dim=num_phonemes,
@@ -196,12 +202,10 @@ class PhonemeRecognizerBrick(Brick):
         self.children = [encoder, fork, bottom, generator]
 
     def _push_initialization_config(self):
-        for child in self.children:
-            child.weights_init = self.weights_init
-            child.biases_init = self.biases_init
-        self.encoder.weights_init = self.rec_weights_init
-        self.generator.push_initialization_config()
-        self.generator.transition.weights_init = self.rec_weights_init
+        super(PhonemeRecognizerBrick, self)._push_initialization_config()
+        if self.rec_weights_init:
+            self.encoder.weights_init = self.rec_weights_init
+            self.generator.transition.transition.weights_init = self.rec_weights_init
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
@@ -274,8 +278,10 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             changes = eval(config_file.read())
         def rec_update(conf, chg):
             for key in chg:
-                if key in conf and isinstance(conf[key], Config):
+                if isinstance(conf.get(key), Config):
                     rec_update(conf[key], chg[key])
+                elif isinstance(conf.get(key), list):
+                    conf[key].extend(chg[key])
                 else:
                     conf[key] = chg[key]
         rec_update(config, changes)
@@ -298,6 +304,10 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         assert not use_old
         recognizer = PhonemeRecognizerBrick(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+        for brick_path, attribute, value in config['initialization']:
+            brick, = Selector(recognizer).select(brick_path).bricks
+            setattr(brick, attribute, eval(value))
+            brick.push_initialization_config()
         recognizer.initialize()
 
         # Build the cost computation graph
@@ -371,7 +381,8 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         algorithm = GradientDescent(
             cost=cost, params=cg.parameters,
             step_rule=CompositeRule([StepClipping(100.0),
-                                     Scale(0.01)]))
+                                     Scale(0.01),
+                                     RemoveNotFinite(0.0)]))
 
         observables = [
             cost, cost_per_phoneme,
