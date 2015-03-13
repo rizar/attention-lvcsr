@@ -320,6 +320,16 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                         [(key, value.get_value().shape) for key, value
                          in params.items()],
                         width=120))
+        def show_init_scheme(cur):
+            result = dict()
+            for attr in ['weights_init', 'biases_init']:
+                if hasattr(cur, attr):
+                    result[attr] = getattr(cur, attr)
+            for child in cur.children:
+                result[child.name] = show_init_scheme(child)
+            return result
+        logger.info("Initialization:" +
+                    pprint.pformat(show_init_scheme(recognizer)))
 
         cg = ComputationGraph(cost)
         r = recognizer
