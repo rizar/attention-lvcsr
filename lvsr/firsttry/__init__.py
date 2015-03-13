@@ -280,15 +280,15 @@ class PhonemeRecognizer(object):
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
-            bricks=[self.generator], name="outputs")(
+            bricks=[self.brick.generator], name="outputs")(
                 ComputationGraph(generated[1]))
-        self.beam_search = BeamSearch(beam_size, samples)
-        self.beam_search.compile()
+        self._beam_search = BeamSearch(beam_size, samples)
+        self._beam_search.compile()
 
     def beam_search(self, recording):
         input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
-        outputs, search_costs = self.beam_search.search(
-            {self.recognizer.recordings: input_}, 4, input_.shape[0] / 3,
+        outputs, search_costs = self._beam_search.search(
+            {self.recordings: input_}, 4, input_.shape[0] / 3,
             ignore_first_eol=True)
         return outputs, search_costs
 
@@ -475,7 +475,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         for number, data in enumerate(it):
             print("Utterance", number)
 
-            outputs, search_costs = recognizer.beam_search()
+            outputs, search_costs = recognizer.beam_search(data[0])
             recognized = timit.decode(outputs[0])
             groundtruth = timit.decode(data[1])
             costs_recognized, weights_recognized = (
