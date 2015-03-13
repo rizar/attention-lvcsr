@@ -7,6 +7,8 @@ from blocks.bricks.attention import (
     GenericSequenceAttention, SequenceContentAttention)
 from blocks.utils import put_hook, ipdb_breakpoint
 
+floatX = theano.config.floatX
+
 
 class ShiftPredictor(GenericSequenceAttention, Initializable):
 
@@ -55,6 +57,80 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
             non_sequences=[zero_row],
             n_steps=batch_size)
         return energies[:, self.max_left:self.max_left + length]
+
+    @application(outputs=['weighted_averages', 'weights'])
+    def take_glimpses(self, attended, preprocessed_attended=None,
+                      attended_mask=None, weights=None,
+                      **states):
+        if not weights:
+            raise ValueError
+        energies = self.compute_energies(states, weights).T
+        # Energies become (attended_len, batch_size) as required
+        # by inherited methods.
+        new_weights = self.compute_weights(energies, attended_mask)
+        weighted_averages = self.compute_weighted_averages(new_weights,
+                                                           attended)
+        # Weights are transposed back to (batch_size, attended_len)
+        return weighted_averages, new_weights.T
+
+    @take_glimpses.property('inputs')
+    def take_glimpses_inputs(self):
+        return (['attended', 'preprocessed_attended',
+                 'attended_mask', 'weights'] +
+                self.state_names)
+
+    @application
+    def initial_glimpses(self, name, batch_size, attended):
+        if name == "weighted_averages":
+            return tensor.zeros((batch_size, self.attended_dim))
+        elif name == "weights":
+            return tensor.concatenate([
+                 tensor.ones((batch_size, 1)),
+                 tensor.zeros((batch_size, attended.shape[0] - 1))],
+                 axis=1)
+        raise ValueError("Unknown glimpse name {}".format(name))
+
+    def get_dim(self, name):
+        if name in ['weighted_averages']:
+            return self.attended_dim
+        if name in ['weights']:
+            return 0
+        return super(ShiftPredictor, self).get_dim(name)
+
+
+class ShiftPredictor2(GenericSequenceAttention, Initializable):
+
+
+    @lazy
+    def __init__(self, predictor, max_left, **kwargs):
+        super(GenericSequenceAttention, self).__init__(**kwargs)
+        assert len(self.state_names) == 1
+        self.predictor = predictor
+        self.children = [self.predictor]
+
+    def _push_allocation_config(self):
+        self.predictor.input_dim = 1
+        self.predictor.output_dim = 1
+
+    @application
+    def compute_energies(self, _, previous_weights):
+        """Compute energies.
+
+        Parameters
+        ----------
+        previous_weights : Theano variable
+            Weights from the previous step, (batch_size, attended_len).
+
+        """
+        batch_size = previous_weights.shape[0]
+        length = previous_weights.shape[1]
+        positions = tensor.arange(length).astype(floatX)
+        # Positions are broadcasted along the first dimension
+        expected_positions = (previous_weights * positions).sum(axis=1)
+        shifts = positions[None, :] - expected_positions[:, None]
+        flat_energies = self.predictor.apply(shifts.flatten()[:, None])
+        return flat_energies.reshape((batch_size, length))
+
 
     @application(outputs=['weighted_averages', 'weights'])
     def take_glimpses(self, attended, preprocessed_attended=None,
