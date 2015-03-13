@@ -402,9 +402,10 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                       [average.record_name(algorithm.total_gradient_norm)],
                       [average.record_name(weights_entropy)]],
                      every_n_batches=10),
-                Checkpoint(save_path, after_every_epoch=True,
+                Checkpoint(save_path,
+                           before_first_epoch=True, after_every_epoch=True,
                            save_separately=["model"]),
-                Dump(save_path, after_every_epoch=True),
+                Dump(os.path.splitext(save_path)[0], after_every_epoch=True),
                 ProgressBar(),
                 Printing(every_n_batches=1)]))
         main_loop.run()
