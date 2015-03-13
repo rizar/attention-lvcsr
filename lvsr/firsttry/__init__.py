@@ -265,7 +265,7 @@ class PhonemeRecognizer(object):
             recordings, tensor.ones_like(recordings[:, :, 0]),
             labels, None)
 
-    def analyze(self, *args, **kwargs):
+    def analyze(self, recording, transcription):
         if not hasattr(self, "_analyze"):
             cost = self.get_cost_graph(batch=False)
             cg = ComputationGraph(cost)
@@ -274,7 +274,23 @@ class PhonemeRecognizer(object):
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
                 [cost[:, 0], weights[:, 0, :]])
-        return self._analyze(*args, **kwargs)
+        return self._analyze(recording, transcription)
+
+    def init_beam_search(self, beam_size):
+        self.beam_size = beam_size
+        generated = self.get_generate_graph()
+        samples, = VariableFilter(
+            bricks=[self.generator], name="outputs")(
+                ComputationGraph(generated[1]))
+        self.beam_search = BeamSearch(beam_size, samples)
+        self.beam_search.compile()
+
+    def beam_search(self, recording):
+        input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
+        outputs, search_costs = self.beam_search.search(
+            {self.recognizer.recordings: input_}, 4, input_.shape[0] / 3,
+            ignore_first_eol=True)
+        return outputs, search_costs
 
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
@@ -438,17 +454,9 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                 Printing(every_n_batches=1)]))
         main_loop.run()
     elif mode == "search":
-        beam_size = 10
-
         recognizer_brick, = cPickle.load(open(save_path)).get_top_bricks()
         recognizer = PhonemeRecognizer(recognizer_brick)
-
-        generated = recognizer.get_generate_graph()
-        samples, = VariableFilter(
-            bricks=[recognizer_brick.generator], name="outputs")(
-                ComputationGraph(generated[1]))
-        beam_search = BeamSearch(beam_size, samples)
-        beam_search.compile()
+        recognizer.init_beam_search(10)
 
         timit = TIMIT("valid")
         conf = config["data"]
@@ -456,7 +464,6 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         stream = build_stream(timit, **conf)
         stream = ForceFloatX(stream)
         it = stream.get_epoch_iterator()
-        error_sum = 0
 
         weights = tensor.matrix('weights')
         weight_statistics = theano.function(
@@ -464,13 +471,11 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             [weights_std(weights.dimshuffle(0, 'x', 1)),
              monotonicity_penalty(weights.dimshuffle(0, 'x', 1))])
 
+        error_sum = 0
         for number, data in enumerate(it):
             print("Utterance", number)
 
-            input_ = numpy.tile(data[0], (beam_size, 1, 1)).transpose(1, 0, 2)
-            outputs, search_costs = beam_search.search(
-                {recognizer.recordings: input_}, 4, input_.shape[0] / 2,
-                ignore_first_eol=True)
+            outputs, search_costs = recognizer.beam_search()
             recognized = timit.decode(outputs[0])
             groundtruth = timit.decode(data[1])
             costs_recognized, weights_recognized = (
