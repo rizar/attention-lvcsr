@@ -1,10 +1,12 @@
 import theano
 from theano import tensor
 
-from blocks.bricks import Initializable
+from blocks.bricks import Initializable, Linear
+from blocks.bricks.parallel import Parallel
 from blocks.bricks.base import lazy, application
 from blocks.bricks.attention import (
-    GenericSequenceAttention, SequenceContentAttention)
+    GenericSequenceAttention, SequenceContentAttention,
+    ShallowEnergyComputer)
 from blocks.utils import put_hook, ipdb_breakpoint
 
 floatX = theano.config.floatX
@@ -204,3 +206,90 @@ class HybridAttention(SequenceContentAttention):
     @application
     def initial_glimpses(self, *args, **kwargs):
         return self.location_attention.initial_glimpses(*args, **kwargs)
+
+
+class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
+    @lazy
+    def __init__(self, match_dim, state_transformer=None,
+                 attended_transformer=None, energy_computer=None, **kwargs):
+        super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
+        self.match_dim = match_dim
+        self.state_transformer = state_transformer
+
+        self.state_transformers = Parallel(input_names=self.state_names,
+                                           prototype=state_transformer,
+                                           name="state_trans")
+        if not attended_transformer:
+            attended_transformer = Linear(name="preprocess")
+        if not energy_computer:
+            energy_computer = ShallowEnergyComputer(name="energy_comp")
+        self.cumweight_handler = Linear(name="cumweight")
+        self.attended_transformer = attended_transformer
+        self.energy_computer = energy_computer
+
+        self.children = [self.state_transformers, self.attended_transformer,
+                         self.energy_computer, self.cumweight_handler]
+
+    def _push_allocation_config(self):
+        self.state_transformers.input_dims = self.state_dims
+        self.state_transformers.output_dims = [self.match_dim
+                                               for name in self.state_names]
+        self.attended_transformer.input_dim = self.attended_dim
+        self.attended_transformer.output_dim = self.match_dim
+        self.energy_computer.input_dim = self.match_dim
+        self.energy_computer.output_dim = 1
+        self.cumweight_handler.input_dim = 1
+        self.cumweight_handler.output_dim = self.match_dim
+
+    @application
+    def compute_energies(self, attended, preprocessed_attended,
+                         previous_weights, states):
+        if not preprocessed_attended:
+            preprocessed_attended = self.preprocess(attended)
+        transformed_states = self.state_transformers.apply(as_dict=True,
+                                                           **states)
+        # Broadcasting of transformed states should be done automatically
+        match_vectors = sum(transformed_states.values(),
+                            preprocessed_attended)
+        match_vectors += self.cumweight_handler.apply(
+            tensor.cumsum(previous_weights[:, :, None], axis=1)).dimshuffle(1, 0, 2)
+        energies = self.energy_computer.apply(match_vectors).reshape(
+            match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
+        return energies
+
+    @application(outputs=['weighted_averages', 'weights'])
+    def take_glimpses(self, attended, preprocessed_attended=None,
+                      attended_mask=None, weights=None, **states):
+        energies = self.compute_energies(attended, preprocessed_attended,
+                                         weights, states)
+        weights = self.compute_weights(energies, attended_mask)
+        weighted_averages = self.compute_weighted_averages(weights, attended)
+        return weighted_averages, weights.T
+
+    @take_glimpses.property('inputs')
+    def take_glimpses_inputs(self):
+        return (['attended', 'preprocessed_attended',
+                 'attended_mask', 'weights'] +
+                self.state_names)
+
+    @application
+    def initial_glimpses(self, name, batch_size, attended):
+        if name == "weighted_averages":
+            return tensor.zeros((batch_size, self.attended_dim))
+        elif name == "weights":
+            return tensor.concatenate([
+                 tensor.ones((batch_size, 1)),
+                 tensor.zeros((batch_size, attended.shape[0] - 1))],
+                 axis=1)
+        raise ValueError("Unknown glimpse name {}".format(name))
+
+    @application(inputs=['attended'], outputs=['preprocessed_attended'])
+    def preprocess(self, attended):
+        return self.attended_transformer.apply(attended)
+
+    def get_dim(self, name):
+        if name in ['weighted_averages']:
+            return self.attended_dim
+        if name in ['weights']:
+            return 0
+        return super(SequenceContentAndCumSumAttention, self).get_dim(name)

@@ -6,7 +6,5 @@ Config(
                max_left=10,
                max_right=100),
     initialization=[
-        ("/recognizer", "rec_weights_init", "IsotropicGaussian(0.1)"),
-        ("/recognizer/generator/att_trans/", "rec_weights_init", "IsotropicGaussian(0.1)"),
         ("/recognizer", "rec_weights_init", "IsotropicGaussian(0.1)")],
     data=Config(normalization="norm.pkl"))

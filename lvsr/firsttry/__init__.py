@@ -44,7 +44,9 @@ from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
 from lvsr.error_rate import wer
-from lvsr.attention import ShiftPredictor, ShiftPredictor2, HybridAttention
+from lvsr.attention import (
+    ShiftPredictor, ShiftPredictor2, HybridAttention,
+    SequenceContentAndCumSumAttention)
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -152,6 +154,11 @@ class PhonemeRecognizerBrick(Initializable):
         # Choose attention mechanism according to the configuration
         if attention_type == "content":
             attention = SequenceContentAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                name="cont_att")
+        elif attention_type == "content_and_cumsum":
+            attention = SequenceContentAndCumSumAttention(
                 state_names=transition.apply.states,
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 name="cont_att")
@@ -431,15 +438,10 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                 Printing(every_n_batches=1)]))
         main_loop.run()
     elif mode == "search":
-        from matplotlib import pyplot, cm
-
         beam_size = 10
 
-        #recognizer_brick = PhonemeRecognizerBrick(
-        #    129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         recognizer_brick, = cPickle.load(open(save_path)).get_top_bricks()
         recognizer = PhonemeRecognizer(recognizer_brick)
-        #recognizer.load_params(save_path)
 
         generated = recognizer.get_generate_graph()
         samples, = VariableFilter(
@@ -449,14 +451,18 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         beam_search.compile()
 
         timit = TIMIT("valid")
-        stream = build_stream(timit, None, **config["data"])
+        conf = config["data"]
+        conf['batch_size'] = conf['sort_k_batches'] = None
+        stream = build_stream(timit, **conf)
         stream = ForceFloatX(stream)
         it = stream.get_epoch_iterator()
         error_sum = 0
 
         weights = tensor.matrix('weights')
-        weight_std_func = theano.function(
-            [weights], [weights_std(weights.dimshuffle(0, 'x', 1))])
+        weight_statistics = theano.function(
+            [weights],
+            [weights_std(weights.dimshuffle(0, 'x', 1)),
+             monotonicity_penalty(weights.dimshuffle(0, 'x', 1))])
 
         for number, data in enumerate(it):
             print("Utterance", number)
@@ -465,28 +471,29 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             outputs, search_costs = beam_search.search(
                 {recognizer.recordings: input_}, 4, input_.shape[0] / 2,
                 ignore_first_eol=True)
-
             recognized = timit.decode(outputs[0])
             groundtruth = timit.decode(data[1])
-            error = min(1, wer(groundtruth, recognized))
-            error_sum += error
-            print("Beam search cost:", search_costs[0])
-            print(recognized)
             costs_recognized, weights_recognized = (
                 recognizer.analyze(data[0], outputs[0]))
-            print("Recognized cost:", costs_recognized.sum())
-            print("Recognized weight std:", weight_std_func(weights_recognized)[0])
-            print(groundtruth)
             costs_groundtruth, weights_groundtruth = (
                 recognizer.analyze(data[0], data[1]))
+            weight_std_recognized, mono_penalty_recognized = weight_statistics(
+                weights_recognized)
+            weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
+                weights_groundtruth)
+            error = min(1, wer(groundtruth, recognized))
+            error_sum += error
+
+            print("Beam search cost:", search_costs[0])
+            print(recognized)
+            print("Recognized cost:", costs_recognized.sum())
+            print("Recognized weight std:", weight_std_recognized)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized)
+            print(groundtruth)
             print("Groundtruth cost:", costs_groundtruth.sum())
-            print("Groundtruth weight std:", weight_std_func(weights_groundtruth)[0])
+            print("Groundtruth weight std:", weight_std_groundtruth)
+            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth)
             print("PER:", error)
             print("Average PER:", error_sum / (number + 1))
-
-            #f, (ax1, ax2) = pyplot.subplots(2, 1)
-            #ax1.matshow(weights_recognized, cmap=cm.gray)
-            #ax2.matshow(weights_groundtruth, cmap=cm.gray)
-            #pyplot.show()
 
             assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
