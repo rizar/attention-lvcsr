@@ -15,11 +15,12 @@ floatX = theano.config.floatX
 class ShiftPredictor(GenericSequenceAttention, Initializable):
 
     @lazy
-    def __init__(self, predictor, max_left, max_right, **kwargs):
+    def __init__(self, predictor, max_left, max_right, padding, **kwargs):
         super(GenericSequenceAttention, self).__init__(**kwargs)
         assert len(self.state_names) == 1
         self.max_left = max_left
         self.max_right = max_right
+        self.padding = padding
         self.predictor = predictor
 
         self.span = self.max_right + self.max_left + 1
@@ -49,7 +50,7 @@ class ShiftPredictor(GenericSequenceAttention, Initializable):
         # Positions are broadcasted along the first dimension
         expected_positions = ((previous_weights * positions)
                               .sum(axis=1).astype('int64'))
-        zero_row = 0 * tensor.ones((length + self.span,))
+        zero_row = self.padding * tensor.ones((length + self.span,))
         def fun(expected, shift_energies, zero_row_):
             return tensor.set_subtensor(
                 zero_row_[expected:expected + self.span],

@@ -25,7 +25,8 @@ from blocks.algorithms import (GradientDescent, Scale,
                                Momentum, RemoveNotFinite)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
-from blocks.extensions import FinishAfter, Printing, Timing, ProgressBar
+from blocks.extensions import (
+    FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
 from blocks.extensions.saveload import Checkpoint, Dump
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
@@ -58,6 +59,10 @@ def _length(example):
 
 def _gradient_norm_is_none(log):
     return math.isnan(log.current_row.total_gradient_norm)
+
+
+def _should_compute_per(log):
+    return log.status.epochs_done >= 20 and log.status.epochs_done % 3 == 0
 
 
 def apply_preprocessing(preprocessing, example):
@@ -94,6 +99,7 @@ def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
                                        log_spectrogram))
     if normalization:
         stream = normalization.wrap_stream(stream)
+    stream = ForceFloatX(stream)
     if not batch_size:
         return stream
 
@@ -101,7 +107,6 @@ def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
     stream = Padding(stream)
     stream = Mapping(
         stream, switch_first_two_axes)
-    stream = ForceFloatX(stream)
     return stream
 
 
@@ -133,7 +138,8 @@ class PhonemeRecognizerBrick(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
-                 shift_predictor_dims=None, max_left=None, max_right=None, **kwargs):
+                 shift_predictor_dims=None, max_left=None, max_right=None,
+                 padding=None, **kwargs):
         super(PhonemeRecognizerBrick, self).__init__(**kwargs)
         self.rec_weights_init = None
 
@@ -168,7 +174,7 @@ class PhonemeRecognizerBrick(Initializable):
                             name="predictor")
             location_attention = ShiftPredictor(
                 state_names=transition.apply.states,
-                max_left=max_left, max_right=max_right,
+                max_left=max_left, max_right=max_right, padding=padding,
                 predictor=predictor,
                 attended_dim=2 * dim_bidir,
                 name="loc_att")
@@ -291,6 +297,33 @@ class PhonemeRecognizer(object):
             {self.recordings: input_}, 4, input_.shape[0] / 3,
             ignore_first_eol=True)
         return outputs, search_costs
+
+
+class PERExtension(SimpleExtension):
+
+    def __init__(self, recognizer, dataset, stream, **kwargs):
+        self.recognizer = recognizer
+        self.dataset = dataset
+        self.stream = stream
+        super(PERExtension, self).__init__(**kwargs)
+
+    def do(self, which_callback, *args):
+        logger.info("PER computing started")
+        error_sum = 0.0
+        num_examples = 0.0
+        for data in self.stream.get_epoch_iterator():
+            outputs, search_costs = self.recognizer.beam_search(data[0])
+            recognized = self.dataset.decode(outputs[0])
+            groundtruth = self.dataset.decode(data[1])
+            error = min(1, wer(groundtruth, recognized))
+            error_sum += error
+            num_examples += 1
+            mean_error = error_sum / num_examples
+            if num_examples > 10 and mean_error > 0.8:
+                mean_error = 1
+                break
+        self.main_loop.log.current_row.per = mean_error
+        logger.info("PER computing done")
 
 
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
@@ -420,15 +453,23 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             observables.append(named_copy(
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
+        timit_valid = TIMIT("valid")
         every_batch = TrainingDataMonitoring(
             [algorithm.total_gradient_norm], after_every_batch=True)
         average = TrainingDataMonitoring(
             observables, prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
-            [cost, cost_per_phoneme],
-            build_stream(TIMIT("valid"), **config["data"]), prefix="valid",
+            [cost, cost_per_phoneme, weights_entropy, weights_penalty],
+            build_stream(timit_valid, **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
+        pr = PhonemeRecognizer(recognizer)
+        pr.init_beam_search(10)
+        per = PERExtension(
+            pr, timit_valid,
+            build_stream(timit_valid, None,
+                  normalization=config["data"]["normalization"]),
+            before_first_epoch=True, every_n_epochs=3)
         main_loop = MainLoop(
             model=model,
             data_stream=build_stream(
@@ -436,15 +477,18 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             algorithm=algorithm,
             extensions=([
                 Timing(),
-                every_batch, average, validation,
+                every_batch, average, validation, per,
                 FinishAfter(after_n_batches=num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
                 Plot(os.path.basename(save_path),
                      [[average.record_name(cost),
                        validation.record_name(cost)],
-                      [average.record_name(cost_per_phoneme)],
                       [average.record_name(algorithm.total_gradient_norm)],
-                      [average.record_name(weights_entropy)]],
+                      ['per'],
+                      [average.record_name(weights_entropy),
+                       validation.record_name(weights_entropy)],
+                      [average.record_name(weights_penalty),
+                       validation.record_name(weights_penalty)]],
                      every_n_batches=10),
                 Checkpoint(save_path,
                            before_first_epoch=True, after_every_epoch=True,
@@ -462,7 +506,6 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         conf = config["data"]
         conf['batch_size'] = conf['sort_k_batches'] = None
         stream = build_stream(timit, **conf)
-        stream = ForceFloatX(stream)
         it = stream.get_epoch_iterator()
 
         weights = tensor.matrix('weights')

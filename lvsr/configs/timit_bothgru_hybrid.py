@@ -4,7 +4,8 @@ Config(
                attention_type='hybrid',
                shift_predictor_dims=[100],
                max_left=10,
-               max_right=100),
+               max_right=100,
+               padding=0),
     initialization=[
         ("/recognizer", "rec_weights_init", "IsotropicGaussian(0.1)")],
     data=Config(normalization="norm.pkl"))
