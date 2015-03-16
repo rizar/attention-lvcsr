@@ -17,8 +17,8 @@ from blocks.bricks.recurrent import (
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
-    SequenceGenerator, LinearReadout, SoftmaxEmitter, LookupFeedback)
-from blocks.graph import ComputationGraph
+    SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback)
+from blocks.graph import ComputationGraph, apply_dropout
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
@@ -31,6 +31,8 @@ from blocks.extensions.saveload import Checkpoint, Dump
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
 from blocks.extensions.plot import Plot
+from blocks.extensions.training import TrackTheBest
+from blocks.extensions.predicates import OnLogRecord
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
@@ -124,6 +126,8 @@ def default_config():
             dec_transition='SimpleRecurrent',
             attention_type='content',
             use_states_for_readout=False),
+        regularization=Config(
+            dropout=False),
         initialization=[
             ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
             ('/recognizer', 'biases_init', 'Constant(0.0)'),
@@ -197,7 +201,7 @@ class PhonemeRecognizerBrick(Initializable):
                 location_attention=location_attention,
                 name="hybrid_att")
 
-        readout = LinearReadout(
+        readout = Readout(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
                 + [attention.take_glimpses.outputs[0]],
@@ -433,9 +437,17 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         mask_density = named_copy(labels_mask.mean(),
                                   "mask_density")
 
+        # Regularization.
+        regularized_cost = cost
+        if config['regularization']['dropout']:
+            logger.info('apply dropout')
+            cg_dropout = apply_dropout(cg, [bottom_output], 0.5)
+            regularized_cost = named_copy(cg_dropout.outputs[0],
+                                          'dropout_' + cost.name)
+
         # Define the training algorithm.
         algorithm = GradientDescent(
-            cost=cost, params=cg.parameters,
+            cost=regularized_cost, params=cg.parameters,
             step_rule=CompositeRule([StepClipping(100.0),
                                      Scale(0.01),
                                      RemoveNotFinite(0.0)]))
@@ -447,6 +459,8 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             weights_penalty, weights_entropy,
             batch_size, max_recording_length, max_num_phonemes, mask_density,
             algorithm.total_step_norm, algorithm.total_gradient_norm]
+        if cost != regularized_cost:
+            observables = [regularized_cost] + observables
         for name, param in params.items():
             observables.append(named_copy(
                 param.norm(2), name + "_norm"))
@@ -470,6 +484,8 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             build_stream(timit_valid, None,
                   normalization=config["data"]["normalization"]),
             before_first_epoch=True, every_n_epochs=3)
+        track_the_best = TrackTheBest('per').set_conditions(
+            before_first_epoch=True, after_every_epoch=True)
         main_loop = MainLoop(
             model=model,
             data_stream=build_stream(
@@ -477,12 +493,14 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             algorithm=algorithm,
             extensions=([
                 Timing(),
-                every_batch, average, validation, per,
+                every_batch, average, validation, per, track_the_best,
                 FinishAfter(after_n_batches=num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
                 Plot(os.path.basename(save_path),
                      [[average.record_name(cost),
-                       validation.record_name(cost)],
+                       validation.record_name(cost)]
+                       + ([average.record_name(regularized_cost)]
+                           if cost != regularized_cost else []),
                       [average.record_name(algorithm.total_gradient_norm)],
                       ['per'],
                       [average.record_name(weights_entropy),
@@ -492,8 +510,12 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                      every_n_batches=10),
                 Checkpoint(save_path,
                            before_first_epoch=True, after_every_epoch=True,
-                           save_separately=["model"]),
-                Dump(os.path.splitext(save_path)[0], after_every_epoch=True),
+                           save_separately=["model"])
+                .add_condition(
+                    'after_epoch',
+                    OnLogRecord(track_the_best.notification_name),
+                    (root_path + "_best" + extension,)),
+                Dump(root_path, after_every_epoch=True),
                 ProgressBar(),
                 Printing(every_n_batches=1)]))
         main_loop.run()
