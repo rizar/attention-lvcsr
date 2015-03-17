@@ -9,6 +9,9 @@ All the code is in _lvsr_. It is structured as follows:
 * the _configs_ folder contain experiment configuration in the format understood by 
   the _firsttry_
 
+* _firsttry_ contains the do-it-all script splitted into _main.py_ and _\_\_init.py\_\__, as
+  it has be to done to ensure that unpickling of the main loop object goes smoothly.
+
 * _attenion.py_ contains different attention mechanisms tried. Warning: low code quality, 
   lots of copy-pasted code. 
 
