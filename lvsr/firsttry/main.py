@@ -24,11 +24,5 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-batches", default=50000, type=int,
         help="Train on this many batches.")
-    parser.add_argument(
-        "--from-dump", default=None,
-        help="Path to the dump to be loaded")
-    parser.add_argument(
-        "--use-old", default=False, action="store_true",
-        help="Use old model and log pickles")
     args = parser.parse_args()
     main(**vars(args))

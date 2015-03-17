@@ -339,7 +339,7 @@ class IPDB(SimpleExtension):
         import ipdb; ipdb.set_trace()
 
 
-def main(mode, save_path, num_batches, use_old, from_dump, config_path):
+def main(mode, save_path, num_batches, config_path):
     # Experiment configuration
     config = default_config()
     if config_path:
@@ -370,7 +370,6 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
         root_path, extension = os.path.splitext(save_path)
 
         # Build the bricks
-        assert not use_old
         recognizer = PhonemeRecognizerBrick(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         for brick_path, attribute, value in config['initialization']:
