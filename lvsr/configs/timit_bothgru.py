@@ -3,4 +3,4 @@ Config(
                enc_transition='GatedRecurrent'),
     initialization=[
         ("/recognizer", "rec_weights_init", "IsotropicGaussian(0.1)")],
-    data=Config(normalization="norm.pkl"))
+    data=Config(sort_k_batches=10, normalization="norm.pkl"))

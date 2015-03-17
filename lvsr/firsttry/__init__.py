@@ -117,6 +117,9 @@ class Config(dict):
     def __getattr__(self, name):
         return self[name]
 
+class InitList(list):
+    pass
+
 
 def default_config():
     return Config(
@@ -128,10 +131,10 @@ def default_config():
             use_states_for_readout=False),
         regularization=Config(
             dropout=False),
-        initialization=[
+        initialization=InitList([
             ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
             ('/recognizer', 'biases_init', 'Constant(0.0)'),
-            ('/recognizer', 'rec_weights_init', 'Orthogonal()')],
+            ('/recognizer', 'rec_weights_init', 'Orthogonal()')]),
         data=Config(batch_size=10))
 
 
@@ -330,6 +333,12 @@ class PERExtension(SimpleExtension):
         logger.info("PER computing done")
 
 
+class IPDB(SimpleExtension):
+
+    def do(self, *args, **kwargs):
+        import ipdb; ipdb.set_trace()
+
+
 def main(mode, save_path, num_batches, use_old, from_dump, config_path):
     # Experiment configuration
     config = default_config()
@@ -340,7 +349,7 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
             for key in chg:
                 if isinstance(conf.get(key), Config):
                     rec_update(conf[key], chg[key])
-                elif isinstance(conf.get(key), list):
+                elif isinstance(conf.get(key), InitList):
                     conf[key].extend(chg[key])
                 else:
                     conf[key] = chg[key]
@@ -508,14 +517,18 @@ def main(mode, save_path, num_batches, use_old, from_dump, config_path):
                       [average.record_name(weights_penalty),
                        validation.record_name(weights_penalty)]],
                      every_n_batches=10),
+                Dump(root_path, after_every_epoch=True),
                 Checkpoint(save_path,
                            before_first_epoch=True, after_every_epoch=True,
                            save_separately=["model"])
                 .add_condition(
                     'after_epoch',
                     OnLogRecord(track_the_best.notification_name),
+                    (root_path + "_best" + extension,))
+                .add_condition(
+                    'before_epoch',
+                    OnLogRecord(track_the_best.notification_name),
                     (root_path + "_best" + extension,)),
-                Dump(root_path, after_every_epoch=True),
                 ProgressBar(),
                 Printing(every_n_batches=1)]))
         main_loop.run()

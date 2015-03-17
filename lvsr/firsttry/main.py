@@ -22,7 +22,7 @@ if __name__ == "__main__":
         "config_path", default=None, nargs="?",
         help="The configuration")
     parser.add_argument(
-        "--num-batches", default=20000, type=int,
+        "--num-batches", default=50000, type=int,
         help="Train on this many batches.")
     parser.add_argument(
         "--from-dump", default=None,
