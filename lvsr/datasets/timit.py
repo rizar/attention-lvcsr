@@ -33,9 +33,9 @@ class TIMIT(IndexableDataset):
         with open(os.path.join(self.path, "phone_map.pkl"), "rb") as src:
             self.phone2group = cPickle.load(src)
 
-        self.recordings = numpy.load(
+        recordings = numpy.load(
             os.path.join(self.path, self.part + "_x_raw.npy"))
-        self.num_examples = len(self.recordings)
+        self.num_examples = len(recordings)
 
         phonemes = numpy.load(
             os.path.join(self.path, self.part + "_phn.npy"))
@@ -50,8 +50,8 @@ class TIMIT(IndexableDataset):
             for phoneme_number in range(phoneme_ranges[i][0],
                                         phoneme_ranges[i][1]):
                 labels[i].append(phonemes[phoneme_number][2])
-        self.labels = numpy.asarray(labels)
-        return self.recordings, self.labels
+        labels = numpy.asarray(labels)
+        return recordings, labels
 
     def decode(self, labels, groups=True):
         phonemes = [self.phonemes[label] for label in labels]
