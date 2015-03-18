@@ -344,7 +344,7 @@ class SpeechRecognizer(Initializable):
             cost = self.get_cost_graph(batch=False)
             cg = ComputationGraph(cost)
             weights, = VariableFilter(
-                bricks=[self.brick.generator], name="weights")(cg)
+                bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
                 [cost[:, 0], weights[:, 0, :]])
@@ -592,9 +592,14 @@ def main(cmd_args):
                 Printing(every_n_batches=1)]))
         main_loop.run()
     elif cmd_args.mode == "search":
-        recognizer_brick, = cPickle.load(
-            open(cmd_args.save_path)).get_top_bricks()
-        recognizer = SpeechRecognizer(recognizer_brick)
+        # Try to guess if just parameters or the whole model was given.
+        if cmd_args.save_path.endswith('.pkl'):
+            recognizer, = cPickle.load(
+                open(cmd_args.cmd_args.save_path)).get_top_bricks()
+        elif cmd_args.save_path.endswith('.npz'):
+            recognizer = SpeechRecognizer(
+                129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+            recognizer.load_params(cmd_args.save_path)
         recognizer.init_beam_search(10)
 
         timit = TIMIT("valid")
