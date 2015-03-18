@@ -340,6 +340,7 @@ class SpeechRecognizer(Initializable):
             labels, None)
 
     def analyze(self, recording, transcription):
+        """Compute cost and aligment for a recording/transcription pair."""
         if not hasattr(self, "_analyze"):
             cost = self.get_cost_graph(batch=False)
             cg = ComputationGraph(cost)
@@ -351,6 +352,11 @@ class SpeechRecognizer(Initializable):
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
+        """Compile beam search and set the beam size.
+
+        See Blocks issue #500.
+
+        """
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
