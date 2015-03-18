@@ -1,4 +1,5 @@
 from __future__ import print_function
+from abc import ABCMeta, abstractmethod
 import logging
 import pprint
 import math
@@ -111,14 +112,36 @@ def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
         stream, switch_first_two_axes)
     return stream
 
+# My custom configuration language - sorry for this crap, but
+# 'state' for solution from groundhog does not have features
+# I need and I was too lazy to find a proper solution.
 
-class Config(dict):
+class BaseConfig(object):
+    # Python 3 goes to hell!
+    __metaclass__ = ABCMeta
+
+    @abstractmethod
+    def merge(self, other):
+        pass
+
+
+class Config(BaseConfig, dict):
 
     def __getattr__(self, name):
         return self[name]
 
-class InitList(list):
-    pass
+    def merge(self, other):
+        for key in other:
+            if isinstance(self.get(key), BaseConfig):
+                self[key].merge(other[key])
+            else:
+                self[key] = other[key]
+
+
+class InitList(BaseConfig, list):
+
+    def merge(self, other):
+        self.extend(other)
 
 
 def default_config():
@@ -383,15 +406,7 @@ def main(mode, save_path, num_batches, config_path):
     if config_path:
         with open(config_path, 'rt') as config_file:
             changes = eval(config_file.read())
-        def rec_update(conf, chg):
-            for key in chg:
-                if isinstance(conf.get(key), Config):
-                    rec_update(conf[key], chg[key])
-                elif isinstance(conf.get(key), InitList):
-                    conf[key].extend(chg[key])
-                else:
-                    conf[key] = chg[key]
-        rec_update(config, changes)
+        config.merge(changes)
     logging.info("Config:\n" + pprint.pformat(config))
 
     if mode == "init_norm":
