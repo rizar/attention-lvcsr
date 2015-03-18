@@ -400,36 +400,53 @@ class IPDB(SimpleExtension):
         import ipdb; ipdb.set_trace()
 
 
-def main(mode, save_path, num_batches, config_path):
+def main(cmd_args):
     # Experiment configuration
     config = default_config()
-    if config_path:
-        with open(config_path, 'rt') as config_file:
+    if cmd_args.config_path:
+        with open(cmd_args.config_path, 'rt') as config_file:
             changes = eval(config_file.read())
         config.merge(changes)
     logging.info("Config:\n" + pprint.pformat(config))
 
-    if mode == "init_norm":
+    if cmd_args.mode == "init_norm":
         stream = build_stream(TIMIT("train"), None)
         normalization = Normalization(stream, "recordings")
-        with open(save_path, "wb") as dst:
+        with open(cmd_args.save_path, "wb") as dst:
             cPickle.dump(normalization, dst)
 
-    elif mode == "show_data":
+    elif cmd_args.mode == "show_data":
         stream = build_stream(TIMIT("train"), 10, **config.data)
         pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
 
-    elif mode == "train":
-        root_path, extension = os.path.splitext(save_path)
+    elif cmd_args.mode == "train":
+        root_path, extension = os.path.splitext(cmd_args.save_path)
 
         # Build the main brick and initialize all parameters.
         recognizer = SpeechRecognizer(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
-        for brick_path, attribute, value in config['initialization']:
-            brick, = Selector(recognizer).select(brick_path).bricks
-            setattr(brick, attribute, eval(value))
-            brick.push_initialization_config()
-        recognizer.initialize()
+        if cmd_args.params:
+            recognizer.load_params(cmd_args.params)
+        else:
+            for brick_path, attribute, value in config['initialization']:
+                brick, = Selector(recognizer).select(brick_path).bricks
+                setattr(brick, attribute, eval(value))
+                brick.push_initialization_config()
+            recognizer.initialize()
+
+            logger.info("Initialization schemes for all bricks.\n\n"
+                "Works well only in my branch with __repr__ added to all them,\n",
+                "there is an issue #463 in Blocks to do that properly.")
+            def show_init_scheme(cur):
+                result = dict()
+                for attr in ['weights_init', 'biases_init']:
+                    if hasattr(cur, attr):
+                        result[attr] = getattr(cur, attr)
+                for child in cur.children:
+                    result[child.name] = show_init_scheme(child)
+                return result
+            logger.info("Initialization:" +
+                        pprint.pformat(show_init_scheme(recognizer)))
 
         batch_cost = recognizer.get_cost_graph().sum()
         batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
@@ -450,23 +467,10 @@ def main(mode, save_path, num_batches, config_path):
                         [(key, value.get_value().shape) for key, value
                          in params.items()],
                         width=120))
-        logger.info("Initialization schemes for all bricks.\n\n"
-            "Works well only in my branch with __repr__ added to all them,\n",
-            "there is an issue #463 in Blocks to do that properly.")
-        def show_init_scheme(cur):
-            result = dict()
-            for attr in ['weights_init', 'biases_init']:
-                if hasattr(cur, attr):
-                    result[attr] = getattr(cur, attr)
-            for child in cur.children:
-                result[child.name] = show_init_scheme(child)
-            return result
-        logger.info("Initialization:" +
-                    pprint.pformat(show_init_scheme(recognizer)))
 
+        # Fetch variables useful for debugging
         cg = ComputationGraph(cost)
         r = recognizer
-        # Fetch variables useful for debugging
         max_recording_length = named_copy(r.recordings.shape[0],
                                           "max_recording_length")
         max_num_phonemes = named_copy(r.labels.shape[0],
@@ -559,9 +563,9 @@ def main(mode, save_path, num_batches, config_path):
             extensions=([
                 Timing(),
                 every_batch, average, validation, per, track_the_best,
-                FinishAfter(after_n_batches=num_batches)
+                FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
-                Plot(os.path.basename(save_path),
+                Plot(os.path.basename(cmd_args.save_path),
                      [[average.record_name(cost),
                        validation.record_name(cost)]
                        + ([average.record_name(regularized_cost)]
@@ -573,7 +577,7 @@ def main(mode, save_path, num_batches, config_path):
                       [average.record_name(weights_penalty),
                        validation.record_name(weights_penalty)]],
                      every_n_batches=10),
-                Checkpoint(save_path,
+                Checkpoint(cmd_args.save_path,
                            before_first_epoch=True, after_every_epoch=True,
                            save_separately=["model", "log"])
                 .add_condition(
@@ -587,8 +591,9 @@ def main(mode, save_path, num_batches, config_path):
                 ProgressBar(),
                 Printing(every_n_batches=1)]))
         main_loop.run()
-    elif mode == "search":
-        recognizer_brick, = cPickle.load(open(save_path)).get_top_bricks()
+    elif cmd_args.mode == "search":
+        recognizer_brick, = cPickle.load(
+            open(cmd_args.save_path)).get_top_bricks()
         recognizer = SpeechRecognizer(recognizer_brick)
         recognizer.init_beam_search(10)
 
