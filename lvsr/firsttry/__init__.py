@@ -135,11 +135,28 @@ def default_config():
             ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
             ('/recognizer', 'biases_init', 'Constant(0.0)'),
             ('/recognizer', 'rec_weights_init', 'Orthogonal()')]),
-        data=Config(batch_size=10))
+        data=Config(
+            batch_size=10,
+            normalization=None
+        ))
 
 
-class PhonemeRecognizerBrick(Initializable):
+class SpeechRecognizer(Initializable):
+    """Encapsulate all reusable logic.
 
+    This class plays a few roles: (a) it's a top brick that knows
+    how to combine bottom, bidirectional and recognizer network, (b)
+    it has the inputs variables and can build whole computation graphs
+    starting with them (c) it hides compilation of Theano functions
+    and initialization of beam search. I find it simpler to have it all
+    in one place for research code.
+
+    Parameters
+    ----------
+    All defining the structure and the dimensions of the model. Typically
+    receives everything from the "net" section of the config.
+
+    """
     def __init__(self, num_features, num_phonemes,
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
@@ -147,12 +164,13 @@ class PhonemeRecognizerBrick(Initializable):
                  attention_type,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, **kwargs):
-        super(PhonemeRecognizerBrick, self).__init__(**kwargs)
+        super(SpeechRecognizer, self).__init__(**kwargs)
         self.rec_weights_init = None
 
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
+        # Build the bricks
         encoder = Bidirectional(self.enc_transition(
             dim=dim_bidir, activation=Tanh()))
         fork = Fork([name for name in encoder.prototype.apply.sequences
@@ -163,19 +181,41 @@ class PhonemeRecognizerBrick(Initializable):
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
-
         # Choose attention mechanism according to the configuration
         if attention_type == "content":
+            # Simple content-based attention from ala machine translation project.
+            # The main deficiency: one wrongly generated phoneme ruins everything,
+            # there is no alignment memory to recover from.
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 name="cont_att")
         elif attention_type == "content_and_cumsum":
+            # Like "content", but for each position cumulative sum of weights
+            # from previous steps is an additional input for building match
+            # vector. Supposedly a cumsum close to 0 is interpreted as
+            # as a strong argument to give very low weight, which should protect
+            # us from jumping backward. It is less clear how this can protect
+            # from jumping too much forward. More qualitative analysis is needed.s
             attention = SequenceContentAndCumSumAttention(
                 state_names=transition.apply.states,
+                # `Dump` is a peculiar one, mostly needed now to save `.npz`
+                # files in addition to pickles. There is #474, where we discuss
+                # the best way to get rid of it.
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 name="cont_att")
         elif attention_type == "hybrid":
+            # Like "content", but with an additional location-based attention
+            # mechanism. It takes the current state as input and predicts
+            # good shifts from the current position (where the current position
+            # is a truncated to an integer expected position). This predictions
+            # in the forms of energies for each position ares added to the energies
+            # produced by the content-based attention. In fact only for shifts
+            # in the range [-max_left; max_right] the energies are computed,
+            # for other shifts padding is used. Setting padding to a small value
+            # like -10 acts as forcing the network to operate within a certain
+            # window near its current position and significantly speeds up
+            # training.
             predictor = MLP([Tanh(), None],
                             [None] + shift_predictor_dims + [None],
                             name="predictor")
@@ -191,6 +231,9 @@ class PhonemeRecognizerBrick(Initializable):
                 location_attention=location_attention,
                 name="hybrid_att")
         elif attention_type == "hybrid2":
+            # An attempt to replicate gating mechnanism by Jan. Crashes
+            # when log-likelihood is about 50, further investigations
+            # are needed.
             predictor = MLP([Tanh(), None],
                             [None] + shift_predictor_dims + [None],
                             name="predictor")
@@ -203,7 +246,6 @@ class PhonemeRecognizerBrick(Initializable):
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 location_attention=location_attention,
                 name="hybrid_att")
-
         readout = Readout(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
@@ -215,14 +257,23 @@ class PhonemeRecognizerBrick(Initializable):
             readout=readout, transition=transition, attention=attention,
             name="generator")
 
+        # Remember child bricks
         self.encoder = encoder
         self.fork = fork
         self.bottom = bottom
         self.generator = generator
         self.children = [encoder, fork, bottom, generator]
 
+        # Create input variables
+        self.recordings = tensor.tensor3("recordings")
+        self.recordings_mask = tensor.matrix("recordings_mask")
+        self.labels = tensor.lmatrix("labels")
+        self.labels_mask = tensor.matrix("labels_mask")
+        self.single_recording = tensor.matrix("single_recording")
+        self.single_transcription = tensor.lvector("single_transcription")
+
     def _push_initialization_config(self):
-        super(PhonemeRecognizerBrick, self)._push_initialization_config()
+        super(SpeechRecognizer, self)._push_initialization_config()
         if self.rec_weights_init:
             self.encoder.weights_init = self.rec_weights_init
             self.generator.transition.transition.weights_init = self.rec_weights_init
@@ -247,34 +298,21 @@ class PhonemeRecognizerBrick(Initializable):
                              as_dict=True))),
             attended_mask=tensor.ones_like(recordings[:, :, 0]))
 
-
-class PhonemeRecognizer(object):
-
-    def __init__(self, brick):
-        self.brick = brick
-
-        self.recordings = tensor.tensor3("recordings")
-        self.recordings_mask = tensor.matrix("recordings_mask")
-        self.labels = tensor.lmatrix("labels")
-        self.labels_mask = tensor.matrix("labels_mask")
-        self.single_recording = tensor.matrix("single_recording")
-        self.single_transcription = tensor.lvector("single_transcription")
-
     def load_params(self, path):
         generated = self.get_generate_graph()
         Model(generated[1]).set_param_values(load_parameter_values(path))
 
     def get_generate_graph(self):
-        return self.brick.generate(self.recordings)
+        return self.generate(self.recordings)
 
     def get_cost_graph(self, batch=True):
         if batch:
-            return self.brick.cost(
+            return self.cost(
                        self.recordings, self.recordings_mask,
                        self.labels, self.labels_mask)
         recordings = self.single_recording[:, None, :]
         labels = self.single_transcription[:, None]
-        return self.brick.cost(
+        return self.cost(
             recordings, tensor.ones_like(recordings[:, :, 0]),
             labels, None)
 
@@ -293,7 +331,7 @@ class PhonemeRecognizer(object):
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
-            bricks=[self.brick.generator], name="outputs")(
+            bricks=[self.generator], name="outputs")(
                 ComputationGraph(generated[1]))
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
@@ -369,8 +407,8 @@ def main(mode, save_path, num_batches, config_path):
     elif mode == "train":
         root_path, extension = os.path.splitext(save_path)
 
-        # Build the bricks
-        recognizer = PhonemeRecognizerBrick(
+        # Build the main brick and initialize all parameters.
+        recognizer = SpeechRecognizer(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         for brick_path, attribute, value in config['initialization']:
             brick, = Selector(recognizer).select(brick_path).bricks
@@ -378,19 +416,18 @@ def main(mode, save_path, num_batches, config_path):
             brick.push_initialization_config()
         recognizer.initialize()
 
-        # Build the cost computation graph
-        recordings = tensor.tensor3("recordings")
-        recordings_mask = tensor.matrix("recordings_mask")
-        labels = tensor.lmatrix("labels")
-        labels_mask = tensor.matrix("labels_mask")
-        batch_cost = recognizer.cost(
-            recordings, recordings_mask, labels, labels_mask).sum()
-        batch_size = named_copy(recordings.shape[1], "batch_size")
+        batch_cost = recognizer.get_cost_graph().sum()
+        batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
         cost = aggregation.mean(batch_cost,  batch_size)
         cost.name = "sequence_log_likelihood"
         logger.info("Cost graph is built")
 
-        # Give an idea of what's going on
+        # Model is weird class, we spend lots of time arguing with Bart
+        # what it should be. However it can already nice things, e.g.
+        # one extract all the parameters from the computation graphs
+        # and give them hierahical names. This help to notice when a
+        # because of some bug a parameter is not in the computation
+        # graph.
         model = Model(cost)
         params = model.get_params()
         logger.info("Parameters:\n" +
@@ -398,6 +435,9 @@ def main(mode, save_path, num_batches, config_path):
                         [(key, value.get_value().shape) for key, value
                          in params.items()],
                         width=120))
+        logger.info("Initialization schemes for all bricks.\n\n"
+            "Works well only in my branch with __repr__ added to all them,\n",
+            "there is an issue #463 in Blocks to do that properly.")
         def show_init_scheme(cur):
             result = dict()
             for attr in ['weights_init', 'biases_init']:
@@ -412,9 +452,9 @@ def main(mode, save_path, num_batches, config_path):
         cg = ComputationGraph(cost)
         r = recognizer
         # Fetch variables useful for debugging
-        max_recording_length = named_copy(recordings.shape[0],
+        max_recording_length = named_copy(r.recordings.shape[0],
                                           "max_recording_length")
-        max_num_phonemes = named_copy(labels.shape[0],
+        max_num_phonemes = named_copy(r.labels.shape[0],
                                       "max_num_phonemes")
         cost_per_phoneme = named_copy(
             aggregation.mean(batch_cost, batch_size * max_num_phonemes),
@@ -435,14 +475,14 @@ def main(mode, save_path, num_batches, config_path):
         mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                         "mean_bottom_output")
         weights_penalty = aggregation.mean(
-            named_copy(monotonicity_penalty(weights, labels_mask),
+            named_copy(monotonicity_penalty(weights, r.labels_mask),
                        "weights_penalty_per_recording"),
             batch_size)
         weights_entropy = aggregation.mean(
-            named_copy(entropy(weights, labels_mask),
+            named_copy(entropy(weights, r.labels_mask),
                        "weights_entropy_per_phoneme"),
-            labels_mask.sum())
-        mask_density = named_copy(labels_mask.mean(),
+            r.labels_mask.sum())
+        mask_density = named_copy(r.labels_mask.mean(),
                                   "mask_density")
 
         # Regularization.
@@ -469,12 +509,15 @@ def main(mode, save_path, num_batches, config_path):
             algorithm.total_step_norm, algorithm.total_gradient_norm]
         if cost != regularized_cost:
             observables = [regularized_cost] + observables
+        # More variables for debugging: some of them can be added only
+        # after the `algorithm` object is created.
         for name, param in params.items():
             observables.append(named_copy(
                 param.norm(2), name + "_norm"))
             observables.append(named_copy(
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
+        # Build main loop.
         timit_valid = TIMIT("valid")
         every_batch = TrainingDataMonitoring(
             [algorithm.total_gradient_norm], after_every_batch=True)
@@ -485,10 +528,9 @@ def main(mode, save_path, num_batches, config_path):
             build_stream(timit_valid, **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
             after_every_epoch=True)
-        pr = PhonemeRecognizer(recognizer)
-        pr.init_beam_search(10)
+        recognizer.init_beam_search(10)
         per = PERExtension(
-            pr, timit_valid,
+            recognizer, timit_valid,
             build_stream(timit_valid, None,
                   normalization=config["data"]["normalization"]),
             before_first_epoch=True, every_n_epochs=3)
@@ -516,10 +558,9 @@ def main(mode, save_path, num_batches, config_path):
                       [average.record_name(weights_penalty),
                        validation.record_name(weights_penalty)]],
                      every_n_batches=10),
-                Dump(root_path, after_every_epoch=True),
                 Checkpoint(save_path,
                            before_first_epoch=True, after_every_epoch=True,
-                           save_separately=["model"])
+                           save_separately=["model", "log"])
                 .add_condition(
                     'after_epoch',
                     OnLogRecord(track_the_best.notification_name),
@@ -533,7 +574,7 @@ def main(mode, save_path, num_batches, config_path):
         main_loop.run()
     elif mode == "search":
         recognizer_brick, = cPickle.load(open(save_path)).get_top_bricks()
-        recognizer = PhonemeRecognizer(recognizer_brick)
+        recognizer = SpeechRecognizer(recognizer_brick)
         recognizer.init_beam_search(10)
 
         timit = TIMIT("valid")

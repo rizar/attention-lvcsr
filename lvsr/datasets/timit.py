@@ -1,11 +1,15 @@
 import os.path
 import cPickle
+import logging
 from collections import OrderedDict
 
 import numpy
 from fuel.datasets import IndexableDataset
 from fuel.utils import do_not_pickle_attributes
 from fuel import config as fuel_config
+
+logger = logging.getLogger(__name__)
+
 
 @do_not_pickle_attributes(
     'num_examples', 'indexables')
