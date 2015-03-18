@@ -432,6 +432,7 @@ def main(cmd_args):
         recognizer = SpeechRecognizer(
             129, TIMIT.num_phonemes, name="recognizer", **config["net"])
         if cmd_args.params:
+            logger.info("Load parameters from " + cmd_args.params)
             recognizer.load_params(cmd_args.params)
         else:
             for brick_path, attribute, value in config['initialization']:
@@ -440,8 +441,8 @@ def main(cmd_args):
                 brick.push_initialization_config()
             recognizer.initialize()
 
-            logger.info("Initialization schemes for all bricks.\n\n"
-                "Works well only in my branch with __repr__ added to all them,\n",
+            logger.info("Initialization schemes for all bricks.\n"
+                "Works well only in my branch with __repr__ added to all them,\n"
                 "there is an issue #463 in Blocks to do that properly.")
             def show_init_scheme(cur):
                 result = dict()
