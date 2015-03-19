@@ -452,8 +452,7 @@ def main(cmd_args):
                 for child in cur.children:
                     result[child.name] = show_init_scheme(child)
                 return result
-            logger.info("Initialization:" +
-                        pprint.pformat(show_init_scheme(recognizer)))
+            logger.info(pprint.pformat(show_init_scheme(recognizer)))
 
         batch_cost = recognizer.get_cost_graph().sum()
         batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
@@ -461,23 +460,23 @@ def main(cmd_args):
         cost.name = "sequence_log_likelihood"
         logger.info("Cost graph is built")
 
-        # Model is weird class, we spend lots of time arguing with Bart
-        # what it should be. However it can already nice things, e.g.
-        # one extract all the parameters from the computation graphs
-        # and give them hierahical names. This help to notice when a
-        # because of some bug a parameter is not in the computation
-        # graph.
-        model = Model(cost)
-        params = model.get_params()
-        logger.info("Parameters:\n" +
-                    pprint.pformat(
-                        [(key, value.get_value().shape) for key, value
-                         in params.items()],
-                        width=120))
-
-        # Fetch variables useful for debugging
-        cg = ComputationGraph(cost)
+        # Fetch variables useful for debugging.
+        # Variables are fetched from a clean graph, without
+        # regularization, which will be added later to all of them.
+        cost_cg = ComputationGraph(cost)
         r = recognizer
+        (energies,) = VariableFilter(
+            application=r.generator.readout.readout, name="output")(
+                    cost_cg)
+        (bottom_output,) = VariableFilter(
+            application=r.bottom.apply, name="output")(
+                    cost_cg)
+        (attended,) = VariableFilter(
+            application=r.generator.transition.apply, name="attended$")(
+                    cost_cg)
+        (weights,) = VariableFilter(
+            application=r.generator.cost, name="weights")(
+                    cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                           "max_recording_length")
         max_num_phonemes = named_copy(r.labels.shape[0],
@@ -485,17 +484,8 @@ def main(cmd_args):
         cost_per_phoneme = named_copy(
             aggregation.mean(batch_cost, batch_size * max_num_phonemes),
             "phoneme_log_likelihood")
-        (energies,) = VariableFilter(
-            application=r.generator.readout.readout, name="output")(
-                    cg.variables)
         min_energy = named_copy(energies.min(), "min_energy")
         max_energy = named_copy(energies.max(), "max_energy")
-        (bottom_output,) = VariableFilter(
-            application=r.bottom.apply, name="output")(cg)
-        (attended,) = VariableFilter(
-            application=r.generator.transition.apply, name="attended$")(cg)
-        (weights,) = VariableFilter(
-            application=r.generator.cost, name="weights")(cg)
         mean_attended = named_copy(abs(attended).mean(),
                                    "mean_attended")
         mean_bottom_output = named_copy(abs(bottom_output).mean(),
@@ -510,33 +500,49 @@ def main(cmd_args):
             r.labels_mask.sum())
         mask_density = named_copy(r.labels_mask.mean(),
                                   "mask_density")
-
-        # Regularization.
-        regularized_cost = cost
-        if config['regularization']['dropout']:
-            logger.info('apply dropout')
-            cg_dropout = apply_dropout(cg, [bottom_output], 0.5)
-            regularized_cost = named_copy(cg_dropout.outputs[0],
-                                          'dropout_' + cost.name)
-
-        # Define the training algorithm.
-        algorithm = GradientDescent(
-            cost=regularized_cost, params=cg.parameters,
-            step_rule=CompositeRule([StepClipping(100.0),
-                                     Scale(0.01),
-                                     RemoveNotFinite(0.0)]))
-
-        observables = [
+        cg = ComputationGraph([
             cost, cost_per_phoneme,
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
             weights_penalty, weights_entropy,
-            batch_size, max_recording_length, max_num_phonemes, mask_density,
-            algorithm.total_step_norm, algorithm.total_gradient_norm]
-        if cost != regularized_cost:
-            observables = [regularized_cost] + observables
+            batch_size, max_recording_length, max_num_phonemes, mask_density])
+
+        # Regularization.
+        regularized_cost = cost
+        regularized_cg = cg
+        if config['regularization']['dropout']:
+            logger.info('apply dropout')
+            regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
+            regularized_cost = regularized_cg.outputs[0]
+        observables = regularized_cg.outputs[1:]
+
+        # Model is weird class, we spend lots of time arguing with Bart
+        # what it should be. However it can already nice things, e.g.
+        # one extract all the parameters from the computation graphs
+        # and give them hierahical names. This help to notice when a
+        # because of some bug a parameter is not in the computation
+        # graph.
+        model = Model(regularized_cost)
+        params = model.get_params()
+        logger.info("Parameters:\n" +
+                    pprint.pformat(
+                        [(key, value.get_value().shape) for key, value
+                         in params.items()],
+                        width=120))
+
+        # Define the training algorithm.
+        algorithm = GradientDescent(
+            cost=regularized_cost, params=params.values(),
+            step_rule=CompositeRule([StepClipping(100.0),
+                                     Scale(0.01),
+                                     # Parameters are not changed at all
+                                     # when nans are encountered.
+                                     RemoveNotFinite(0.0)]))
+
         # More variables for debugging: some of them can be added only
         # after the `algorithm` object is created.
+        observables += [
+            algorithm.total_step_norm, algorithm.total_gradient_norm]
         for name, param in params.items():
             observables.append(named_copy(
                 param.norm(2), name + "_norm"))
@@ -549,6 +555,8 @@ def main(cmd_args):
             [algorithm.total_gradient_norm], after_every_batch=True)
         average = TrainingDataMonitoring(
             observables, prefix="average", every_n_batches=10)
+        # We monitor "clean" variables on the validation set, without
+        # regularization.
         validation = DataStreamMonitoring(
             [cost, cost_per_phoneme, weights_entropy, weights_penalty],
             build_stream(timit_valid, **config["data"]), prefix="valid",
