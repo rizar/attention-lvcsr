@@ -27,5 +27,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--params", default=None, type=str,
         help="Load parameters for this file.")
+    parser.add_argument(
+        "--fast-start", default=False, action="store_true",
+        help="Skip initial validation cost and PER computatoins.")
     args = parser.parse_args()
     main(args)

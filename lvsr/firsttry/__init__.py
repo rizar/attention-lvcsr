@@ -501,7 +501,6 @@ def main(cmd_args):
             cost, weights_penalty, weights_entropy,
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
-            weights_penalty, weights_entropy,
             batch_size, max_recording_length, max_num_phonemes,
             mask_density])
 
@@ -574,7 +573,7 @@ def main(cmd_args):
         validation = DataStreamMonitoring(
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             build_stream(timit_valid, **config["data"]), prefix="valid",
-            before_first_epoch=True, on_resumption=True,
+            before_first_epoch=not cmd_args.fast_start, on_resumption=True,
             after_epoch=True)
         recognizer.init_beam_search(10)
         # This will soon be replaced by Blocks #435.
@@ -582,7 +581,7 @@ def main(cmd_args):
             recognizer, timit_valid,
             build_stream(timit_valid, None,
                   normalization=config["data"]["normalization"]),
-            before_first_epoch=True, every_n_epochs=3)
+            before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
         track_the_best = TrackTheBest('per').set_conditions(
             before_first_epoch=True, after_epoch=True)
         main_loop = MainLoop(
