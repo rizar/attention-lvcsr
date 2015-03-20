@@ -558,7 +558,7 @@ def main(cmd_args):
                                              'weights_penalty_per_recording'))
                 elif var.name == 'weights_entropy':
                     result.append(named_copy(aggregation.mean(
-                        var, recognizer.labels.sum()), 'weights_entropy_per_label'))
+                        var, recognizer.labels_mask.sum()), 'weights_entropy_per_label'))
                 else:
                     result.append(var)
             return result
