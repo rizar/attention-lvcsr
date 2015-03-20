@@ -47,6 +47,7 @@ from fuel.schemes import SequentialScheme, ConstantScheme
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
+from lvsr.extensions import CGStatistics
 from lvsr.error_rate import wer
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
@@ -303,7 +304,7 @@ class SpeechRecognizer(Initializable):
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
-        return self.generator.cost(
+        return self.generator.cost_matrix(
             labels, labels_mask,
             attended=self.encoder.apply(
                 **dict_union(
@@ -478,7 +479,7 @@ def main(cmd_args):
             application=r.generator.transition.apply, name="attended$")(
                     cost_cg)
         (weights,) = VariableFilter(
-            application=r.generator.cost, name="weights")(
+            application=r.generator.cost_matrix, name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                          "max_recording_length")
@@ -591,6 +592,7 @@ def main(cmd_args):
             algorithm=algorithm,
             extensions=([
                 Timing(),
+                CGStatistics(),
                 every_batch, average, validation, per, track_the_best,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
