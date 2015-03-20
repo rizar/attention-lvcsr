@@ -456,13 +456,16 @@ def main(cmd_args):
 
         batch_cost = recognizer.get_cost_graph().sum()
         batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
-        cost = aggregation.mean(batch_cost,  batch_size)
+        # Assumes constant batch size. `aggregation.mean` is not used because
+        # of Blocks #514.
+        cost = batch_cost / batch_size
         cost.name = "sequence_log_likelihood"
         logger.info("Cost graph is built")
 
         # Fetch variables useful for debugging.
-        # Variables are fetched from a clean graph, without
-        # regularization, which will be added later to all of them.
+        # It is important not to use any aggregation schemes here,
+        # as it's currently impossible to spread the effect of
+        # regularization on their variables, see Blocks #514.
         cost_cg = ComputationGraph(cost)
         r = recognizer
         (energies,) = VariableFilter(
@@ -478,43 +481,37 @@ def main(cmd_args):
             application=r.generator.cost, name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
-                                          "max_recording_length")
+                                         "max_recording_length")
         max_num_phonemes = named_copy(r.labels.shape[0],
                                       "max_num_phonemes")
-        cost_per_phoneme = named_copy(
-            aggregation.mean(batch_cost, batch_size * max_num_phonemes),
-            "phoneme_log_likelihood")
         min_energy = named_copy(energies.min(), "min_energy")
         max_energy = named_copy(energies.max(), "max_energy")
         mean_attended = named_copy(abs(attended).mean(),
                                    "mean_attended")
         mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                         "mean_bottom_output")
-        weights_penalty = aggregation.mean(
-            named_copy(monotonicity_penalty(weights, r.labels_mask),
-                       "weights_penalty_per_recording"),
-            batch_size)
-        weights_entropy = aggregation.mean(
-            named_copy(entropy(weights, r.labels_mask),
-                       "weights_entropy_per_phoneme"),
-            r.labels_mask.sum())
+        weights_penalty = named_copy(monotonicity_penalty(weights, r.labels_mask),
+                                     "weights_penalty")
+        weights_entropy = named_copy(entropy(weights, r.labels_mask),
+                                     "weights_entropy")
         mask_density = named_copy(r.labels_mask.mean(),
                                   "mask_density")
         cg = ComputationGraph([
-            cost, cost_per_phoneme,
+            cost, weights_penalty, weights_entropy,
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
             weights_penalty, weights_entropy,
-            batch_size, max_recording_length, max_num_phonemes, mask_density])
+            batch_size, max_recording_length, max_num_phonemes,
+            mask_density])
 
-        # Regularization.
-        regularized_cost = cost
+        # Regularization. It is applied explicitly to all variables
+        # of interest, it could not be applied to the cost only as it
+        # would not have effect on auxiliary variables, see Blocks #514.
         regularized_cg = cg
         if config['regularization']['dropout']:
             logger.info('apply dropout')
             regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
-            regularized_cost = regularized_cg.outputs[0]
-        observables = regularized_cg.outputs[1:]
+        regularized_cost = regularized_cg.outputs[0]
 
         # Model is weird class, we spend lots of time arguing with Bart
         # what it should be. However it can already nice things, e.g.
@@ -541,6 +538,7 @@ def main(cmd_args):
 
         # More variables for debugging: some of them can be added only
         # after the `algorithm` object is created.
+        observables = regularized_cg.outputs
         observables += [
             algorithm.total_step_norm, algorithm.total_gradient_norm]
         for name, param in params.items():
@@ -549,27 +547,43 @@ def main(cmd_args):
             observables.append(named_copy(
                 algorithm.gradients[param].norm(2), name + "_grad_norm"))
 
+        def attach_aggregation_schemes(variables):
+            # Aggregation specification has to be factored out as a separate
+            # function as it has to be applied at the very last stage
+            # separately to training and validation observables.
+            result = []
+            for var in variables:
+                if var.name == 'weights_penalty':
+                    result.append(named_copy(aggregation.mean(var, batch_size),
+                                             'weights_penalty_per_recording'))
+                elif var.name == 'weights_entropy':
+                    result.append(named_copy(aggregation.mean(
+                        var, recognizer.labels.sum()), 'weights_entropy_per_label'))
+                else:
+                    result.append(var)
+            return result
+
         # Build main loop.
         timit_valid = TIMIT("valid")
         every_batch = TrainingDataMonitoring(
-            [algorithm.total_gradient_norm], after_every_batch=True)
+            [algorithm.total_gradient_norm], after_batch=True)
         average = TrainingDataMonitoring(
-            observables, prefix="average", every_n_batches=10)
-        # We monitor "clean" variables on the validation set, without
-        # regularization.
+            attach_aggregation_schemes(observables),
+            prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
-            [cost, cost_per_phoneme, weights_entropy, weights_penalty],
+            attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             build_stream(timit_valid, **config["data"]), prefix="valid",
             before_first_epoch=True, on_resumption=True,
-            after_every_epoch=True)
+            after_epoch=True)
         recognizer.init_beam_search(10)
+        # This will soon be replaced by Blocks #435.
         per = PERExtension(
             recognizer, timit_valid,
             build_stream(timit_valid, None,
                   normalization=config["data"]["normalization"]),
             before_first_epoch=True, every_n_epochs=3)
         track_the_best = TrackTheBest('per').set_conditions(
-            before_first_epoch=True, after_every_epoch=True)
+            before_first_epoch=True, after_epoch=True)
         main_loop = MainLoop(
             model=model,
             data_stream=build_stream(
@@ -580,20 +594,25 @@ def main(cmd_args):
                 every_batch, average, validation, per, track_the_best,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
+                # Live plotting: requires launching `bokeh-server`
+                # and allows to see what happens online.
                 Plot(os.path.basename(cmd_args.save_path),
-                     [[average.record_name(cost),
-                       validation.record_name(cost)]
-                       + ([average.record_name(regularized_cost)]
-                           if cost != regularized_cost else []),
+                     [# Plot 1: training and validation costs
+                      [average.record_name(regularized_cost),
+                       validation.record_name(cost)],
+                      # Plot 2: gradient norm,
                       [average.record_name(algorithm.total_gradient_norm)],
+                      # Plot 3: phoneme error rate
                       ['per'],
-                      [average.record_name(weights_entropy),
-                       validation.record_name(weights_entropy)],
-                      [average.record_name(weights_penalty),
-                       validation.record_name(weights_penalty)]],
+                      # Plot 4: training and validation mean weight entropy
+                      [average._record_name('weights_entropy_per_recording'),
+                       validation._record_name('weights_entropy_per_recording')],
+                      # Plot 5: training and validation monotonicity penalty
+                      [average._record_name('weights_penalty_per_recording'),
+                       validation._record_name('weights_penalty_per_recording')]],
                      every_n_batches=10),
                 Checkpoint(cmd_args.save_path,
-                           before_first_epoch=True, after_every_epoch=True,
+                           before_first_epoch=True, after_epoch=True,
                            save_separately=["model", "log"])
                 .add_condition(
                     'after_epoch',
