@@ -606,8 +606,8 @@ def main(cmd_args):
                       # Plot 3: phoneme error rate
                       ['per'],
                       # Plot 4: training and validation mean weight entropy
-                      [average._record_name('weights_entropy_per_recording'),
-                       validation._record_name('weights_entropy_per_recording')],
+                      [average._record_name('weights_entropy_per_label'),
+                       validation._record_name('weights_entropy_per_label')],
                       # Plot 5: training and validation monotonicity penalty
                       [average._record_name('weights_penalty_per_recording'),
                        validation._record_name('weights_penalty_per_recording')]],
