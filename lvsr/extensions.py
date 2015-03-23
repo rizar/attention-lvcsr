@@ -17,4 +17,4 @@ class CGStatistics(SimpleExtension):
         scan_nodes = [
             node for node in self.main_loop.algorithm._function.maker.fgraph.apply_nodes
             if isinstance(node.op, Scan)]
-        print("\tnumber of scan ops:", len(scan_nodes))
+        print("\tnumber of scan nodes:", len(scan_nodes))
