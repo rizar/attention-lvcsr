@@ -1,3 +1,6 @@
 [submodule "blocks"]
 	path = blocks
 	url = git@github.com:rizar/blocks.git
+[submodule "Theano"]
+	path = Theano
+	url = https://github.com/Theano/Theano
