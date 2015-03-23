@@ -28,8 +28,16 @@ All the code is in _lvsr_. It is structured as follows:
 
 1. Install blocks, see http://blocks.readthedocs.org/en/latest/setup.html.
 
-2. Make sure that _$FUEL_PATH/timit_ contains all required data (I will archive it and upload 
-   to your server, Jan)
+   OR
+
+   If you want to be on the safe side, use submodules _Theano_ and _blocks_.
+   This will give you the right versions. Run `source env.sh` in the repository
+   root, to setup _$PYTHONPATH_, note that it will not work if these packages are
+   already installed locally in the development mode (that is `python setup.py
+   develop`). Another issue is that all the dependencies will have to be installed
+   manually, if not present.
+
+2. Make sure that _$FUEL\_PATH/timit_ contains all required data.
 
 3. Prepare the normalization parameters. Forcing feature means to be zero and variances 
    one has proven to be crucial to make anything work.
