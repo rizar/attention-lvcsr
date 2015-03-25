@@ -42,3 +42,10 @@ class CodeVersion(SimpleExtension):
             self.main_loop.log.status[git_diff_record] = (
                 subprocess.check_output("git diff",
                                         cwd=path, shell=True))
+
+
+class IPDB(SimpleExtension):
+
+    def do(self, *args, **kwargs):
+        import ipdb; ipdb.set_trace()
+

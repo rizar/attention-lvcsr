@@ -1,5 +1,4 @@
 from __future__ import print_function
-from abc import ABCMeta, abstractmethod
 import logging
 import pprint
 import math
@@ -26,6 +25,7 @@ from blocks.algorithms import (GradientDescent, Scale,
                                Momentum, RemoveNotFinite)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
+from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
 from blocks.extensions.saveload import Checkpoint, Dump
@@ -53,6 +53,8 @@ from lvsr.error_rate import wer
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
     SequenceContentAndCumSumAttention)
+
+from lvsr.firsttry.config import Config, InitList, default_config
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -113,58 +115,6 @@ def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
     stream = Mapping(
         stream, switch_first_two_axes)
     return stream
-
-# My custom configuration language - sorry for this crap, but
-# 'state' for solution from groundhog does not have features
-# I need and I was too lazy to find a proper solution.
-
-class BaseConfig(object):
-    # Python 3 goes to hell!
-    __metaclass__ = ABCMeta
-
-    @abstractmethod
-    def merge(self, other):
-        pass
-
-
-class Config(BaseConfig, dict):
-
-    def __getattr__(self, name):
-        return self[name]
-
-    def merge(self, other):
-        for key in other:
-            if isinstance(self.get(key), BaseConfig):
-                self[key].merge(other[key])
-            else:
-                self[key] = other[key]
-
-
-class InitList(BaseConfig, list):
-
-    def merge(self, other):
-        self.extend(other)
-
-
-def default_config():
-    return Config(
-        net=Config(
-            dim_dec=100, dim_bidir=100, dims_bottom=[100],
-            enc_transition='SimpleRecurrent',
-            dec_transition='SimpleRecurrent',
-            attention_type='content',
-            use_states_for_readout=False),
-        regularization=Config(
-            dropout=False,
-            noise=None),
-        initialization=InitList([
-            ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
-            ('/recognizer', 'biases_init', 'Constant(0.0)'),
-            ('/recognizer', 'rec_weights_init', 'Orthogonal()')]),
-        data=Config(
-            batch_size=10,
-            normalization=None
-        ))
 
 
 class SpeechRecognizer(Initializable):
@@ -295,8 +245,10 @@ class SpeechRecognizer(Initializable):
         self.recordings_mask = tensor.matrix("recordings_mask")
         self.labels = tensor.lmatrix("labels")
         self.labels_mask = tensor.matrix("labels_mask")
-        self.single_recording = tensor.matrix("single_recording")
-        self.single_transcription = tensor.lvector("single_transcription")
+        self.batch_inputs = [self.recordings, self.recordings_mask,
+                             self.labels, self.labels_mask]
+        self.single_recording = tensor.matrix("recordings")
+        self.single_transcription = tensor.lvector("labels")
 
     def _push_initialization_config(self):
         super(SpeechRecognizer, self)._push_initialization_config()
@@ -376,37 +328,37 @@ class SpeechRecognizer(Initializable):
         return outputs, search_costs
 
 
-class PERExtension(SimpleExtension):
+class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, dataset, stream, **kwargs):
+    def __init__(self, recognizer, dataset, **kwargs):
         self.recognizer = recognizer
+        # Will only be used to decode generated outputs,
+        # which is necessary for correct scoring.
         self.dataset = dataset
-        self.stream = stream
-        super(PERExtension, self).__init__(**kwargs)
+        kwargs.setdefault('name', 'per')
+        kwargs.setdefault('requires', [self.recognizer.single_recording,
+                                       self.recognizer.single_transcription])
+        super(PhonemeErrorRate, self).__init__(**kwargs)
 
-    def do(self, which_callback, *args):
-        logger.info("PER computing started")
-        error_sum = 0.0
-        num_examples = 0.0
-        for data in self.stream.get_epoch_iterator():
-            outputs, search_costs = self.recognizer.beam_search(data[0])
-            recognized = self.dataset.decode(outputs[0])
-            groundtruth = self.dataset.decode(data[1])
-            error = min(1, wer(groundtruth, recognized))
-            error_sum += error
-            num_examples += 1
-            mean_error = error_sum / num_examples
-            if num_examples > 10 and mean_error > 0.8:
-                mean_error = 1
-                break
-        self.main_loop.log.current_row.per = mean_error
-        logger.info("PER computing done")
+    def initialize(self):
+        self.error_sum = 0
+        self.num_examples = 0
 
+    def accumulate(self, recording, transcription):
+        # Hack to avoid hopeless decoding of an untrained model
+        if self.num_examples > 10 and self.mean_error > 0.8:
+            self.mean_error = 1
+            return
+        outputs, search_costs = self.recognizer.beam_search(recording)
+        recognized = self.dataset.decode(outputs[0])
+        groundtruth = self.dataset.decode(transcription)
+        error = min(1, wer(groundtruth, recognized))
+        self.error_sum += error
+        self.num_examples += 1
+        self.mean_error = self.error_sum / self.num_examples
 
-class IPDB(SimpleExtension):
-
-    def do(self, *args, **kwargs):
-        import ipdb; ipdb.set_trace()
+    def readout(self):
+        return self.mean_error
 
 
 def main(cmd_args):
@@ -571,23 +523,23 @@ def main(cmd_args):
 
         # Build main loop.
         timit_valid = TIMIT("valid")
-        every_batch = TrainingDataMonitoring(
+        every_batch_monitoring = TrainingDataMonitoring(
             [algorithm.total_gradient_norm], after_batch=True)
-        average = TrainingDataMonitoring(
+        average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             build_stream(timit_valid, **config["data"]), prefix="valid",
-            before_first_epoch=not cmd_args.fast_start, on_resumption=True,
+            before_first_epoch=not cmd_args.fast_start,
             after_epoch=True)
         recognizer.init_beam_search(10)
-        # This will soon be replaced by Blocks #435.
-        per = PERExtension(
-            recognizer, timit_valid,
-            build_stream(timit_valid, None,
-                  normalization=config["data"]["normalization"]),
-            before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
+        per = PhonemeErrorRate(recognizer, timit_valid)
+        per_monitoring = DataStreamMonitoring(
+            [per], build_stream(timit_valid, None,
+                                normalization=config["data"]["normalization"]),
+            prefix="valid").set_conditions(
+                before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
         track_the_best = TrackTheBest('per').set_conditions(
             before_first_epoch=True, after_epoch=True)
         # Save the config into the status
@@ -601,24 +553,26 @@ def main(cmd_args):
                 Timing(),
                 CGStatistics(),
                 CodeVersion(['lvsr']),
-                every_batch, average, validation, per, track_the_best,
+                every_batch_monitoring, average_monitoring,
+                validation, per_monitoring,
+                track_the_best,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
                 # Live plotting: requires launching `bokeh-server`
                 # and allows to see what happens online.
                 Plot(os.path.basename(cmd_args.save_path),
                      [# Plot 1: training and validation costs
-                      [average.record_name(regularized_cost),
+                      [average_monitoring.record_name(regularized_cost),
                        validation.record_name(cost)],
                       # Plot 2: gradient norm,
-                      [average.record_name(algorithm.total_gradient_norm)],
+                      [average_monitoring.record_name(algorithm.total_gradient_norm)],
                       # Plot 3: phoneme error rate
-                      ['per'],
+                      [per_monitoring.record_name(per)],
                       # Plot 4: training and validation mean weight entropy
-                      [average._record_name('weights_entropy_per_label'),
+                      [average_monitoring._record_name('weights_entropy_per_label'),
                        validation._record_name('weights_entropy_per_label')],
                       # Plot 5: training and validation monotonicity penalty
-                      [average._record_name('weights_penalty_per_recording'),
+                      [average_monitoring._record_name('weights_penalty_per_recording'),
                        validation._record_name('weights_penalty_per_recording')]],
                      every_n_batches=10),
                 Checkpoint(cmd_args.save_path,
