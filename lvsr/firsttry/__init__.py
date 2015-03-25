@@ -34,6 +34,7 @@ from blocks.extensions.monitoring import (
 from blocks.extensions.plot import Plot
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
+from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
@@ -47,7 +48,7 @@ from fuel.schemes import SequentialScheme, ConstantScheme
 from lvsr.datasets import TIMIT
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
-from lvsr.extensions import CGStatistics
+from lvsr.extensions import CGStatistics, CodeVersion
 from lvsr.error_rate import wer
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
@@ -589,14 +590,17 @@ def main(cmd_args):
             before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
         track_the_best = TrackTheBest('per').set_conditions(
             before_first_epoch=True, after_epoch=True)
+        # Save the config into the status
+        log = TrainingLog()
+        log.status['_config'] = config
         main_loop = MainLoop(
-            model=model,
+            model=model, log=log, algorithm=algorithm,
             data_stream=build_stream(
                 TIMIT("train"), **config["data"]),
-            algorithm=algorithm,
             extensions=([
                 Timing(),
                 CGStatistics(),
+                CodeVersion(['lvsr']),
                 every_batch, average, validation, per, track_the_best,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
