@@ -19,7 +19,7 @@ from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback)
-from blocks.graph import ComputationGraph, apply_dropout
+from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
@@ -154,7 +154,8 @@ def default_config():
             attention_type='content',
             use_states_for_readout=False),
         regularization=Config(
-            dropout=False),
+            dropout=False,
+            noise=None),
         initialization=InitList([
             ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
             ('/recognizer', 'biases_init', 'Constant(0.0)'),
@@ -507,10 +508,14 @@ def main(cmd_args):
         # Regularization. It is applied explicitly to all variables
         # of interest, it could not be applied to the cost only as it
         # would not have effect on auxiliary variables, see Blocks #514.
+        reg_config = config['regularization']
         regularized_cg = cg
-        if config['regularization']['dropout']:
+        if reg_config['dropout']:
             logger.info('apply dropout')
             regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
+        if reg_config['noise'] is not None:
+            logger.info('apply noise')
+            regularized_cg = apply_noise(cg, cg.parameters, reg_config['noise'])
         regularized_cost = regularized_cg.outputs[0]
 
         # Model is weird class, we spend lots of time arguing with Bart
