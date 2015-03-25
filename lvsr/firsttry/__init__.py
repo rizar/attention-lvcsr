@@ -276,8 +276,8 @@ class SpeechRecognizer(Initializable):
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
                 + [attention.take_glimpses.outputs[0]],
-            emitter=SoftmaxEmitter(name="emitter"),
-            feedback_brick=LookupFeedback(num_phonemes, dim_dec),
+            emitter=SoftmaxEmitter(initial_output=num_phonemes, name="emitter"),
+            feedback_brick=LookupFeedback(num_phonemes + 1, dim_dec),
             name="readout")
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
