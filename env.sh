@@ -3,9 +3,9 @@
 echo Change '$PYTHONPATH' so that the submodules were used.
 
 # The directory where the script is
-DIR=`pwd`
-BLOCKS=$DIR/blocks
-THEANO=$DIR/Theano
+LVSR=`pwd`
+BLOCKS=$LVSR/blocks
+THEANO=$LVSR/Theano
 
-export PYTHONPATH=$BLOCKS:$THEANO
+export PYTHONPATH=$LVSR:$BLOCKS:$THEANO
 echo New PYTHONPATH is $PYTHONPATH
