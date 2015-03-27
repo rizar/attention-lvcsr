@@ -45,7 +45,7 @@ from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack)
 from fuel.schemes import SequentialScheme, ConstantScheme
 
-from lvsr.datasets import TIMIT
+from lvsr.datasets import WSJ
 from lvsr.preprocessing import log_spectrogram, Normalization
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
 from lvsr.extensions import CGStatistics, CodeVersion
@@ -371,13 +371,13 @@ def main(cmd_args):
     logging.info("Config:\n" + pprint.pformat(config))
 
     if cmd_args.mode == "init_norm":
-        stream = build_stream(TIMIT("train"), None)
+        stream = build_stream(WSJ("train_si284"), None)
         normalization = Normalization(stream, "recordings")
         with open(cmd_args.save_path, "wb") as dst:
             cPickle.dump(normalization, dst)
 
     elif cmd_args.mode == "show_data":
-        stream = build_stream(TIMIT("train"), 10, **config.data)
+        stream = build_stream(WSJ("train_si"), 10, **config.data)
         pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
 
     elif cmd_args.mode == "train":
@@ -385,7 +385,7 @@ def main(cmd_args):
 
         # Build the main brick and initialize all parameters.
         recognizer = SpeechRecognizer(
-            129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+            129, WSJ.num_characters, name="recognizer", **config["net"])
         if cmd_args.params:
             logger.info("Load parameters from " + cmd_args.params)
             recognizer.load_params(cmd_args.params)
@@ -522,7 +522,7 @@ def main(cmd_args):
             return result
 
         # Build main loop.
-        timit_valid = TIMIT("valid")
+        timit_valid = WSJ("test_dev93")
         every_batch_monitoring = TrainingDataMonitoring(
             [algorithm.total_gradient_norm], after_batch=True)
         average_monitoring = TrainingDataMonitoring(
@@ -549,7 +549,7 @@ def main(cmd_args):
         main_loop = MainLoop(
             model=model, log=log, algorithm=algorithm,
             data_stream=build_stream(
-                TIMIT("train"), **config["data"]),
+                WSJ("train_si284"), **config["data"]),
             extensions=([
                 Timing(),
                 CGStatistics(),
@@ -597,11 +597,11 @@ def main(cmd_args):
                 open(cmd_args.cmd_args.save_path)).get_top_bricks()
         elif cmd_args.save_path.endswith('.npz'):
             recognizer = SpeechRecognizer(
-                129, TIMIT.num_phonemes, name="recognizer", **config["net"])
+                129, WSJ.num_characters, name="recognizer", **config["net"])
             recognizer.load_params(cmd_args.save_path)
         recognizer.init_beam_search(10)
 
-        timit = TIMIT("valid")
+        timit = WSJ("test_dev93")
         conf = config["data"]
         conf['batch_size'] = conf['sort_k_batches'] = None
         stream = build_stream(timit, **conf)
