@@ -545,7 +545,7 @@ def main(cmd_args):
                 before_first_epoch=True, after_epoch=True)
         # Save the config into the status
         log = TrainingLog()
-        log.status['_config'] = config
+        log.status['_config'] = pprint.pformat(config)
         main_loop = MainLoop(
             model=model, log=log, algorithm=algorithm,
             data_stream=build_stream(
