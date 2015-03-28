@@ -42,7 +42,8 @@ from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
 from blocks.select import Selector
 from fuel.transformers import (
-    SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack)
+    SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
+    Filter)
 from fuel.schemes import SequentialScheme, ConstantScheme
 
 from lvsr.datasets import WSJ
@@ -87,12 +88,15 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def build_stream(dataset, batch_size, sort_k_batches=None, normalization=None):
+def build_stream(dataset, batch_size, sort_k_batches=None,
+                 max_length=None, normalization=None):
     if normalization:
         with open(normalization, "rb") as src:
             normalization = cPickle.load(src)
 
     stream = dataset.get_example_stream()
+    if max_length:
+        stream = Filter(stream, _length)
     if sort_k_batches:
         assert batch_size
         stream = Batch(stream,

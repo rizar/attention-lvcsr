@@ -46,5 +46,6 @@ def default_config():
             ('/recognizer', 'rec_weights_init', 'Orthogonal()')]),
         data=Config(
             batch_size=10,
+            max_length=None,
             normalization=None
         ))
