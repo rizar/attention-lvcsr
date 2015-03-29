@@ -11,5 +11,5 @@ Config(
     initialization=[
         ("/recognizer", "rec_weights_init", "IsotropicGaussian(0.1)")],
     data=Config(
-        max_length=1250,
-        normalization="norm.pkl"))
+        max_length=200000,
+        normalization="wsj_norm.pkl"))

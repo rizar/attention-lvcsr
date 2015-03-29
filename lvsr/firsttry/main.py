@@ -65,6 +65,15 @@ def _length(example):
     return len(example[0])
 
 
+class _LengthFilter(object):
+
+    def __init__(self, max_length):
+        self.max_length = max_length
+
+    def __call__(self, example):
+        return len(example[0]) <= self.max_length
+
+
 def _gradient_norm_is_none(log):
     return math.isnan(log.current_row.total_gradient_norm)
 
@@ -96,7 +105,7 @@ def build_stream(dataset, batch_size, sort_k_batches=None,
 
     stream = dataset.get_example_stream()
     if max_length:
-        stream = Filter(stream, _length)
+        stream = Filter(stream, _LengthFilter(max_length))
     if sort_k_batches:
         assert batch_size
         stream = Batch(stream,
@@ -381,7 +390,7 @@ def main(cmd_args):
             cPickle.dump(normalization, dst)
 
     elif cmd_args.mode == "show_data":
-        stream = build_stream(WSJ("train_si"), 10, **config.data)
+        stream = build_stream(WSJ("train_si284"), **config['data'])
         pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
 
     elif cmd_args.mode == "train":
