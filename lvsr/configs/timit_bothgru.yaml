@@ -1,0 +1,7 @@
+data:
+    normalization: timit_norm.pkl
+net:
+    dec_transition: GatedRecurrent
+    enc_transition: GatedRecurrent
+initialization%extend:
+    - [/recognizer, rec_weights_init, IsotropicGaussian(0.1)]
