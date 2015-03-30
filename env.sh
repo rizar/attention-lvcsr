@@ -3,7 +3,7 @@
 echo Change '$PYTHONPATH' so that the submodules were used.
 
 # The directory where the script is
-LVSR=`pwd`
+export LVSR=`pwd`
 BLOCKS=$LVSR/blocks
 THEANO=$LVSR/Theano
 
