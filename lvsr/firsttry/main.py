@@ -78,10 +78,6 @@ def _gradient_norm_is_none(log):
     return math.isnan(log.current_row.total_gradient_norm)
 
 
-def _should_compute_per(log):
-    return log.status.epochs_done >= 20 and log.status.epochs_done % 3 == 0
-
-
 def apply_preprocessing(preprocessing, example):
     recording, label = example
     return (numpy.asarray(preprocessing(recording)), label)
