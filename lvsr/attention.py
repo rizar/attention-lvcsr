@@ -210,7 +210,7 @@ class HybridAttention(SequenceContentAttention):
 
 
 class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
-    @lazy
+    @lazy()
     def __init__(self, match_dim, state_transformer=None,
                  attended_transformer=None, energy_computer=None, **kwargs):
         super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)

@@ -478,16 +478,16 @@ def main(cmd_args):
         cost_cg = ComputationGraph(cost)
         r = recognizer
         (energies,) = VariableFilter(
-            application=r.generator.readout.readout, name="output")(
+            applications=r.generator.readout.readout, name="output_0")(
                     cost_cg)
         (bottom_output,) = VariableFilter(
-            application=r.bottom.apply, name="output")(
+            applications=r.bottom.apply, name="output")(
                     cost_cg)
         (attended,) = VariableFilter(
-            application=r.generator.transition.apply, name="attended$")(
+            applications=r.generator.transition.apply, name="attended")(
                     cost_cg)
         (weights,) = VariableFilter(
-            application=r.generator.cost_matrix, name="weights")(
+            applications=r.generator.cost_matrix, name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                          "max_recording_length")
