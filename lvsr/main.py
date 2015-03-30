@@ -45,6 +45,7 @@ from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
     Filter)
 from fuel.schemes import SequentialScheme, ConstantScheme
+from picklable_itertools.extras import equizip
 
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
@@ -410,6 +411,14 @@ def main(cmd_args):
         with open(cmd_args.config_path, 'rt') as src:
             config = read_config(src)
     config['cmd_args'] = cmd_args.__dict__
+    for path, value in equizip(
+            cmd_args.config_changes[::2],
+            cmd_args.config_changes[1::2]):
+        parts = path.split('.')
+        assign_to = config
+        for part in parts[:-1]:
+            assign_to = assign_to[part]
+        assign_to[parts[-1]] = eval(value)
     logging.info("Config:\n" + pprint.pformat(config, width=120))
 
     data = Data(**config['data'])

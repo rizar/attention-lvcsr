@@ -28,6 +28,7 @@ initialization:
     - [/recognizer, rec_weights_init, Orthogonal()]
 """))
 
+
 def read_config(file_):
     """Reads a config from a file object.
 
@@ -43,6 +44,7 @@ def read_config(file_):
             config = read_config(src)
     merge_recursively(config, changes)
     return config
+
 
 def merge_recursively(config, changes):
     for key, value in changes.items():
@@ -63,3 +65,4 @@ def merge_recursively(config, changes):
                 raise ValueError
         else:
             config[pure_key] = value
+
