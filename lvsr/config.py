@@ -26,6 +26,9 @@ initialization:
     - [/recognizer, weights_init, IsotropicGaussian(0.1)]
     - [/recognizer, biases_init, Constant(0.0)]
     - [/recognizer, rec_weights_init, Orthogonal()]
+training:
+    gradient_threshold: 100.0
+    scale: 0.01
 """))
 
 

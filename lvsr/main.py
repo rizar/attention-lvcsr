@@ -540,13 +540,15 @@ def main(cmd_args):
                         width=120))
 
         # Define the training algorithm.
+        train_conf = config['training']
         algorithm = GradientDescent(
             cost=regularized_cost, params=params.values(),
-            step_rule=CompositeRule([StepClipping(100.0),
-                                     Scale(0.01),
-                                     # Parameters are not changed at all
-                                     # when nans are encountered.
-                                     RemoveNotFinite(0.0)]))
+            step_rule=CompositeRule([
+                StepClipping(train_conf['gradient_threshold']),
+                Scale(train_conf['scale']),
+                # Parameters are not changed at all
+                # when nans are encountered.
+                RemoveNotFinite(0.0)]))
 
         # More variables for debugging: some of them can be added only
         # after the `algorithm` object is created.
