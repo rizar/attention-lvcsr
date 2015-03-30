@@ -46,16 +46,16 @@ from fuel.transformers import (
     Filter)
 from fuel.schemes import SequentialScheme, ConstantScheme
 
-from lvsr.datasets import WSJ
-from lvsr.preprocessing import log_spectrogram, Normalization
-from lvsr.expressions import monotonicity_penalty, entropy, weights_std
-from lvsr.extensions import CGStatistics, CodeVersion
-from lvsr.error_rate import wer
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
     SequenceContentAndCumSumAttention)
+from lvsr.config import prototype, read_config
+from lvsr.datasets import TIMIT, WSJ
+from lvsr.expressions import monotonicity_penalty, entropy, weights_std
+from lvsr.extensions import CGStatistics, CodeVersion
+from lvsr.error_rate import wer
+from lvsr.preprocessing import log_spectrogram, Normalization
 
-from lvsr.firsttry.config import Config, InitList, default_config
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -75,7 +75,7 @@ class _LengthFilter(object):
 
 
 def _gradient_norm_is_none(log):
-    return math.isnan(log.current_row.total_gradient_norm)
+    return math.isnan(log.current_row.get('total_gradient_norm', 0))
 
 
 def apply_preprocessing(preprocessing, example):
@@ -93,37 +93,70 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def build_stream(dataset, batch_size, sort_k_batches=None,
-                 max_length=None, normalization=None):
-    if normalization:
-        with open(normalization, "rb") as src:
-            normalization = cPickle.load(src)
+class Data(object):
 
-    stream = dataset.get_example_stream()
-    if max_length:
-        stream = Filter(stream, _LengthFilter(max_length))
-    if sort_k_batches:
-        assert batch_size
-        stream = Batch(stream,
-                       iteration_scheme=ConstantScheme(
-                           batch_size * sort_k_batches))
-        stream = Mapping(stream, SortMapping(_length))
-        stream = Unpack(stream)
+    def __init__(self, dataset, batch_size, sort_k_batches,
+                 max_length, normalization):
+        if normalization:
+            with open(normalization, "rb") as src:
+                normalization = cPickle.load(src)
 
-    stream = Mapping(
-        stream, functools.partial(apply_preprocessing,
-                                       log_spectrogram))
-    if normalization:
-        stream = normalization.wrap_stream(stream)
-    stream = ForceFloatX(stream)
-    if not batch_size:
+        self.dataset = dataset
+        self.normalization = normalization
+        self.batch_size = batch_size
+        self.sort_k_batches = sort_k_batches
+        self.max_length = max_length
+
+        self.dataset_cache = {}
+
+    @property
+    def num_labels(self):
+        if self.dataset == "TIMIT":
+            return self.get_dataset("train").num_phonemes
+        else:
+            return self.get_dataset("train").num_characters
+
+    @property
+    def num_features(self):
+        return 129
+
+    def get_dataset(self, part):
+        if not part in self.dataset_cache:
+            if self.dataset == "TIMIT":
+                self.dataset_cache[part] = TIMIT(part)
+            elif self.dataset == "WSJ":
+                name_mapping = {"train": "train_si284", "valid": "test_dev93"}
+                self.dataset_cache[part] = WSJ(name_mapping[part])
+            else:
+                raise ValueError
+        return self.dataset_cache[part]
+
+    def get_stream(self, part, batches=True):
+        dataset = self.get_dataset(part)
+        stream = dataset.get_example_stream()
+        if self.max_length:
+            stream = Filter(stream, _LengthFilter(self.max_length))
+        if self.sort_k_batches and batches:
+            stream = Batch(stream,
+                        iteration_scheme=ConstantScheme(
+                            self.batch_size * self.sort_k_batches))
+            stream = Mapping(stream, SortMapping(_length))
+            stream = Unpack(stream)
+
+        stream = Mapping(
+            stream, functools.partial(apply_preprocessing,
+                                      log_spectrogram))
+        if self.normalization:
+            stream = self.normalization.wrap_stream(stream)
+        stream = ForceFloatX(stream)
+        if not batches:
+            return stream
+
+        stream = Batch(stream, iteration_scheme=ConstantScheme(self.batch_size))
+        stream = Padding(stream)
+        stream = Mapping(
+            stream, switch_first_two_axes)
         return stream
-
-    stream = Batch(stream, iteration_scheme=ConstantScheme(batch_size))
-    stream = Padding(stream)
-    stream = Mapping(
-        stream, switch_first_two_axes)
-    return stream
 
 
 class SpeechRecognizer(Initializable):
@@ -372,21 +405,23 @@ class PhonemeErrorRate(MonitoredQuantity):
 
 def main(cmd_args):
     # Experiment configuration
-    config = default_config()
+    config = prototype
     if cmd_args.config_path:
-        with open(cmd_args.config_path, 'rt') as config_file:
-            changes = eval(config_file.read())
-        config.merge(changes)
-    logging.info("Config:\n" + pprint.pformat(config))
+        with open(cmd_args.config_path, 'rt') as src:
+            config = read_config(src)
+    config['cmd_args'] = cmd_args.__dict__
+    logging.info("Config:\n" + pprint.pformat(config, width=120))
+
+    data = Data(**config['data'])
 
     if cmd_args.mode == "init_norm":
-        stream = build_stream(WSJ("train_si284"), None)
+        stream = data.get_stream("train", batches=False)
         normalization = Normalization(stream, "recordings")
         with open(cmd_args.save_path, "wb") as dst:
             cPickle.dump(normalization, dst)
 
     elif cmd_args.mode == "show_data":
-        stream = build_stream(WSJ("train_si284"), **config['data'])
+        stream = data.get_stream("train")
         pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
 
     elif cmd_args.mode == "train":
@@ -394,7 +429,8 @@ def main(cmd_args):
 
         # Build the main brick and initialize all parameters.
         recognizer = SpeechRecognizer(
-            129, WSJ.num_characters, name="recognizer", **config["net"])
+            data.num_features, data.num_labels,
+            name="recognizer", **config["net"])
         if cmd_args.params:
             logger.info("Load parameters from " + cmd_args.params)
             recognizer.load_params(cmd_args.params)
@@ -531,7 +567,6 @@ def main(cmd_args):
             return result
 
         # Build main loop.
-        timit_valid = WSJ("test_dev93")
         every_batch_monitoring = TrainingDataMonitoring(
             [algorithm.total_gradient_norm], after_batch=True)
         average_monitoring = TrainingDataMonitoring(
@@ -539,14 +574,13 @@ def main(cmd_args):
             prefix="average", every_n_batches=10)
         validation = DataStreamMonitoring(
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
-            build_stream(timit_valid, **config["data"]), prefix="valid",
+            data.get_stream("valid"), prefix="valid",
             before_first_epoch=not cmd_args.fast_start,
             after_epoch=True)
         recognizer.init_beam_search(10)
-        per = PhonemeErrorRate(recognizer, timit_valid)
+        per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
         per_monitoring = DataStreamMonitoring(
-            [per], build_stream(timit_valid, None,
-                                normalization=config["data"]["normalization"]),
+            [per], data.get_stream("valid", batches=False),
             prefix="valid").set_conditions(
                 before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
         track_the_best = TrackTheBest(
@@ -554,13 +588,12 @@ def main(cmd_args):
                 before_first_epoch=True, after_epoch=True)
         # Save the config into the status
         log = TrainingLog()
-        log.status['_config'] = pprint.pformat(config)
+        log.status['_config'] = config
         main_loop = MainLoop(
             model=model, log=log, algorithm=algorithm,
-            data_stream=build_stream(
-                WSJ("train_si284"), **config["data"]),
+            data_stream=data.get_stream("train"),
             extensions=([
-                Timing(),
+                Timing(after_batch=True),
                 CGStatistics(),
                 CodeVersion(['lvsr']),
                 every_batch_monitoring, average_monitoring,
@@ -610,10 +643,8 @@ def main(cmd_args):
             recognizer.load_params(cmd_args.save_path)
         recognizer.init_beam_search(10)
 
-        timit = WSJ("test_dev93")
-        conf = config["data"]
-        conf['batch_size'] = conf['sort_k_batches'] = None
-        stream = build_stream(timit, **conf)
+        dataset = data.get_dataset("valid")
+        stream = data.get_stream("valid", batches=False)
         it = stream.get_epoch_iterator()
 
         weights = tensor.matrix('weights')
@@ -627,8 +658,8 @@ def main(cmd_args):
             print("Utterance", number)
 
             outputs, search_costs = recognizer.beam_search(data[0])
-            recognized = timit.decode(outputs[0])
-            groundtruth = timit.decode(data[1])
+            recognized = dataset.decode(outputs[0])
+            groundtruth = dataset.decode(data[1])
             costs_recognized, weights_recognized = (
                 recognizer.analyze(data[0], outputs[0]))
             costs_groundtruth, weights_groundtruth = (

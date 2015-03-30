@@ -1,51 +1,65 @@
-from abc import ABCMeta, abstractmethod
+import os.path
+from StringIO import StringIO
 
-# My custom configuration language - sorry for this crap, but
-# 'state' for solution from groundhog does not have features
-# I need and I was too lazy to find a proper solution.
+import yaml
 
-class BaseConfig(object):
-    # Python 3 goes to hell!
-    __metaclass__ = ABCMeta
+prototype = yaml.safe_load(StringIO(
+"""
+data:
+    batch_size: 10
+    max_length:
+    normalization:
+    sort_k_batches:
+    dataset: TIMIT
+net:
+    dim_dec: 100
+    dim_bidir: 100
+    dims_bottom: [100]
+    enc_transition: SimpleRecurrent
+    dec_transition: SimpleRecurrent
+    attention_type: content
+    use_states_for_readout: False
+regularization:
+    dropout: False
+    noise:
+initialization:
+    - [/recognizer, weights_init, IsotropicGaussian(0.1)]
+    - [/recognizer, biases_init, Constant(0.0)]
+    - [/recognizer, rec_weights_init, Orthogonal()]
+"""))
 
-    @abstractmethod
-    def merge(self, other):
-        pass
+def read_config(file_):
+    """Reads a config from a file object.
 
+    Merge changes from a user-made config into the prototype.
+    Does not allow to create fields non-existing in the prototypes.
+    Interprets merge hints such as e.g. "%extend".
 
-class Config(BaseConfig, dict):
+    """
+    config = prototype
+    changes = yaml.safe_load(file_)
+    if 'parent' in changes:
+        with open(os.path.expandvars(changes['parent'])) as src:
+            config = read_config(src)
+    merge_recursively(config, changes)
+    return config
 
-    def merge(self, other):
-        for key in other:
-            if isinstance(self.get(key), BaseConfig):
-                self[key].merge(other[key])
+def merge_recursively(config, changes):
+    for key, value in changes.items():
+        pure_key = key
+        hint = None
+        if '%' in key:
+            pure_key, hint = key.split('%')
+        if isinstance(value, dict):
+            if hint or not isinstance(config[pure_key], dict):
+                raise ValueError
+            merge_recursively(config[pure_key], value)
+        elif isinstance(value, list):
+            if hint == 'extend':
+                config[pure_key].extend(value)
+            elif hint is None:
+                config[pure_key] = value
             else:
-                self[key] = other[key]
-
-
-class InitList(BaseConfig, list):
-
-    def merge(self, other):
-        self.extend(other)
-
-
-def default_config():
-    return Config(
-        net=Config(
-            dim_dec=100, dim_bidir=100, dims_bottom=[100],
-            enc_transition='SimpleRecurrent',
-            dec_transition='SimpleRecurrent',
-            attention_type='content',
-            use_states_for_readout=False),
-        regularization=Config(
-            dropout=False,
-            noise=None),
-        initialization=InitList([
-            ('/recognizer', 'weights_init', 'IsotropicGaussian(0.1)'),
-            ('/recognizer', 'biases_init', 'Constant(0.0)'),
-            ('/recognizer', 'rec_weights_init', 'Orthogonal()')]),
-        data=Config(
-            batch_size=10,
-            max_length=None,
-            normalization=None
-        ))
+                raise ValueError
+        else:
+            config[pure_key] = value
