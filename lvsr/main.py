@@ -440,28 +440,28 @@ def main(cmd_args):
         recognizer = SpeechRecognizer(
             data.num_features, data.num_labels,
             name="recognizer", **config["net"])
+        for brick_path, attribute, value in config['initialization']:
+            brick, = Selector(recognizer).select(brick_path).bricks
+            setattr(brick, attribute, eval(value))
+            brick.push_initialization_config()
+        recognizer.initialize()
+
+        logger.info("Initialization schemes for all bricks.\n"
+            "Works well only in my branch with __repr__ added to all them,\n"
+            "there is an issue #463 in Blocks to do that properly.")
+        def show_init_scheme(cur):
+            result = dict()
+            for attr in ['weights_init', 'biases_init']:
+                if hasattr(cur, attr):
+                    result[attr] = getattr(cur, attr)
+            for child in cur.children:
+                result[child.name] = show_init_scheme(child)
+            return result
+        logger.info(pprint.pformat(show_init_scheme(recognizer)))
+
         if cmd_args.params:
             logger.info("Load parameters from " + cmd_args.params)
             recognizer.load_params(cmd_args.params)
-        else:
-            for brick_path, attribute, value in config['initialization']:
-                brick, = Selector(recognizer).select(brick_path).bricks
-                setattr(brick, attribute, eval(value))
-                brick.push_initialization_config()
-            recognizer.initialize()
-
-            logger.info("Initialization schemes for all bricks.\n"
-                "Works well only in my branch with __repr__ added to all them,\n"
-                "there is an issue #463 in Blocks to do that properly.")
-            def show_init_scheme(cur):
-                result = dict()
-                for attr in ['weights_init', 'biases_init']:
-                    if hasattr(cur, attr):
-                        result[attr] = getattr(cur, attr)
-                for child in cur.children:
-                    result[child.name] = show_init_scheme(child)
-                return result
-            logger.info(pprint.pformat(show_init_scheme(recognizer)))
 
         batch_cost = recognizer.get_cost_graph().sum()
         batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
