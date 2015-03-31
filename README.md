@@ -1,5 +1,7 @@
 # Fully Neural LVSR
 
+### WARNING, OUTDATED, CONTACT @rizar
+
 ### What is available
 
 All the code is in _lvsr_. It is structured as follows:
