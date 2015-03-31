@@ -41,10 +41,12 @@ from blocks.filter import VariableFilter
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
 from blocks.select import Selector
+from fuel.schemes import (
+    SequentialScheme, ConstantScheme, ShuffledExampleScheme)
+from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
     Filter)
-from fuel.schemes import SequentialScheme, ConstantScheme
 from picklable_itertools.extras import equizip
 
 from lvsr.attention import (
@@ -132,9 +134,12 @@ class Data(object):
                 raise ValueError
         return self.dataset_cache[part]
 
-    def get_stream(self, part, batches=True):
+    def get_stream(self, part, batches=True, shuffle=True):
         dataset = self.get_dataset(part)
-        stream = dataset.get_example_stream()
+        stream = (DataStream(dataset,
+                             iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
+                  if shuffle
+                  else dataset.get_example_stream())
         if self.max_length:
             stream = Filter(stream, _LengthFilter(self.max_length))
         if self.sort_k_batches and batches:
@@ -424,7 +429,7 @@ def main(cmd_args):
     data = Data(**config['data'])
 
     if cmd_args.mode == "init_norm":
-        stream = data.get_stream("train", batches=False)
+        stream = data.get_stream("train", batches=False, shuffle=False)
         normalization = Normalization(stream, "recordings")
         with open(cmd_args.save_path, "wb") as dst:
             cPickle.dump(normalization, dst)
@@ -591,7 +596,7 @@ def main(cmd_args):
         recognizer.init_beam_search(10)
         per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
         per_monitoring = DataStreamMonitoring(
-            [per], data.get_stream("valid", batches=False),
+            [per], data.get_stream("valid", batches=False, shuffle=False),
             prefix="valid").set_conditions(
                 before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
         track_the_best = TrackTheBest(
@@ -655,7 +660,7 @@ def main(cmd_args):
         recognizer.init_beam_search(10)
 
         dataset = data.get_dataset("valid")
-        stream = data.get_stream("valid", batches=False)
+        stream = data.get_stream("valid", batches=False, shuffle=False)
         it = stream.get_epoch_iterator()
 
         weights = tensor.matrix('weights')
