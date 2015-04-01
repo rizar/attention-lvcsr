@@ -96,6 +96,15 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
+class _AddEosLabel(object):
+
+    def __init__(self, eos_label):
+        self.eos_label = eos_label
+
+    def __call__(self, example):
+        return (example[0], [self.eos_label] + example[1] + [self.eos_label])
+
+
 class Data(object):
 
     def __init__(self, dataset, batch_size, sort_k_batches,
@@ -123,6 +132,13 @@ class Data(object):
     def num_features(self):
         return 129
 
+    @property
+    def eos_label(self):
+        if self.dataset == "TIMIT":
+            return 4
+        else:
+            return 124
+
     def get_dataset(self, part):
         if not part in self.dataset_cache:
             if self.dataset == "TIMIT":
@@ -140,6 +156,8 @@ class Data(object):
                              iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
                   if shuffle
                   else dataset.get_example_stream())
+        if self.dataset == "WSJ":
+            stream = Mapping(stream, _AddEosLabel(self.eos_label))
         if self.max_length:
             stream = Filter(stream, _LengthFilter(self.max_length))
         if self.sort_k_batches and batches:
@@ -181,7 +199,8 @@ class SpeechRecognizer(Initializable):
     receives everything from the "net" section of the config.
 
     """
-    def __init__(self, num_features, num_phonemes,
+    def __init__(self, eos_label,
+                 num_features, num_phonemes,
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
                  use_states_for_readout,
@@ -371,7 +390,7 @@ class SpeechRecognizer(Initializable):
     def beam_search(self, recording):
         input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
         outputs, search_costs = self._beam_search.search(
-            {self.recordings: input_}, 4, input_.shape[0] / 3,
+            {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
             ignore_first_eol=True)
         return outputs, search_costs
 
@@ -443,6 +462,7 @@ def main(cmd_args):
 
         # Build the main brick and initialize all parameters.
         recognizer = SpeechRecognizer(
+            data.eos_label,
             data.num_features, data.num_labels,
             name="recognizer", **config["net"])
         for brick_path, attribute, value in config['initialization']:
