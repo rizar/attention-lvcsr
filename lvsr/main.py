@@ -102,7 +102,7 @@ class _AddEosLabel(object):
         self.eos_label = eos_label
 
     def __call__(self, example):
-        return (example[0], [self.eos_label] + example[1] + [self.eos_label])
+        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label])
 
 
 class Data(object):
@@ -208,6 +208,7 @@ class SpeechRecognizer(Initializable):
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior_mean=None, prior_std=None, **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
+        self.eos_label = eos_label
         self.rec_weights_init = None
 
         self.enc_transition = eval(enc_transition)
@@ -673,7 +674,7 @@ def main(cmd_args):
         # Try to guess if just parameters or the whole model was given.
         if cmd_args.save_path.endswith('.pkl'):
             recognizer, = cPickle.load(
-                open(cmd_args.cmd_args.save_path)).get_top_bricks()
+                open(cmd_args.save_path)).get_top_bricks()
         elif cmd_args.save_path.endswith('.npz'):
             recognizer = SpeechRecognizer(
                 129, WSJ.num_characters, name="recognizer", **config["net"])
