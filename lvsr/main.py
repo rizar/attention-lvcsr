@@ -672,7 +672,7 @@ def main(cmd_args):
         # Try to guess if just parameters or the whole model was given.
         if cmd_args.save_path.endswith('.pkl'):
             recognizer, = cPickle.load(
-                open(cmd_args.cmd_args.save_path)).get_top_bricks()
+                open(cmd_args.save_path)).get_top_bricks()
         elif cmd_args.save_path.endswith('.npz'):
             recognizer = SpeechRecognizer(
                 129, WSJ.num_characters, name="recognizer", **config["net"])
