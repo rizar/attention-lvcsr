@@ -206,7 +206,7 @@ class SpeechRecognizer(Initializable):
                  use_states_for_readout,
                  attention_type,
                  shift_predictor_dims=None, max_left=None, max_right=None,
-                 padding=None, **kwargs):
+                 padding=None, prior_mean=None, prior_std=None, **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.rec_weights_init = None
 
@@ -246,6 +246,7 @@ class SpeechRecognizer(Initializable):
                 # files in addition to pickles. There is #474, where we discuss
                 # the best way to get rid of it.
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                prior_mean=prior_mean, prior_std=prior_std,
                 name="cont_att")
         elif attention_type == "hybrid":
             # Like "content", but with an additional location-based attention
