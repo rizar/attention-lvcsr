@@ -1,0 +1,11 @@
+parent: $LVSR/lvsr/configs/timit_bothgru_cumsum_250.yaml
+data:
+    dataset: WSJ
+    max_length: 100000
+    normalization: wsj_norm.pkl
+net:
+    attention_type: content_and_cumsum
+    prior:
+        left: 10
+        right: 10
+        value: 5
