@@ -1,4 +1,5 @@
 import theano
+import numpy
 import scipy
 from theano import tensor
 
@@ -231,11 +232,14 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         self.energy_computer = energy_computer
 
         self.prior = None
-        if self.prior_mean:
+        if prior_mean:
             self.max_length = 5000
-            xs = numpy.arange(-self.max_length, self.max_length)
-            self.prior = shared_floatx(
-                scipy.stats.norm.pdf(values, loc=self.prior_mean, scale=self.prior_std))
+            values = numpy.zeros(2 * self.max_length + 1)
+            values[self.max_length + 10] = 5
+            self.prior = shared_floatx(values, name='prior')
+            #xs = numpy.arange(-self.max_length, self.max_length)
+            #self.prior = shared_floatx(
+            #    scipy.stats.norm.pdf(xs, loc=prior_mean, scale=prior_std), name='prior')
             self.params = [self.prior]
 
         self.children = [self.state_transformers, self.attended_transformer,
@@ -256,11 +260,15 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
     def compute_prior(self, previous_weights):
         modes = previous_weights.argmax(axis=1)
         length = previous_weights.shape[1]
-        def scan_function(mode, prior_):
+        def scan_function(mode, prior_, length_):
+            # It is important to have "length_" here,
+            # because otherwise `theano.scan` uses `previous_weights`
+            # as input and "eats" the intermediate variable with role.
             start = self.max_length - mode
-            return prior_[start:start + length]
-        result = theano.scan(scan_function,
-            sequences=[modes], non_sequences=[self.prior], outputs_info=[None])
+            return prior_[start:start + length_]
+        result, _ = theano.scan(scan_function,
+            sequences=[modes], non_sequences=[self.prior, length],
+            outputs_info=[None])
         return result
 
     @application
@@ -284,7 +292,8 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
                       attended_mask=None, weights=None, **states):
         energies = self.compute_energies(attended, preprocessed_attended,
                                          weights, states)
-        energies += self.compute_prior(weights)
+        if self.prior:
+            energies += self.compute_prior(weights).T
         weights = self.compute_weights(energies, attended_mask)
         weighted_averages = self.compute_weighted_averages(weights, attended)
         return weighted_averages, weights.T
