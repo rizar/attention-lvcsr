@@ -1,0 +1,6 @@
+parent: $LVSR/lvsr/configs/timit_bothgru_cumsum_250.yaml
+net:
+    prior:
+        left: 10
+        right: 10
+        value: 5

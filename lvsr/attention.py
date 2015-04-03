@@ -256,7 +256,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             # because otherwise `theano.scan` uses `previous_weights`
             # as input and "eats" the intermediate variable with role.
             end = tensor.minimum(mode + self.prior['right'] + 1, length_)
-            return tensor.setsubtensor(
+            return tensor.inc_subtensor(
                 energies_[self.prior['left']:end], self.prior['value'])
         result, _ = theano.scan(scan_function,
             sequences=[modes, energies.T], non_sequences=[length],
