@@ -215,7 +215,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
     @lazy()
     def __init__(self, match_dim, state_transformer=None,
                  attended_transformer=None, energy_computer=None,
-                 prior_mean=None, prior_std=None, **kwargs):
+                 prior=None, **kwargs):
         super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
         self.match_dim = match_dim
         self.state_transformer = state_transformer
@@ -232,10 +232,11 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         self.energy_computer = energy_computer
 
         self.prior = None
-        if prior_mean:
+        if prior:
             self.max_length = 5000
             values = numpy.zeros(2 * self.max_length + 1)
-            values[self.max_length + 10] = 5
+            values[self.max_length + prior['left']:
+                   self.max_length + prior['right'] + 1] = prior['value']
             self.prior = shared_floatx(values, name='prior')
             #xs = numpy.arange(-self.max_length, self.max_length)
             #self.prior = shared_floatx(

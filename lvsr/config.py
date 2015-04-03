@@ -56,9 +56,12 @@ def merge_recursively(config, changes):
         if '%' in key:
             pure_key, hint = key.split('%')
         if isinstance(value, dict):
-            if hint or not isinstance(config[pure_key], dict):
+            if hint:
                 raise ValueError
-            merge_recursively(config[pure_key], value)
+            if isinstance(config.get(pure_key), dict):
+                merge_recursively(config[pure_key], value)
+            else:
+                config[pure_key] = value
         elif isinstance(value, list):
             if hint == 'extend':
                 config[pure_key].extend(value)
