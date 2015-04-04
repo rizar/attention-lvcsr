@@ -255,9 +255,11 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             # It is important to have "length_" here,
             # because otherwise `theano.scan` uses `previous_weights`
             # as input and "eats" the intermediate variable with role.
+            start = tensor.minimum(mode + self.prior['left'], length_)
             end = tensor.minimum(mode + self.prior['right'] + 1, length_)
             return tensor.inc_subtensor(
-                energies_[self.prior['left']:end], self.prior['value'])
+                energies_[start:end],
+                numpy.float32(self.prior['value']))
         result, _ = theano.scan(scan_function,
             sequences=[modes, energies.T], non_sequences=[length],
             outputs_info=[None])
@@ -279,7 +281,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
         return energies
 
-    @application(outputs=['weighted_averages', 'weights'])
+    @application(outputs=['weighted_averages', 'weights', 'energies'])
     def take_glimpses(self, attended, preprocessed_attended=None,
                       attended_mask=None, weights=None, **states):
         energies = self.compute_energies(attended, preprocessed_attended,
@@ -288,7 +290,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             energies = self.add_prior(energies, weights).T
         weights = self.compute_weights(energies, attended_mask)
         weighted_averages = self.compute_weighted_averages(weights, attended)
-        return weighted_averages, weights.T
+        return weighted_averages, weights.T, energies.T
 
     @take_glimpses.property('inputs')
     def take_glimpses_inputs(self):
@@ -300,7 +302,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
     def initial_glimpses(self, name, batch_size, attended):
         if name == "weighted_averages":
             return tensor.zeros((batch_size, self.attended_dim))
-        elif name == "weights":
+        elif name == "weights" or name == "energies":
             return tensor.concatenate([
                  tensor.ones((batch_size, 1)),
                  tensor.zeros((batch_size, attended.shape[0] - 1))],
@@ -314,7 +316,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
     def get_dim(self, name):
         if name in ['weighted_averages']:
             return self.attended_dim
-        if name in ['weights']:
+        if name in ['weights', 'energies']:
             return 0
         return super(SequenceContentAndCumSumAttention, self).get_dim(name)
 

@@ -369,11 +369,13 @@ class SpeechRecognizer(Initializable):
         if not hasattr(self, "_analyze"):
             cost = self.get_cost_graph(batch=False)
             cg = ComputationGraph(cost)
+            energies, = VariableFilter(
+                bricks=[self.generator], name="energies")(cg)
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
-                [cost[:, 0], weights[:, 0, :]])
+                [cost[:, 0], weights[:, 0, :], energies[:, 0, :]])
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
