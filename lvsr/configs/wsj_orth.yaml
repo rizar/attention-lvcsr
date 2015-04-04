@@ -1,0 +1,3 @@
+parent: $LVSR/lvsr/configs/wsj_bothgru_cumsum.yaml
+initialization%extend:
+    - [/recognizer, rec_weights_init, Orthogonal()]
