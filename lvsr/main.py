@@ -318,11 +318,13 @@ class SpeechRecognizer(Initializable):
         self.single_recording = tensor.matrix("recordings")
         self.single_transcription = tensor.lvector("labels")
 
-    def _push_initialization_config(self):
-        super(SpeechRecognizer, self)._push_initialization_config()
+    def push_initialization_config(self):
+        super(SpeechRecognizer, self).push_initialization_config()
         if self.rec_weights_init:
             self.encoder.weights_init = self.rec_weights_init
+            self.encoder.push_initialization_config()
             self.generator.transition.transition.weights_init = self.rec_weights_init
+            self.generator.transition.transition.push_initialization_config()
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
