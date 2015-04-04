@@ -29,6 +29,7 @@ initialization:
 training:
     gradient_threshold: 100.0
     scale: 0.01
+    momentum: 0.0
 """))
 
 

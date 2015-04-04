@@ -575,7 +575,7 @@ def main(cmd_args):
             cost=regularized_cost, params=params.values(),
             step_rule=CompositeRule([
                 StepClipping(train_conf['gradient_threshold']),
-                Scale(train_conf['scale']),
+                Momentum(train_conf['scale'], train_conf['momentum']),
                 # Parameters are not changed at all
                 # when nans are encountered.
                 RemoveNotFinite(0.0)]))
@@ -609,7 +609,7 @@ def main(cmd_args):
 
         # Build main loop.
         every_batch_monitoring = TrainingDataMonitoring(
-            [algorithm.total_gradient_norm], after_batch=True)
+            [observables[0], algorithm.total_gradient_norm], after_batch=True)
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
