@@ -6,6 +6,7 @@ data:
 net:
     attention_type: content_and_cumsum
     prior:
-        left: 10
-        right: 10
-        value: 5
+        initial_begin: 0
+        initial_end: 200
+        min_speed: 6
+        max_speed: 11
