@@ -1,4 +1,6 @@
 import theano
+import numpy
+import scipy
 from theano import tensor
 
 from blocks.bricks import Initializable, Linear
@@ -7,7 +9,7 @@ from blocks.bricks.base import lazy, application
 from blocks.bricks.attention import (
     GenericSequenceAttention, SequenceContentAttention,
     ShallowEnergyComputer)
-from blocks.utils import put_hook, ipdb_breakpoint
+from blocks.utils import put_hook, ipdb_breakpoint, shared_floatx
 
 floatX = theano.config.floatX
 
@@ -212,7 +214,8 @@ class HybridAttention(SequenceContentAttention):
 class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
     @lazy()
     def __init__(self, match_dim, state_transformer=None,
-                 attended_transformer=None, energy_computer=None, **kwargs):
+                 attended_transformer=None, energy_computer=None,
+                 prior=None, **kwargs):
         super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
         self.match_dim = match_dim
         self.state_transformer = state_transformer
@@ -227,6 +230,8 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         self.cumweight_handler = Linear(name="cumweight")
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
+
+        self.prior = prior
 
         self.children = [self.state_transformers, self.attended_transformer,
                          self.energy_computer, self.cumweight_handler]
@@ -258,30 +263,56 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
         return energies
 
-    @application(outputs=['weighted_averages', 'weights'])
+    @application(outputs=['weighted_averages', 'weights', 'energies', 'step'])
     def take_glimpses(self, attended, preprocessed_attended=None,
-                      attended_mask=None, weights=None, **states):
-        energies = self.compute_energies(attended, preprocessed_attended,
-                                         weights, states)
-        weights = self.compute_weights(energies, attended_mask)
-        weighted_averages = self.compute_weighted_averages(weights, attended)
-        return weighted_averages, weights.T
+                      attended_mask=None, weights=None, step=None, **states):
+        # Cut
+        p = self.prior
+        length = attended.shape[0]
+        begin = p['initial_begin'] + step[0] * p['min_speed']
+        end = p['initial_end'] + step[0] * p['max_speed']
+        # Just to allow a too long beam search finish.
+        begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
+        end = tensor.maximum(0, tensor.minimum(length, end))
+        attended_cut = attended[begin:end]
+        preprocessed_attended_cut = (preprocessed_attended[begin:end]
+                                     if preprocessed_attended else None)
+        attended_mask_cut = (attended_mask[begin:end]
+                             if attended_mask else None)
+        weights_cut = weights[:, begin:end]
+
+        # Call
+        energies_cut = self.compute_energies(attended_cut, preprocessed_attended_cut,
+                                             weights_cut, states)
+        weights_cut = self.compute_weights(energies_cut, attended_mask_cut)
+        weighted_averages = self.compute_weighted_averages(weights_cut, attended_cut)
+
+        # Paste
+        new_weights = new_energies = tensor.zeros_like(weights.T)
+        new_weights = tensor.set_subtensor(new_weights[begin:end],
+                                           weights_cut)
+        new_energies = tensor.set_subtensor(new_energies[begin:end],
+                                            energies_cut)
+
+        return weighted_averages, new_weights.T, new_energies.T, step + 1
 
     @take_glimpses.property('inputs')
     def take_glimpses_inputs(self):
         return (['attended', 'preprocessed_attended',
-                 'attended_mask', 'weights'] +
+                 'attended_mask', 'weights', 'step'] +
                 self.state_names)
 
     @application
     def initial_glimpses(self, name, batch_size, attended):
         if name == "weighted_averages":
             return tensor.zeros((batch_size, self.attended_dim))
-        elif name == "weights":
+        elif name == "weights" or name == "energies":
             return tensor.concatenate([
                  tensor.ones((batch_size, 1)),
                  tensor.zeros((batch_size, attended.shape[0] - 1))],
                  axis=1)
+        elif name == "step":
+            return tensor.zeros((batch_size,), dtype='int64')
         raise ValueError("Unknown glimpse name {}".format(name))
 
     @application(inputs=['attended'], outputs=['preprocessed_attended'])
@@ -291,6 +322,6 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
     def get_dim(self, name):
         if name in ['weighted_averages']:
             return self.attended_dim
-        if name in ['weights']:
+        if name in ['weights', 'energies', 'step']:
             return 0
         return super(SequenceContentAndCumSumAttention, self).get_dim(name)

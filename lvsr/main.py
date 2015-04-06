@@ -206,7 +206,8 @@ class SpeechRecognizer(Initializable):
                  use_states_for_readout,
                  attention_type,
                  shift_predictor_dims=None, max_left=None, max_right=None,
-                 padding=None, **kwargs):
+                 padding=None, prior=None,
+                 **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
         self.rec_weights_init = None
@@ -247,6 +248,7 @@ class SpeechRecognizer(Initializable):
                 # files in addition to pickles. There is #474, where we discuss
                 # the best way to get rid of it.
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                prior=prior,
                 name="cont_att")
         elif attention_type == "hybrid":
             # Like "content", but with an additional location-based attention
@@ -369,11 +371,13 @@ class SpeechRecognizer(Initializable):
         if not hasattr(self, "_analyze"):
             cost = self.get_cost_graph(batch=False)
             cg = ComputationGraph(cost)
+            energies, = VariableFilter(
+                bricks=[self.generator], name="energies")(cg)
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
-                [cost[:, 0], weights[:, 0, :]])
+                [cost[:, 0], weights[:, 0, :], energies[:, 0, :]])
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
@@ -458,7 +462,8 @@ def main(cmd_args):
 
     elif cmd_args.mode == "show_data":
         stream = data.get_stream("train")
-        pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
+        data = next(stream.get_epoch_iterator(as_dict=True))
+        import IPython; IPython.embed()
 
     elif cmd_args.mode == "train":
         root_path, extension = os.path.splitext(cmd_args.save_path)
@@ -573,7 +578,7 @@ def main(cmd_args):
             cost=regularized_cost, params=params.values(),
             step_rule=CompositeRule([
                 StepClipping(train_conf['gradient_threshold']),
-                Scale(train_conf['scale']),
+                Momentum(train_conf['scale'], train_conf['momentum']),
                 # Parameters are not changed at all
                 # when nans are encountered.
                 RemoveNotFinite(0.0)]))
@@ -607,7 +612,7 @@ def main(cmd_args):
 
         # Build main loop.
         every_batch_monitoring = TrainingDataMonitoring(
-            [algorithm.total_gradient_norm], after_batch=True)
+            [observables[0], algorithm.total_gradient_norm], after_batch=True)
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
@@ -658,7 +663,7 @@ def main(cmd_args):
                        validation._record_name('weights_penalty_per_recording')]],
                      every_n_batches=10),
                 Checkpoint(cmd_args.save_path,
-                           before_first_epoch=True, after_epoch=True,
+                           before_first_epoch=not cmd_args.fast_start, after_epoch=True,
                            save_separately=["model", "log"])
                 .add_condition(
                     'after_epoch',
