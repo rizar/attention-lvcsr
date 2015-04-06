@@ -462,7 +462,8 @@ def main(cmd_args):
 
     elif cmd_args.mode == "show_data":
         stream = data.get_stream("train")
-        pprint.pprint(next(stream.get_epoch_iterator(as_dict=True)))
+        data = next(stream.get_epoch_iterator(as_dict=True))
+        import IPython; IPython.embed()
 
     elif cmd_args.mode == "train":
         root_path, extension = os.path.splitext(cmd_args.save_path)
