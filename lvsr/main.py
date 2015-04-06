@@ -663,7 +663,7 @@ def main(cmd_args):
                        validation._record_name('weights_penalty_per_recording')]],
                      every_n_batches=10),
                 Checkpoint(cmd_args.save_path,
-                           before_first_epoch=True, after_epoch=True,
+                           before_first_epoch=not cmd_args.fast_start, after_epoch=True,
                            save_separately=["model", "log"])
                 .add_condition(
                     'after_epoch',
