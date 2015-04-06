@@ -1,0 +1,8 @@
+parent: $LVSR/lvsr/configs/wsj_ml105_prior.yaml
+data:
+    max_length: 200000
+    batch_size: 4
+training:
+    scale: 0.001
+    momentum: 0.9
+
