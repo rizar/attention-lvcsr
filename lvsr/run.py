@@ -34,5 +34,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins.")
+    parser.add_argument(
+        "--part", default="valid",
+        help="Data to recognize with beam search.")
+    parser.add_argument(
+        "--beam-size", default=10, type=int,
+        help="Beam size")
     args = parser.parse_args()
     main(args)

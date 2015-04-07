@@ -696,10 +696,10 @@ def main(cmd_args):
             recognizer = SpeechRecognizer(
                 129, WSJ.num_characters, name="recognizer", **config["net"])
             recognizer.load_params(cmd_args.save_path)
-        recognizer.init_beam_search(10)
+        recognizer.init_beam_search(cmd_args.beam_size)
 
-        dataset = data.get_dataset("valid")
-        stream = data.get_stream("valid", batches=False, shuffle=False)
+        dataset = data.get_dataset(cmd_args.part)
+        stream = data.get_stream(cmd_args.part, batches=False, shuffle=False)
         it = stream.get_epoch_iterator()
 
         weights = tensor.matrix('weights')
