@@ -8,11 +8,11 @@ from fuel.datasets import IndexableDataset
 from fuel.utils import do_not_pickle_attributes
 from fuel import config as fuel_config
 
-from lsvr.datasets import HDF5SpeechDataset
+from lvsr.datasets.hdf5 import HDF5SpeechDataset
 logger = logging.getLogger(__name__)
 
-_raw_phoneme_data = """
-aa	aa	aa
+_raw_phoneme_data = (
+"""aa	aa	aa
 ae	ae	ae
 ah	ah	ah
 ao	ao	aa
@@ -72,8 +72,7 @@ v	v	v
 w	w	w
 y	y	y
 z	z	z
-zh	zh	sh
-"""
+zh	zh	sh""")
 
 
 _phoneme_maps = zip(*(
@@ -83,7 +82,8 @@ _phoneme_maps = zip(*(
 
 
 _inverse_phoneme_maps = [
-    {index: map_[index]} for index, map_ in enumerate(_phoneme_maps)]
+    {map_[index]: index for index in range(len(map_))}
+    for map_ in _phoneme_maps]
 
 
 @do_not_pickle_attributes(
@@ -146,11 +146,18 @@ class TIMIT2(HDF5SpeechDataset):
     def __init__(self, split, feature_name='wav', path=None):
         if not path:
             path = os.path.join(fuel_config.data_path, 'timit/timit.h5')
+        with open(os.path.join(fuel_config.data_path, "timit/phonemes.pkl"), "rb") as src:
+            self._old_phonemes = cPickle.load(src)
+        self._old_to_new = {index: _phoneme_maps[0].index(phone)
+                            for index, phone in enumerate(self._old_phonemes)}
         super(TIMIT2, self).__init__(path, split, feature_name)
 
-    def decode(self, labels, groups=True):
+    def decode(self, labels, groups=True, old_labels=False):
+        if old_labels:
+            labels = [self._old_to_new[label] for label in labels]
         phoneme_map = _phoneme_maps[2 if groups else 0]
-        return filter([phoneme_map[label] for label in labels])
+        return [phoneme_map[label] for label in labels
+                if phoneme_map[label] is not None]
 
     def get_data(self, state=None, request=None):
         inverse_map = _inverse_phoneme_maps[1]

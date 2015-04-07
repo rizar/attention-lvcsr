@@ -142,7 +142,10 @@ class Data(object):
     def get_dataset(self, part):
         if not part in self.dataset_cache:
             if self.dataset == "TIMIT":
-                self.dataset_cache[part] = TIMIT2(part)
+                name_mapping = {"train": "train",
+                                "valid": "dev",
+                                "test": "test"}
+                self.dataset_cache[part] = TIMIT2(name_mapping[part])
             elif self.dataset == "WSJ":
                 name_mapping = {"train": "train_si284", "valid": "test_dev93"}
                 self.dataset_cache[part] = WSJ(name_mapping[part])
@@ -718,7 +721,7 @@ def main(cmd_args):
             print("Utterance", number)
 
             outputs, search_costs = recognizer.beam_search(data[0])
-            recognized = dataset.decode(outputs[0])
+            recognized = dataset.decode(outputs[0], old_labels=True)
             groundtruth = dataset.decode(data[1])
             costs_recognized, weights_recognized, _ = (
                 recognizer.analyze(data[0], outputs[0]))
