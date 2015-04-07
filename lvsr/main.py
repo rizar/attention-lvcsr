@@ -11,7 +11,7 @@ import numpy
 import theano
 from numpy.testing import assert_allclose
 from theano import tensor
-from blocks.bricks import Tanh, MLP, Brick, application, Initializable
+from blocks.bricks import Tanh, MLP, Brick, application, Initializable, Identity
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -205,6 +205,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None,
                  **kwargs):
@@ -222,6 +223,8 @@ class SpeechRecognizer(Initializable):
                     if name != 'mask'])
         fork.input_dim = dims_bottom[-1]
         fork.output_dims = [dim_bidir for name in fork.output_names]
+        top = (MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
+               if dims_top is not None else Identity())
         bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
                      name="bottom")
         transition = self.dec_transition(
@@ -307,8 +310,9 @@ class SpeechRecognizer(Initializable):
         self.encoder = encoder
         self.fork = fork
         self.bottom = bottom
+        self.top = top
         self.generator = generator
-        self.children = [encoder, fork, bottom, generator]
+        self.children = [encoder, fork, top, bottom, generator]
 
         # Create input variables
         self.recordings = tensor.tensor3("recordings")
@@ -332,20 +336,21 @@ class SpeechRecognizer(Initializable):
     def cost(self, recordings, recordings_mask, labels, labels_mask):
         return self.generator.cost_matrix(
             labels, labels_mask,
-            attended=self.encoder.apply(
-                **dict_union(
-                    self.fork.apply(self.bottom.apply(recordings),
-                                    as_dict=True),
-                    mask=recordings_mask)),
+            attended=self.top.apply(
+                self.encoder.apply(
+                    **dict_union(self.fork.apply(self.bottom.apply(recordings),
+                                                 as_dict=True),
+                    mask=recordings_mask))),
             attended_mask=recordings_mask)
 
     @application
     def generate(self, recordings):
         return self.generator.generate(
             n_steps=recordings.shape[0], batch_size=recordings.shape[1],
-            attended=self.encoder.apply(
-                **dict_union(self.fork.apply(self.bottom.apply(recordings),
-                             as_dict=True))),
+            attended=self.top.apply(
+                self.encoder.apply(
+                    **dict_union(self.fork.apply(self.bottom.apply(recordings),
+                                                 as_dict=True)))),
             attended_mask=tensor.ones_like(recordings[:, :, 0]))
 
     def load_params(self, path):
@@ -694,7 +699,7 @@ def main(cmd_args):
                 open(cmd_args.save_path)).get_top_bricks()
         elif cmd_args.save_path.endswith('.npz'):
             recognizer = SpeechRecognizer(
-                129, WSJ.num_characters, name="recognizer", **config["net"])
+                data.eos_label, 29, WSJ.num_characters, name="recognizer", **config["net"])
             recognizer.load_params(cmd_args.save_path)
         recognizer.init_beam_search(cmd_args.beam_size)
 
