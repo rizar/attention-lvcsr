@@ -5,9 +5,9 @@ A dataset class for the format we agreed with Jan on.
 import fuel
 import os
 import tables
-from fuel.datasets import Dataset
+from fuel.datasets import dataset
 from fuel.utils import do_not_pickle_attributes
-from fuel.schemes import SequentialExampleScheme
+from fuel.schemes import sequentialexamplescheme
 
 
 @do_not_pickle_attributes(

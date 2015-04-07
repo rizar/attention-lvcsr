@@ -53,7 +53,7 @@ from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
     SequenceContentAndCumSumAttention)
 from lvsr.config import prototype, read_config
-from lvsr.datasets import TIMIT, WSJ
+from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
 from lvsr.extensions import CGStatistics, CodeVersion
 from lvsr.error_rate import wer
@@ -142,7 +142,7 @@ class Data(object):
     def get_dataset(self, part):
         if not part in self.dataset_cache:
             if self.dataset == "TIMIT":
-                self.dataset_cache[part] = TIMIT(part)
+                self.dataset_cache[part] = TIMIT2(part)
             elif self.dataset == "WSJ":
                 name_mapping = {"train": "train_si284", "valid": "test_dev93"}
                 self.dataset_cache[part] = WSJ(name_mapping[part])

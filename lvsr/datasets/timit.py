@@ -8,7 +8,82 @@ from fuel.datasets import IndexableDataset
 from fuel.utils import do_not_pickle_attributes
 from fuel import config as fuel_config
 
+from lsvr.datasets import HDF5SpeechDataset
 logger = logging.getLogger(__name__)
+
+_raw_phoneme_data = """
+aa	aa	aa
+ae	ae	ae
+ah	ah	ah
+ao	ao	aa
+aw	aw	aw
+ax	ax	ah
+ax-h	ax	ah
+axr	er	er
+ay	ay	ay
+b	b	b
+bcl	vcl	sil
+ch	ch	ch
+d	d	d
+dcl	vcl	sil
+dh	dh	dh
+dx	dx	dx
+eh	eh	eh
+el	el	l
+em	m	m
+en	en	n
+eng	ng	ng
+epi	epi	sil
+er	er	er
+ey	ey	ey
+f	f	f
+g	g	g
+gcl	vcl	sil
+h#	sil	sil
+hh	hh	hh
+hv	hh	hh
+ih	ih	ih
+ix	ix	ih
+iy	iy	iy
+jh	jh	jh
+k	k	k
+kcl	cl	sil
+l	l	l
+m	m	m
+n	n	n
+ng	ng	ng
+nx	n	n
+ow	ow	ow
+oy	oy	oy
+p	p	p
+pau	sil	sil
+pcl	cl	sil
+q   None None
+r	r	r
+s	s	s
+sh	sh	sh
+t	t	t
+tcl	cl	sil
+th	th	th
+uh	uh	uh
+uw	uw	uw
+ux	uw	uw
+v	v	v
+w	w	w
+y	y	y
+z	z	z
+zh	zh	sh
+"""
+
+
+_phoneme_maps = zip(*(
+    tuple(None if phone == "None" else phone for phone in triple)
+    for triple in
+    (line.split() for line in _raw_phoneme_data.split('\n'))))
+
+
+_inverse_phoneme_maps = [
+    {index: map_[index]} for index, map_ in enumerate(_phoneme_maps)]
 
 
 @do_not_pickle_attributes(
@@ -62,3 +137,24 @@ class TIMIT(IndexableDataset):
         if groups:
             phonemes = [self.phone2group.get(phoneme, phoneme) for phoneme in phonemes]
         return phonemes
+
+
+class TIMIT2(HDF5SpeechDataset):
+
+    num_phonemes = 61
+
+    def __init__(self, split, feature_name='wav', path=None):
+        if not path:
+            path = os.path.join(fuel_config.data_path, 'timit/timit.h5')
+        super(TIMIT2, self).__init__(path, split, feature_name)
+
+    def decode(self, labels, groups=True):
+        phoneme_map = _phoneme_maps[2 if groups else 0]
+        return filter([phoneme_map[label] for label in labels])
+
+    def get_data(self, state=None, request=None):
+        inverse_map = _inverse_phoneme_maps[1]
+        recordings, labels = super(TIMIT2, self).get_data(state, request)
+        labels = [inverse_map[phone_name] for phone_name in
+                  "".join(map(chr, labels)).split()]
+        return recordings, labels
