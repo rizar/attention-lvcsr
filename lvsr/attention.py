@@ -231,6 +231,9 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
 
+        if not prior:
+            prior = dict(initial_begin=0, initial_end=10000,
+                         min_speed=0, max_speed=0)
         self.prior = prior
 
         self.children = [self.state_transformers, self.attended_transformer,
