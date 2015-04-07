@@ -401,6 +401,17 @@ class SpeechRecognizer(Initializable):
             ignore_first_eol=True)
         return outputs, search_costs
 
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        for attr in ['_analyze', '_beam_search']:
+            state.pop(attr, None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # To use bricks used on a GPU first on a CPU later
+        del self.generator.readout.emitter._theano_rng
+
 
 class PhonemeErrorRate(MonitoredQuantity):
 
@@ -704,9 +715,9 @@ def main(cmd_args):
             outputs, search_costs = recognizer.beam_search(data[0])
             recognized = dataset.decode(outputs[0])
             groundtruth = dataset.decode(data[1])
-            costs_recognized, weights_recognized = (
+            costs_recognized, weights_recognized, _ = (
                 recognizer.analyze(data[0], outputs[0]))
-            costs_groundtruth, weights_groundtruth = (
+            costs_groundtruth, weights_groundtruth, _ = (
                 recognizer.analyze(data[0], data[1]))
             weight_std_recognized, mono_penalty_recognized = weight_statistics(
                 weights_recognized)
