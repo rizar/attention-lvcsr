@@ -9,7 +9,11 @@ from blocks.bricks.base import lazy, application
 from blocks.bricks.attention import (
     GenericSequenceAttention, SequenceContentAttention,
     ShallowEnergyComputer)
-from blocks.utils import put_hook, ipdb_breakpoint, shared_floatx
+from blocks.utils import (put_hook, ipdb_breakpoint, shared_floatx,
+                          shared_floatx_nans)
+
+from lvsr.expressions import conv1d
+
 
 floatX = theano.config.floatX
 
@@ -211,9 +215,24 @@ class HybridAttention(SequenceContentAttention):
         return self.location_attention.initial_glimpses(*args, **kwargs)
 
 
+class Conv1D(Initializable):
+
+    def __init__(self, num_filters, filter_length, **kwargs):
+        self.num_filters = num_filters
+        self.filter_length = filter_length
+        super(Conv1D, self).__init__(**kwargs)
+
+    def _initialize(self):
+        self.params = [shared_floatx_nans((self.num_filters, self.filter_length),
+                                          name="filters")]
+
+    def apply(self, input_):
+        return conv1d(input_, self.params[0], border_mode="full")
+
+
 class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
     @lazy()
-    def __init__(self, match_dim, state_transformer=None,
+    def __init__(self, match_dim, conv_n, state_transformer=None,
                  attended_transformer=None, energy_computer=None,
                  prior=None, **kwargs):
         super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
@@ -227,7 +246,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
             attended_transformer = Linear(name="preprocess")
         if not energy_computer:
             energy_computer = ShallowEnergyComputer(name="energy_comp")
-        self.cumweight_handler = Linear(name="cumweight")
+        self.filter_handler = Linear(name="handler")
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
 
@@ -236,8 +255,11 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
                          min_speed=0, max_speed=0)
         self.prior = prior
 
+        self.conv_n = conv_n
+        self.conv = Conv1D(1, 2 * conv_n + 1)
+
         self.children = [self.state_transformers, self.attended_transformer,
-                         self.energy_computer, self.cumweight_handler]
+                         self.energy_computer, self.filter_handler, self.conv]
 
     def _push_allocation_config(self):
         self.state_transformers.input_dims = self.state_dims
@@ -247,8 +269,8 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         self.attended_transformer.output_dim = self.match_dim
         self.energy_computer.input_dim = self.match_dim
         self.energy_computer.output_dim = 1
-        self.cumweight_handler.input_dim = 1
-        self.cumweight_handler.output_dim = self.match_dim
+        self.filter_handler.input_dim = 1
+        self.filter_handler.output_dim = self.match_dim
 
     @application
     def compute_energies(self, attended, preprocessed_attended,
@@ -260,8 +282,9 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         # Broadcasting of transformed states should be done automatically
         match_vectors = sum(transformed_states.values(),
                             preprocessed_attended)
-        match_vectors += self.cumweight_handler.apply(
-            tensor.cumsum(previous_weights[:, :, None], axis=1)).dimshuffle(1, 0, 2)
+        match_vectors += self.filter_handler.apply(
+            self.conv.apply(previous_weights.T)[:, :, -self.conv_n + 1:]
+            .dimshuffle(0, 2, 1)).dimshuffle(1, 0, 2)
         energies = self.energy_computer.apply(match_vectors).reshape(
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
         return energies

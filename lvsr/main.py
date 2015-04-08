@@ -207,7 +207,7 @@ class SpeechRecognizer(Initializable):
                  attention_type,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
-                 padding=None, prior=None,
+                 padding=None, prior=None, conv_n=None,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
@@ -247,6 +247,7 @@ class SpeechRecognizer(Initializable):
             # from jumping too much forward. More qualitative analysis is needed.s
             attention = SequenceContentAndCumSumAttention(
                 state_names=transition.apply.states,
+                conv_n=conv_n,
                 # `Dump` is a peculiar one, mostly needed now to save `.npz`
                 # files in addition to pickles. There is #474, where we discuss
                 # the best way to get rid of it.
