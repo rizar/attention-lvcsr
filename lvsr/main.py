@@ -721,7 +721,7 @@ def main(cmd_args):
             print("Utterance", number)
 
             outputs, search_costs = recognizer.beam_search(data[0])
-            recognized = dataset.decode(outputs[0], old_labels=True)
+            recognized = dataset.decode(outputs[0])
             groundtruth = dataset.decode(data[1])
             costs_recognized, weights_recognized, _ = (
                 recognizer.analyze(data[0], outputs[0]))

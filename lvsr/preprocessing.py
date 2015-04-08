@@ -1,10 +1,13 @@
 from fuel.transformers import Mapping
 
 import numpy
+import logging
 from matplotlib.mlab import specgram
 
 def log_spectrogram(signal):
     return numpy.log(specgram(signal)[0].T)
+
+logger = logging.getLogger(__name__)
 
 
 class Normalization(object):
@@ -17,11 +20,12 @@ class Normalization(object):
         num_examples = 0
 
         iterator = data_stream.get_epoch_iterator()
-        for data in iterator:
+        for number, data in enumerate(iterator):
             features = data[index]
             sum_features += features.sum(axis=0)
             sum_features2 += (features ** 2).sum(axis=0)
             num_examples += len(features)
+        logger.info("Used {} examples to compute normalization".format(number + 1))
 
         mean_features = sum_features / num_examples
         std_features = (sum_features2 / num_examples - mean_features ** 2) ** 0.5

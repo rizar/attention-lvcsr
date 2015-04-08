@@ -141,7 +141,8 @@ class TIMIT(IndexableDataset):
 
 class TIMIT2(HDF5SpeechDataset):
 
-    num_phonemes = 61
+    num_phonemes = 62
+    eos_label = 61
 
     def __init__(self, split, feature_name='wav', path=None):
         if not path:
@@ -152,16 +153,15 @@ class TIMIT2(HDF5SpeechDataset):
                             for index, phone in enumerate(self._old_phonemes)}
         super(TIMIT2, self).__init__(path, split, feature_name)
 
-    def decode(self, labels, groups=True, old_labels=False):
-        if old_labels:
-            labels = [self._old_to_new[label] for label in labels]
+    def decode(self, labels, groups=True):
+        # Remove EOS
         phoneme_map = _phoneme_maps[2 if groups else 0]
         return [phoneme_map[label] for label in labels
-                if phoneme_map[label] is not None]
+                if label != self.eos_label and phoneme_map[label] is not None]
 
     def get_data(self, state=None, request=None):
         inverse_map = _inverse_phoneme_maps[1]
         recordings, labels = super(TIMIT2, self).get_data(state, request)
-        labels = [inverse_map[phone_name] for phone_name in
-                  "".join(map(chr, labels)).split()]
+        labels = ([self.eos_label] + [inverse_map[phone_name] for phone_name in
+                  "".join(map(chr, labels)).split()] + [self.eos_label])
         return recordings, labels

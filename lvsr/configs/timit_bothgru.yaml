@@ -1,5 +1,5 @@
 data:
-    normalization: timit_norm.pkl
+    normalization: timit2_norm.pkl
 net:
     dec_transition: GatedRecurrent
     enc_transition: GatedRecurrent
