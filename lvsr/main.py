@@ -135,7 +135,7 @@ class Data(object):
     @property
     def eos_label(self):
         if self.dataset == "TIMIT":
-            return 4
+            return 61
         else:
             return 124
 
