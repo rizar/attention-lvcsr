@@ -222,9 +222,12 @@ class Conv1D(Initializable):
         self.filter_length = filter_length
         super(Conv1D, self).__init__(**kwargs)
 
-    def _initialize(self):
+    def _allocate(self):
         self.params = [shared_floatx_nans((self.num_filters, self.filter_length),
                                           name="filters")]
+
+    def _initialize(self):
+        self.weights_init.initialize(self.params[0], self.rng)
 
     def apply(self, input_):
         return conv1d(input_, self.params[0], border_mode="full")
@@ -282,8 +285,9 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
         # Broadcasting of transformed states should be done automatically
         match_vectors = sum(transformed_states.values(),
                             preprocessed_attended)
+        conv_result = self.conv.apply(previous_weights)
         match_vectors += self.filter_handler.apply(
-            self.conv.apply(previous_weights.T)[:, :, -self.conv_n + 1:]
+            conv_result[:, :, :-2 * self.conv_n]
             .dimshuffle(0, 2, 1)).dimshuffle(1, 0, 2)
         energies = self.energy_computer.apply(match_vectors).reshape(
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
