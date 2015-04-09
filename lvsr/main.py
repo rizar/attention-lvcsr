@@ -51,7 +51,8 @@ from picklable_itertools.extras import equizip
 
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
-    SequenceContentAndConvAttention)
+    SequenceContentAndConvAttention,
+    SequenceContentAndCumSumAttention)
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
@@ -242,21 +243,17 @@ class SpeechRecognizer(Initializable):
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 name="cont_att")
         elif attention_type == "content_and_conv":
-            # Like "content", but for each position cumulative sum of weights
-            # from previous steps is an additional input for building match
-            # vector. Supposedly a cumsum close to 0 is interpreted as
-            # as a strong argument to give very low weight, which should protect
-            # us from jumping backward. It is less clear how this can protect
-            # from jumping too much forward. More qualitative analysis is needed.s
             attention = SequenceContentAndConvAttention(
                 state_names=transition.apply.states,
                 conv_n=conv_n,
-                # `Dump` is a peculiar one, mostly needed now to save `.npz`
-                # files in addition to pickles. There is #474, where we discuss
-                # the best way to get rid of it.
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 prior=prior,
-                name="cont_att")
+                name="conv_att")
+        elif attention_type == "content_and_cumsum":
+            attention = SequenceContentAndCumSumAttention(
+                state_names=transition.apply.states,
+                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                prior=prior, name="cumsum_att")
         elif attention_type == "hybrid":
             # Like "content", but with an additional location-based attention
             # mechanism. It takes the current state as input and predicts

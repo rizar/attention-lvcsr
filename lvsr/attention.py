@@ -355,3 +355,122 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
         if name in ['weights', 'energies', 'step']:
             return 0
         return super(SequenceContentAndConvAttention, self).get_dim(name)
+
+
+class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
+    @lazy()
+    def __init__(self, match_dim, state_transformer=None,
+                 attended_transformer=None, energy_computer=None,
+                 prior=None, **kwargs):
+        super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
+        self.match_dim = match_dim
+        self.state_transformer = state_transformer
+
+        self.state_transformers = Parallel(input_names=self.state_names,
+                                           prototype=state_transformer,
+                                           name="state_trans")
+        if not attended_transformer:
+            attended_transformer = Linear(name="preprocess")
+        if not energy_computer:
+            energy_computer = ShallowEnergyComputer(name="energy_comp")
+        self.cumweight_handler = Linear(name="cumweight")
+        self.attended_transformer = attended_transformer
+        self.energy_computer = energy_computer
+
+        if not prior:
+            prior = dict(initial_begin=0, initial_end=10000,
+                         min_speed=0, max_speed=0)
+        self.prior = prior
+
+        self.children = [self.state_transformers, self.attended_transformer,
+                         self.energy_computer, self.cumweight_handler]
+
+    def _push_allocation_config(self):
+        self.state_transformers.input_dims = self.state_dims
+        self.state_transformers.output_dims = [self.match_dim
+                                               for name in self.state_names]
+        self.attended_transformer.input_dim = self.attended_dim
+        self.attended_transformer.output_dim = self.match_dim
+        self.energy_computer.input_dim = self.match_dim
+        self.energy_computer.output_dim = 1
+        self.cumweight_handler.input_dim = 1
+        self.cumweight_handler.output_dim = self.match_dim
+
+    @application
+    def compute_energies(self, attended, preprocessed_attended,
+                         previous_weights, states):
+        if not preprocessed_attended:
+            preprocessed_attended = self.preprocess(attended)
+        transformed_states = self.state_transformers.apply(as_dict=True,
+                                                           **states)
+        # Broadcasting of transformed states should be done automatically
+        match_vectors = sum(transformed_states.values(),
+                            preprocessed_attended)
+        match_vectors += self.cumweight_handler.apply(
+            tensor.cumsum(previous_weights[:, :, None], axis=1)).dimshuffle(1, 0, 2)
+        energies = self.energy_computer.apply(match_vectors).reshape(
+            match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
+        return energies
+
+    @application(outputs=['weighted_averages', 'weights', 'energies', 'step'])
+    def take_glimpses(self, attended, preprocessed_attended=None,
+                      attended_mask=None, weights=None, step=None, **states):
+        # Cut
+        p = self.prior
+        length = attended.shape[0]
+        begin = p['initial_begin'] + step[0] * p['min_speed']
+        end = p['initial_end'] + step[0] * p['max_speed']
+        # Just to allow a too long beam search finish.
+        begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
+        end = tensor.maximum(0, tensor.minimum(length, end))
+        attended_cut = attended[begin:end]
+        preprocessed_attended_cut = (preprocessed_attended[begin:end]
+                                     if preprocessed_attended else None)
+        attended_mask_cut = (attended_mask[begin:end]
+                             if attended_mask else None)
+        weights_cut = weights[:, begin:end]
+
+        # Call
+        energies_cut = self.compute_energies(attended_cut, preprocessed_attended_cut,
+                                             weights_cut, states)
+        weights_cut = self.compute_weights(energies_cut, attended_mask_cut)
+        weighted_averages = self.compute_weighted_averages(weights_cut, attended_cut)
+
+        # Paste
+        new_weights = new_energies = tensor.zeros_like(weights.T)
+        new_weights = tensor.set_subtensor(new_weights[begin:end],
+                                           weights_cut)
+        new_energies = tensor.set_subtensor(new_energies[begin:end],
+                                            energies_cut)
+
+        return weighted_averages, new_weights.T, new_energies.T, step + 1
+
+    @take_glimpses.property('inputs')
+    def take_glimpses_inputs(self):
+        return (['attended', 'preprocessed_attended',
+                 'attended_mask', 'weights', 'step'] +
+                self.state_names)
+
+    @application
+    def initial_glimpses(self, name, batch_size, attended):
+        if name == "weighted_averages":
+            return tensor.zeros((batch_size, self.attended_dim))
+        elif name == "weights" or name == "energies":
+            return tensor.concatenate([
+                 tensor.ones((batch_size, 1)),
+                 tensor.zeros((batch_size, attended.shape[0] - 1))],
+                 axis=1)
+        elif name == "step":
+            return tensor.zeros((batch_size,), dtype='int64')
+        raise ValueError("Unknown glimpse name {}".format(name))
+
+    @application(inputs=['attended'], outputs=['preprocessed_attended'])
+    def preprocess(self, attended):
+        return self.attended_transformer.apply(attended)
+
+    def get_dim(self, name):
+        if name in ['weighted_averages']:
+            return self.attended_dim
+        if name in ['weights', 'energies', 'step']:
+            return 0
+        return super(SequenceContentAndCumSumAttention, self).get_dim(name)
