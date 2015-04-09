@@ -287,7 +287,7 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
                             preprocessed_attended)
         conv_result = self.conv.apply(previous_weights)
         match_vectors += self.filter_handler.apply(
-            conv_result[:, :, self.conv_n - 1:-self.conv_n + 1]
+            conv_result[:, :, self.conv_n:-self.conv_n]
             .dimshuffle(0, 2, 1)).dimshuffle(1, 0, 2)
         energies = self.energy_computer.apply(match_vectors).reshape(
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
