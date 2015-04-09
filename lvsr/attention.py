@@ -233,12 +233,12 @@ class Conv1D(Initializable):
         return conv1d(input_, self.params[0], border_mode="full")
 
 
-class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable):
+class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
     @lazy()
     def __init__(self, match_dim, conv_n, state_transformer=None,
                  attended_transformer=None, energy_computer=None,
                  prior=None, **kwargs):
-        super(SequenceContentAndCumSumAttention, self).__init__(**kwargs)
+        super(SequenceContentAndConvAttention, self).__init__(**kwargs)
         self.match_dim = match_dim
         self.state_transformer = state_transformer
 
@@ -287,7 +287,7 @@ class SequenceContentAndCumSumAttention(GenericSequenceAttention, Initializable)
                             preprocessed_attended)
         conv_result = self.conv.apply(previous_weights)
         match_vectors += self.filter_handler.apply(
-            conv_result[:, :, :-2 * self.conv_n]
+            conv_result[:, :, self.conv_n - 1:-self.conv_n + 1]
             .dimshuffle(0, 2, 1)).dimshuffle(1, 0, 2)
         energies = self.energy_computer.apply(match_vectors).reshape(
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
