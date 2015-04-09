@@ -354,4 +354,4 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             return self.attended_dim
         if name in ['weights', 'energies', 'step']:
             return 0
-        return super(SequenceContentAndCumSumAttention, self).get_dim(name)
+        return super(SequenceContentAndConvAttention, self).get_dim(name)
