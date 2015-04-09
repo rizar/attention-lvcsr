@@ -3,3 +3,4 @@ net:
     attention_type: content_and_conv
 regularization:
     dropout: 0.5
+    conv_n: 100
