@@ -43,7 +43,9 @@ def conv1d(sequences, masks, **kwargs):
     # For testability
     sequences = tensor.as_tensor_variable(sequences)
     masks = tensor.as_tensor_variable(masks)
-    image = sequences.dimshuffle(0, 'x', 1, 'x')
-    filters = masks.dimshuffle(0, 'x', 1, 'x')
-    return tensor.addbroadcast(
-        conv2d(image, filters, **kwargs), 3).squeeze()
+    image = sequences.dimshuffle('x', 'x', 0, 1)
+    filters = masks.dimshuffle(0, 'x', 'x', 1)
+    result = conv2d(image, filters, **kwargs)
+    # Now number of rows is the actual batch size
+    result = result.dimshuffle(2, 1, 3, 0)
+    return result.reshape(result.shape[:-1], ndim=3)
