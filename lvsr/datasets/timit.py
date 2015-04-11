@@ -162,6 +162,6 @@ class TIMIT2(HDF5SpeechDataset):
     def get_data(self, state=None, request=None):
         inverse_map = _inverse_phoneme_maps[1]
         recordings, labels = super(TIMIT2, self).get_data(state, request)
-        labels = ([self.eos_label] + [inverse_map[phone_name] for phone_name in
+        labels = ([inverse_map[phone_name] for phone_name in
                   "".join(map(chr, labels)).split()] + [self.eos_label])
         return recordings, labels
