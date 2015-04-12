@@ -736,11 +736,11 @@ def main(cmd_args):
             error_sum += error
 
             print("Beam search cost:", search_costs[0])
-            print(recognized)
+            print("Recognizer:", recognized)
             print("Recognized cost:", costs_recognized.sum())
             print("Recognized weight std:", weight_std_recognized)
             print("Recognized monotonicity penalty:", mono_penalty_recognized)
-            print(groundtruth)
+            print("Groundtruth:", groundtruth)
             print("Groundtruth cost:", costs_groundtruth.sum())
             print("Groundtruth weight std:", weight_std_groundtruth)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth)
