@@ -1,0 +1,3 @@
+parent: $LVSR/lvsr/configs/timit_bothgru_cumsum.yaml
+regularization:
+    dropout: 0.5

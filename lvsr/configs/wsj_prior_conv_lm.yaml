@@ -1,0 +1,9 @@
+parent: $LVSR/lvsr/configs/wsj_prior.yaml
+data:
+    max_length: 200000
+    batch_size: 4
+net:
+    use_states_for_readout: True
+training:
+    scale: 0.0001
+
