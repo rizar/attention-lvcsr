@@ -44,7 +44,6 @@ class WSJ(Dataset):
     def transcripts_offsets(self):
         return getattr(self.root.transcripts, "text_offsets")
 
-
     def load(self):
         # I have no idea why pytables can not do this for me!
         file_, = tables.file._open_files._name_mapping.get(self.path, (None,))
@@ -73,4 +72,4 @@ class WSJ(Dataset):
         return (features, transcripts)
 
     def decode(self, labels):
-        return "".join([chr(l) for l in labels])
+        return "".join([chr(l) for l in labels[1:-1]])
