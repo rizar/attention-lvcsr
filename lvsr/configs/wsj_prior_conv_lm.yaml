@@ -4,6 +4,8 @@ data:
     batch_size: 4
 net:
     use_states_for_readout: True
+    attention_type: content_and_conv
+    conv_n: 100
 training:
     scale: 0.0001
 
