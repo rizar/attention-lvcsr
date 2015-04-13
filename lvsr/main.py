@@ -109,7 +109,9 @@ class _AddEosLabel(object):
 class Data(object):
 
     def __init__(self, dataset, batch_size, sort_k_batches,
-                 max_length, normalization):
+                 max_length, normalization,
+                 # Need this options to handle old TIMIT models
+                 add_eos=True, eos_label=None):
         if normalization:
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
@@ -119,6 +121,8 @@ class Data(object):
         self.batch_size = batch_size
         self.sort_k_batches = sort_k_batches
         self.max_length = max_length
+        self.add_eos = add_eos
+        self._eos_label = eos_label
 
         self.dataset_cache = {}
 
@@ -135,8 +139,10 @@ class Data(object):
 
     @property
     def eos_label(self):
+        if self._eos_label:
+            return self._eos_label
         if self.dataset == "TIMIT":
-            return 61
+            return TIMIT2.eos_label
         else:
             return 124
 
@@ -146,7 +152,8 @@ class Data(object):
                 name_mapping = {"train": "train",
                                 "valid": "dev",
                                 "test": "test"}
-                self.dataset_cache[part] = TIMIT2(name_mapping[part])
+                self.dataset_cache[part] = TIMIT2(name_mapping[part],
+                                                  add_eos=self.add_eos)
             elif self.dataset == "WSJ":
                 name_mapping = {"train": "train_si284", "valid": "test_dev93"}
                 self.dataset_cache[part] = WSJ(name_mapping[part])
@@ -722,7 +729,8 @@ def main(cmd_args):
             print("Utterance", number)
 
             outputs, search_costs = recognizer.beam_search(data[0])
-            recognized = dataset.decode(outputs[0])
+            recognized = dataset.decode(
+                outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             groundtruth = dataset.decode(data[1])
             costs_recognized, weights_recognized, _ = (
                 recognizer.analyze(data[0], outputs[0]))

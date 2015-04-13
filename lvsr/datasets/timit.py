@@ -144,17 +144,19 @@ class TIMIT2(HDF5SpeechDataset):
     num_phonemes = 62
     eos_label = 61
 
-    def __init__(self, split, feature_name='wav', path=None):
+    def __init__(self, split, feature_name='wav', path=None, add_eos=True):
         if not path:
             path = os.path.join(fuel_config.data_path, 'timit/timit.h5')
         with open(os.path.join(fuel_config.data_path, "timit/phonemes.pkl"), "rb") as src:
             self._old_phonemes = cPickle.load(src)
         self._old_to_new = {index: _phoneme_maps[0].index(phone)
                             for index, phone in enumerate(self._old_phonemes)}
+        self.add_eos = add_eos
         super(TIMIT2, self).__init__(path, split, feature_name)
 
-    def decode(self, labels, groups=True):
-        # Remove EOS
+    def decode(self, labels, groups=True, old_labels=False):
+        if old_labels:
+            labels = [self._old_to_new[label] for label in labels]
         phoneme_map = _phoneme_maps[2 if groups else 0]
         return [phoneme_map[label] for label in labels
                 if label != self.eos_label and phoneme_map[label] is not None]
@@ -163,5 +165,6 @@ class TIMIT2(HDF5SpeechDataset):
         inverse_map = _inverse_phoneme_maps[1]
         recordings, labels = super(TIMIT2, self).get_data(state, request)
         labels = ([inverse_map[phone_name] for phone_name in
-                  "".join(map(chr, labels)).split()] + [self.eos_label])
+                  "".join(map(chr, labels)).split()] +
+                  ([self.eos_label] if self.add_eos else []))
         return recordings, labels

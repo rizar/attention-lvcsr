@@ -40,5 +40,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--beam-size", default=10, type=int,
         help="Beam size")
+    parser.add_argument(
+        "--old-labels", default=False, action="store_true",
+        help="Expect old labels when decoding.")
     args = parser.parse_args()
     main(args)
