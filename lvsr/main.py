@@ -755,4 +755,4 @@ def main(cmd_args):
             print("PER:", error)
             print("Average PER:", error_sum / (number + 1))
 
-            assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
+            # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
