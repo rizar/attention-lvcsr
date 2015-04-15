@@ -56,7 +56,7 @@ from lvsr.attention import (
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
-from lvsr.extensions import CGStatistics, CodeVersion
+from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.preprocessing import log_spectrogram, Normalization
 
@@ -538,16 +538,16 @@ def main(cmd_args):
         cost_cg = ComputationGraph(cost)
         r = recognizer
         (energies,) = VariableFilter(
-            applications=r.generator.readout.readout, name="output_0")(
+            applications=[r.generator.readout.readout], name="output_0")(
                     cost_cg)
         (bottom_output,) = VariableFilter(
-            applications=r.bottom.apply, name="output")(
+            applications=[r.bottom.apply], name="output")(
                     cost_cg)
         (attended,) = VariableFilter(
-            applications=r.generator.transition.apply, name="attended")(
+            applications=[r.generator.transition.apply], name="attended")(
                     cost_cg)
         (weights,) = VariableFilter(
-            applications=r.generator.cost_matrix, name="weights")(
+            applications=[r.generator.cost_matrix], name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                          "max_recording_length")
@@ -601,10 +601,12 @@ def main(cmd_args):
 
         # Define the training algorithm.
         train_conf = config['training']
+        clipping = StepClipping(train_conf['gradient_threshold'])
+        clipping.threshold.name = "gradient_norm_threshold"
         algorithm = GradientDescent(
             cost=regularized_cost, params=params.values(),
             step_rule=CompositeRule([
-                StepClipping(train_conf['gradient_threshold']),
+                clipping,
                 Momentum(train_conf['scale'], train_conf['momentum']),
                 # Parameters are not changed at all
                 # when nans are encountered.
@@ -614,7 +616,8 @@ def main(cmd_args):
         # after the `algorithm` object is created.
         observables = regularized_cg.outputs
         observables += [
-            algorithm.total_step_norm, algorithm.total_gradient_norm]
+            algorithm.total_step_norm, algorithm.total_gradient_norm,
+            clipping.threshold]
         for name, param in params.items():
             observables.append(named_copy(
                 param.norm(2), name + "_norm"))
@@ -639,7 +642,8 @@ def main(cmd_args):
 
         # Build main loop.
         every_batch_monitoring = TrainingDataMonitoring(
-            [observables[0], algorithm.total_gradient_norm], after_batch=True)
+            [observables[0], algorithm.total_gradient_norm,
+             algorithm.total_step_norm, clipping.threshold], after_batch=True)
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
@@ -657,6 +661,10 @@ def main(cmd_args):
         track_the_best = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
+        adaptive_clipping = AdaptiveClipping(
+            algorithm.total_gradient_norm.name,
+            clipping, train_conf['gradient_threshold'])
+
         # Save the config into the status
         log = TrainingLog()
         log.status['_config'] = config
@@ -670,6 +678,7 @@ def main(cmd_args):
                 every_batch_monitoring, average_monitoring,
                 validation, per_monitoring,
                 track_the_best,
+                adaptive_clipping,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
                 # Live plotting: requires launching `bokeh-server`
@@ -679,7 +688,8 @@ def main(cmd_args):
                       [average_monitoring.record_name(regularized_cost),
                        validation.record_name(cost)],
                       # Plot 2: gradient norm,
-                      [average_monitoring.record_name(algorithm.total_gradient_norm)],
+                      [average_monitoring.record_name(algorithm.total_gradient_norm),
+                       average_monitoring.record_name(clipping.threshold)],
                       # Plot 3: phoneme error rate
                       [per_monitoring.record_name(per)],
                       # Plot 4: training and validation mean weight entropy

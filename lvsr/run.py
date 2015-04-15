@@ -26,7 +26,7 @@ if __name__ == "__main__":
         "config_changes", default=[], nargs='*',
         help="Changes to configuration. Path, value, path, value.")
     parser.add_argument(
-        "--num-batches", default=50000, type=int,
+        "--num-batches", default=100000, type=int,
         help="Train on this many batches.")
     parser.add_argument(
         "--params", default=None, type=str,
