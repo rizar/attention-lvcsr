@@ -1,0 +1,4 @@
+parent: $LVSR/lvsr/configs/timit_bothgru.yaml
+net:
+    attention_type: content_and_conv
+    conv_n: 100
