@@ -411,6 +411,8 @@ class SpeechRecognizer(Initializable):
         self._beam_search.compile()
 
     def beam_search(self, recording):
+        if not hasattr(self, '_beam_search') and hasattr(self, 'beam_size'):
+            self.init_beam_search(self.beam_size)
         input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
@@ -426,7 +428,9 @@ class SpeechRecognizer(Initializable):
     def __setstate__(self, state):
         self.__dict__.update(state)
         # To use bricks used on a GPU first on a CPU later
-        del self.generator.readout.emitter._theano_rng
+        emitter = self.generator.readout.emitter
+        if hasattr(emitter, '._theano_rng'):
+            del emitter._theano_rng
 
 
 class PhonemeErrorRate(MonitoredQuantity):
