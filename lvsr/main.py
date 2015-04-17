@@ -38,6 +38,7 @@ from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
+from blocks.roles import OUTPUT
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
 from blocks.select import Selector
@@ -410,11 +411,15 @@ class SpeechRecognizer(Initializable):
             energies_output = [energies[0][:, 0, :] if energies
                                else tensor.zeros((self.single_transcription.shape[0],
                                                   self.single_recording.shape[0]))]
+            states, = VariableFilter(
+                applications=[self.encoder.apply], roles=[OUTPUT])(cg)
+            ctc_matrix = self.generator.readout.readout(weighted_averages=states)
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
-                [cost[:, 0], weights[:, 0, :]] + energies_output)
+                [cost[:, 0], weights[:, 0, :]] + energies_output
+                 + [ctc_matrix[:, 0, :]])
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
@@ -625,7 +630,10 @@ def main(cmd_args):
         clipping = StepClipping(train_conf['gradient_threshold'])
         clipping.threshold.name = "gradient_norm_threshold"
         algorithm = GradientDescent(
-            cost=regularized_cost, params=params.values(),
+            cost=regularized_cost + (
+                train_conf["penalty_coof"] * weights_penalty / batch_size
+                if 'penalty_coof' in train_conf else 0),
+            params=params.values(),
             step_rule=CompositeRule([
                 clipping,
                 Momentum(train_conf['scale'], train_conf['momentum']),
