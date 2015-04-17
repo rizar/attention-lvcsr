@@ -124,10 +124,23 @@ class _MergeKFrames(object):
         return (new_features, example[1])
 
 
+class _SilentPadding(object):
+
+    def __init__(self, k_frames):
+        self.k_frames = k_frames
+
+    def __call__(self, example):
+        features = example[0]
+        features = numpy.vstack([features, numpy.zeros_like(features[[0]])])
+        return (features, example[1])
+
+
 class Data(object):
 
     def __init__(self, dataset, batch_size, sort_k_batches,
-                 max_length, normalization, merge_k_frames=None,
+                 max_length, normalization,
+                 merge_k_frames=None,
+                 pad_k_frames=None,
                  # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None):
         if normalization:
@@ -139,6 +152,7 @@ class Data(object):
         self.batch_size = batch_size
         self.sort_k_batches = sort_k_batches
         self.merge_k_frames = merge_k_frames
+        self.pad_k_frames = pad_k_frames
         self.max_length = max_length
         self.add_eos = add_eos
         self._eos_label = eos_label
@@ -200,6 +214,9 @@ class Data(object):
         stream = Mapping(
             stream, functools.partial(apply_preprocessing,
                                       log_spectrogram))
+        if self.pad_k_frames:
+            stream = Mapping(
+                stream, _SilentPadding(self.pad_k_frames))
         if self.normalization:
             stream = self.normalization.wrap_stream(stream)
         if self.merge_k_frames:
