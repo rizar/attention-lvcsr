@@ -692,7 +692,8 @@ def main(cmd_args):
                 before_first_epoch=True, after_epoch=True)
         adaptive_clipping = AdaptiveClipping(
             algorithm.total_gradient_norm.name,
-            clipping, train_conf['gradient_threshold'])
+            clipping, train_conf['gradient_threshold'],
+            decay_rate=0.998)
 
         # Save the config into the status
         log = TrainingLog()
