@@ -772,10 +772,10 @@ def main(cmd_args):
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             groundtruth = dataset.decode(data[1])
-            costs_recognized, weights_recognized, _ = (
-                recognizer.analyze(data[0], outputs[0]))
-            costs_groundtruth, weights_groundtruth, _ = (
-                recognizer.analyze(data[0], data[1]))
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(data[0], outputs[0])[:2])
+            costs_groundtruth, weights_groundtruth = (
+                recognizer.analyze(data[0], data[1])[:2])
             weight_std_recognized, mono_penalty_recognized = weight_statistics(
                 weights_recognized)
             weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
