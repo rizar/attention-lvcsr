@@ -413,13 +413,15 @@ class SpeechRecognizer(Initializable):
                                                   self.single_recording.shape[0]))]
             states, = VariableFilter(
                 applications=[self.encoder.apply], roles=[OUTPUT])(cg)
-            ctc_matrix = self.generator.readout.readout(weighted_averages=states)
+            ctc_matrix_output = []
+            if len(self.generator.readout.source_names) == 1:
+                ctc_matrix_output = [
+                    self.generator.readout.readout(weighted_averages=states)[:, 0, :]]
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
-                [cost[:, 0], weights[:, 0, :]] + energies_output
-                 + [ctc_matrix[:, 0, :]])
+                [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output)
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
