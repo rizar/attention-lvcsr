@@ -22,7 +22,7 @@ from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
-                               Momentum, RemoveNotFinite)
+                               Momentum, RemoveNotFinite, AdaDelta)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
@@ -188,7 +188,7 @@ class Data(object):
                 self.dataset_cache[part] = TIMIT2(name_mapping[part],
                                                   add_eos=self.add_eos)
             elif self.dataset == "WSJ":
-                name_mapping = {"train": "train_si284", "valid": "test_dev93"}
+                name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
                 self.dataset_cache[part] = WSJ(name_mapping[part])
             else:
                 raise ValueError
@@ -430,13 +430,15 @@ class SpeechRecognizer(Initializable):
                                                   self.single_recording.shape[0]))]
             states, = VariableFilter(
                 applications=[self.encoder.apply], roles=[OUTPUT])(cg)
-            ctc_matrix = self.generator.readout.readout(weighted_averages=states)
+            ctc_matrix_output = []
+            if len(self.generator.readout.source_names) == 1:
+                ctc_matrix_output = [
+                    self.generator.readout.readout(weighted_averages=states)[:, 0, :]]
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 [self.single_recording, self.single_transcription],
-                [cost[:, 0], weights[:, 0, :]] + energies_output
-                 + [ctc_matrix[:, 0, :]])
+                [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output)
         return self._analyze(recording, transcription)
 
     def init_beam_search(self, beam_size):
@@ -650,6 +652,13 @@ def main(cmd_args):
         train_conf = config['training']
         clipping = StepClipping(train_conf['gradient_threshold'])
         clipping.threshold.name = "gradient_norm_threshold"
+        rule_name = train_conf.get('rule', 'momentum')
+        if rule_name == 'momentum':
+            core_rule = Momentum(train_conf['scale'], train_conf['momentum'])
+        elif rule_name == 'adadelta':
+            core_rule = AdaDelta(train_conf['decay_rate'], train_conf['epsilon'])
+        else:
+            raise ValueError("Unknown step rule {}".format(rule_name))
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * weights_penalty / batch_size
@@ -657,7 +666,7 @@ def main(cmd_args):
             params=params.values(),
             step_rule=CompositeRule([
                 clipping,
-                Momentum(train_conf['scale'], train_conf['momentum']),
+                core_rule,
                 # Parameters are not changed at all
                 # when nans are encountered.
                 RemoveNotFinite(0.0)]))
@@ -713,7 +722,8 @@ def main(cmd_args):
                 before_first_epoch=True, after_epoch=True)
         adaptive_clipping = AdaptiveClipping(
             algorithm.total_gradient_norm.name,
-            clipping, train_conf['gradient_threshold'])
+            clipping, train_conf['gradient_threshold'],
+            decay_rate=0.998)
 
         # Save the config into the status
         log = TrainingLog()
@@ -792,10 +802,10 @@ def main(cmd_args):
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             groundtruth = dataset.decode(data[1])
-            costs_recognized, weights_recognized, _ = (
-                recognizer.analyze(data[0], outputs[0]))
-            costs_groundtruth, weights_groundtruth, _ = (
-                recognizer.analyze(data[0], data[1]))
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(data[0], outputs[0])[:2])
+            costs_groundtruth, weights_groundtruth = (
+                recognizer.analyze(data[0], data[1])[:2])
             weight_std_recognized, mono_penalty_recognized = weight_statistics(
                 weights_recognized)
             weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
