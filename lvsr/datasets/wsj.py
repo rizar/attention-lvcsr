@@ -72,4 +72,4 @@ class WSJ(Dataset):
         return (features, transcripts)
 
     def decode(self, labels):
-        return "".join([chr(l) for l in labels[1:-1]])
+        return "".join([chr(l) for l in labels[1:-1]]).replace(' ', '_')

@@ -22,7 +22,7 @@ from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
-                               Momentum, RemoveNotFinite)
+                               Momentum, RemoveNotFinite, AdaDelta)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
@@ -174,7 +174,7 @@ class Data(object):
                 self.dataset_cache[part] = TIMIT2(name_mapping[part],
                                                   add_eos=self.add_eos)
             elif self.dataset == "WSJ":
-                name_mapping = {"train": "train_si284", "valid": "test_dev93"}
+                name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
                 self.dataset_cache[part] = WSJ(name_mapping[part])
             else:
                 raise ValueError
@@ -631,6 +631,13 @@ def main(cmd_args):
         train_conf = config['training']
         clipping = StepClipping(train_conf['gradient_threshold'])
         clipping.threshold.name = "gradient_norm_threshold"
+        rule_name = train_conf.get('rule', 'momentum')
+        if rule_name == 'momentum':
+            core_rule = Momentum(train_conf['scale'], train_conf['momentum'])
+        elif rule_name == 'adadelta':
+            core_rule = AdaDelta(train_conf['decay_rate'], train_conf['epsilon'])
+        else:
+            raise ValueError("Unknown step rule {}".format(rule_name))
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * weights_penalty / batch_size
@@ -638,7 +645,7 @@ def main(cmd_args):
             params=params.values(),
             step_rule=CompositeRule([
                 clipping,
-                Momentum(train_conf['scale'], train_conf['momentum']),
+                core_rule,
                 # Parameters are not changed at all
                 # when nans are encountered.
                 RemoveNotFinite(0.0)]))
