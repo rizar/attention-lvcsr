@@ -1,3 +1,4 @@
+import numpy
 import cPickle
 
 from matplotlib import pyplot
@@ -14,6 +15,7 @@ def load_log(name):
     print "Average batch time for {} was {}".format(
         name, df.time_train_this_batch.mean())
     print "Best PER: {}".format(log.status['best_valid_per'])
+
 
 def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500):
     indices = slice(start, finish if finish > 0 else None)
@@ -61,3 +63,19 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500):
                     label=name)
         axis[1].set_ylim(0, 500)
         axis[1].legend(loc='best')
+
+
+def show_alignment(weights, transcription,
+                   bos_symbol=False, energies=None,
+                   **kwargs):
+    f = pyplot.figure(figsize=(15, 0.20 * len(transcription)))
+    ax = f.gca()
+    ax.matshow(weights, aspect='auto', **kwargs)
+    ax.set_yticks((1 if bos_symbol else 0) + numpy.arange(len(transcription)))
+    ax.set_yticklabels(transcription)
+    pyplot.show()
+
+    if energies is not None:
+        pyplot.matshow(energies, **kwargs)
+        pyplot.colorbar()
+        pyplot.show()
