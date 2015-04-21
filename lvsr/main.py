@@ -50,6 +50,7 @@ from fuel.transformers import (
     Filter)
 from picklable_itertools.extras import equizip
 
+import lvsr.datasets.wsj
 from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
     SequenceContentAndConvAttention,
@@ -129,7 +130,9 @@ class Data(object):
     def __init__(self, dataset, batch_size, sort_k_batches,
                  max_length, normalization, merge_k_frames=None,
                  # Need these options to handle old TIMIT models
-                 add_eos=True, eos_label=None):
+                 add_eos=True, eos_label=None,
+                 # For WSJ
+                 preprocess_text=False):
         if normalization:
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
@@ -142,6 +145,7 @@ class Data(object):
         self.max_length = max_length
         self.add_eos = add_eos
         self._eos_label = eos_label
+        self.preprocess_text = preprocess_text
 
         self.dataset_cache = {}
 
@@ -188,6 +192,10 @@ class Data(object):
                   else dataset.get_example_stream())
         if self.dataset == "WSJ":
             stream = Mapping(stream, _AddEosLabel(self.eos_label))
+        if self.preprocess_text:
+            if not self.dataset == "WSJ":
+                raise ValueError("text preprocessing only for WSJ")
+            stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
         if self.max_length:
             stream = Filter(stream, _LengthFilter(self.max_length))
         if self.sort_k_batches and batches:

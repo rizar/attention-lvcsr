@@ -73,3 +73,16 @@ class WSJ(Dataset):
 
     def decode(self, labels):
         return "".join([chr(l) for l in labels[1:-1]]).replace(' ', '_')
+
+
+allowed_characters = [chr(ord('A') + i) for i in range(26)] + ['_', '.', '-', '\'', '%']
+
+
+def preprocess_text(example):
+    """Follows Standford paper."""
+    text = example[1]
+    text = "".join(chr(c) for c in text)
+    text = text.replace('<NOISE>', '%')
+    text = text.replace(' ', '_')
+    text = "".join([c for c in text if c in allowed_characters])
+    return (example[0], [ord(c) for c in text])
