@@ -703,7 +703,7 @@ def main(cmd_args):
         per_monitoring = DataStreamMonitoring(
             [per], data.get_stream("valid", batches=False, shuffle=False),
             prefix="valid").set_conditions(
-                before_first_epoch=not cmd_args.fast_start, every_n_epochs=3)
+                before_first_epoch=not cmd_args.fast_start, every_n_epochs=2)
         track_the_best = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
