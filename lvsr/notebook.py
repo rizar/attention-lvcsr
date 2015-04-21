@@ -14,7 +14,7 @@ def load_log(name):
     print "Iterations done for {}: {}".format(name, log.status['iterations_done'])
     print "Average batch time for {} was {}".format(
         name, df.time_train_this_batch.mean())
-    print "Best PER: {}".format(log.status['best_valid_per'])
+    print "Best PER: {}".format(log.status.get('best_valid_per', '?'))
 
 
 def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500):
