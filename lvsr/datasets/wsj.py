@@ -75,7 +75,7 @@ class WSJ(Dataset):
         return "".join([chr(l) for l in labels[1:-1]]).replace(' ', '_')
 
 
-allowed_characters = [chr(ord('A') + i) for i in range(26)] + ['_', '.', '-', '\'', '%']
+allowed_characters = [chr(ord('A') + i) for i in range(26)] + ['_', '.', '-', '\'', '%', '|']
 
 
 def preprocess_text(example):
