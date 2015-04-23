@@ -697,13 +697,14 @@ def main(cmd_args):
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             data.get_stream("valid"), prefix="valid",
             before_first_epoch=not cmd_args.fast_start,
-            after_epoch=True)
+            after_epoch=True, after_training=True)
         recognizer.init_beam_search(10)
         per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
         per_monitoring = DataStreamMonitoring(
             [per], data.get_stream("valid", batches=False, shuffle=False),
             prefix="valid").set_conditions(
-                before_first_epoch=not cmd_args.fast_start, every_n_epochs=2)
+                before_first_epoch=not cmd_args.fast_start, every_n_epochs=2,
+                after_training=True)
         track_the_best = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
