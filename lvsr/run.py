@@ -43,5 +43,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--old-labels", default=False, action="store_true",
         help="Expect old labels when decoding.")
+    parser.add_argument(
+        "--report", default=None,
+        help="Destination to save a detailed report.")
     args = parser.parse_args()
     main(args)
