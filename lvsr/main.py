@@ -11,7 +11,9 @@ import numpy
 import theano
 from numpy.testing import assert_allclose
 from theano import tensor
-from blocks.bricks import Tanh, MLP, Brick, application, Initializable, Identity
+from blocks.bricks import (
+    Tanh, MLP, Brick, application,
+    Initializable, Identity, Rectifier)
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -249,6 +251,7 @@ class SpeechRecognizer(Initializable):
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
+                 bottom_activation='tanh',
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
@@ -266,7 +269,14 @@ class SpeechRecognizer(Initializable):
         fork.output_dims = [dim_bidir for name in fork.output_names]
         top = (MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
                if dims_top is not None else Identity())
-        bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
+        if bottom_activation == 'tanh':
+            bottom_activation = Tanh()
+        elif bottom_activation == 'relu':
+            bottom_activation = Rectifier()
+        else:
+            raise ValueError("unknown activation {}".format(bottom_activation))
+        bottom = MLP([bottom_activation] * len(dims_bottom),
+                     [num_features] + dims_bottom,
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
