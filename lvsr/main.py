@@ -763,6 +763,9 @@ def main(cmd_args):
                 Printing(every_n_batches=1)]))
         main_loop.run()
     elif cmd_args.mode == "search":
+        from matplotlib import pyplot
+        from lvsr.notebook import show_alignment
+
         # Try to guess if just parameters or the whole model was given.
         if cmd_args.save_path.endswith('.pkl'):
             recognizer, = cPickle.load(
@@ -783,9 +786,18 @@ def main(cmd_args):
             [weights_std(weights.dimshuffle(0, 'x', 1)),
              monotonicity_penalty(weights.dimshuffle(0, 'x', 1))])
 
-        error_sum = 0
+        print_to = sys.stdout
+        if cmd_args.report:
+            alignments_path = os.path.join(cmd_args.report, "alignments")
+            if not os.path.exists(cmd_args.report):
+                os.mkdir(cmd_args.report)
+                os.mkdir(alignments_path)
+            print_to = open(os.path.join(cmd_args.report, "report.txt"), 'w')
+
+        total_errors = .0
+        total_length = .0
         for number, data in enumerate(it):
-            print("Utterance", number)
+            print("Utterance", number, file=print_to)
 
             outputs, search_costs = recognizer.beam_search(data[0])
             recognized = dataset.decode(
@@ -800,18 +812,27 @@ def main(cmd_args):
             weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
                 weights_groundtruth)
             error = min(1, wer(groundtruth, recognized))
-            error_sum += error
+            total_errors += len(groundtruth) * error
+            total_length += len(groundtruth)
 
-            print("Beam search cost:", search_costs[0])
-            print("Recognizer:", recognized)
-            print("Recognized cost:", costs_recognized.sum())
-            print("Recognized weight std:", weight_std_recognized)
-            print("Recognized monotonicity penalty:", mono_penalty_recognized)
-            print("Groundtruth:", groundtruth)
-            print("Groundtruth cost:", costs_groundtruth.sum())
-            print("Groundtruth weight std:", weight_std_groundtruth)
-            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth)
-            print("PER:", error)
-            print("Average PER:", error_sum / (number + 1))
+            if cmd_args.report:
+                show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
+                pyplot.savefig(os.path.join(
+                    alignments_path, "{}.groundtruth.png".format(number)))
+                show_alignment(weights_recognized, recognized, bos_symbol=True)
+                pyplot.savefig(os.path.join(
+                    alignments_path, "{}.recognized.png".format(number)))
+
+            print("Beam search cost:", search_costs[0], file=print_to)
+            print("Recognizer:", recognized, file=print_to)
+            print("Recognized cost:", costs_recognized.sum(), file=print_to)
+            print("Recognized weight std:", weight_std_recognized, file=print_to)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
+            print("Groundtruth:", groundtruth, file=print_to)
+            print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
+            print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
+            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+            print("PER:", error, file=print_to)
+            print("Average PER:", total_errors / total_length, file=print_to)
 
             # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
