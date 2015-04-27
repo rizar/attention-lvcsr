@@ -5,6 +5,7 @@ import math
 import os
 import functools
 import cPickle
+import sys
 from collections import OrderedDict
 
 import numpy
@@ -639,24 +640,24 @@ def main(cmd_args):
         train_conf = config['training']
         clipping = StepClipping(train_conf['gradient_threshold'])
         clipping.threshold.name = "gradient_norm_threshold"
-        rule_name = train_conf.get('rule', 'momentum')
-        if rule_name == 'momentum':
-            core_rule = Momentum(train_conf['scale'], train_conf['momentum'])
-        elif rule_name == 'adadelta':
-            core_rule = AdaDelta(train_conf['decay_rate'], train_conf['epsilon'])
-        else:
-            raise ValueError("Unknown step rule {}".format(rule_name))
+        rule_names = train_conf.get('rules', ['momentum'])
+        core_rules = []
+        if 'momentum' in rule_names:
+            logger.info("Using scaling and momentum for training")
+            core_rules.append(Momentum(train_conf['scale'], train_conf['momentum']))
+        if 'adadelta' in rule_names:
+            logger.info("Using AdaDelta for training")
+            core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * weights_penalty / batch_size
                 if 'penalty_coof' in train_conf else 0),
             params=params.values(),
-            step_rule=CompositeRule([
-                clipping,
-                core_rule,
+            step_rule=CompositeRule(
+                [clipping] + core_rules +
                 # Parameters are not changed at all
                 # when nans are encountered.
-                RemoveNotFinite(0.0)]))
+                [RemoveNotFinite(0.0)]))
 
         # More variables for debugging: some of them can be added only
         # after the `algorithm` object is created.
