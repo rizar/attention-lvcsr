@@ -1,0 +1,13 @@
+parent: $LVSR/lvsr/configs/wsj_prior_conv.yaml
+training:
+    rules: 
+        - momentum
+        - adadelta
+    scale: 0.1
+    decay_rate: 0.95
+    epsilon: 1e-8
+net:
+    use_states_for_readout: True
+    bottom_activation: relu
+data:
+    preprocess_text: True
