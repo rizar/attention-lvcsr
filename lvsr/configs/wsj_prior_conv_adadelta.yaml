@@ -1,5 +1,8 @@
 parent: $LVSR/lvsr/configs/wsj_prior_conv.yaml
 training:
-    rule: adadelta
-    decay_rate: 0.995
+    rules: 
+        - momentum
+        - adadelta
+    scale: 0.1
+    decay_rate: 0.95
     epsilon: 1e-8

@@ -5,13 +5,16 @@ import math
 import os
 import functools
 import cPickle
+import sys
 from collections import OrderedDict
 
 import numpy
 import theano
 from numpy.testing import assert_allclose
 from theano import tensor
-from blocks.bricks import Tanh, MLP, Brick, application, Initializable, Identity
+from blocks.bricks import (
+    Tanh, MLP, Brick, application,
+    Initializable, Identity, Rectifier)
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -266,6 +269,7 @@ class SpeechRecognizer(Initializable):
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
+                 bottom_activation='tanh',
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
@@ -283,7 +287,14 @@ class SpeechRecognizer(Initializable):
         fork.output_dims = [dim_bidir for name in fork.output_names]
         top = (MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
                if dims_top is not None else Identity())
-        bottom = MLP([Tanh()] * len(dims_bottom), [num_features] + dims_bottom,
+        if bottom_activation == 'tanh':
+            bottom_activation = Tanh()
+        elif bottom_activation == 'relu':
+            bottom_activation = Rectifier()
+        else:
+            raise ValueError("unknown activation {}".format(bottom_activation))
+        bottom = MLP([bottom_activation] * len(dims_bottom),
+                     [num_features] + dims_bottom,
                      name="bottom")
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
@@ -660,24 +671,24 @@ def main(cmd_args):
         train_conf = config['training']
         clipping = StepClipping(train_conf['gradient_threshold'])
         clipping.threshold.name = "gradient_norm_threshold"
-        rule_name = train_conf.get('rule', 'momentum')
-        if rule_name == 'momentum':
-            core_rule = Momentum(train_conf['scale'], train_conf['momentum'])
-        elif rule_name == 'adadelta':
-            core_rule = AdaDelta(train_conf['decay_rate'], train_conf['epsilon'])
-        else:
-            raise ValueError("Unknown step rule {}".format(rule_name))
+        rule_names = train_conf.get('rules', ['momentum'])
+        core_rules = []
+        if 'momentum' in rule_names:
+            logger.info("Using scaling and momentum for training")
+            core_rules.append(Momentum(train_conf['scale'], train_conf['momentum']))
+        if 'adadelta' in rule_names:
+            logger.info("Using AdaDelta for training")
+            core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * weights_penalty / batch_size
                 if 'penalty_coof' in train_conf else 0),
             params=params.values(),
-            step_rule=CompositeRule([
-                clipping,
-                core_rule,
+            step_rule=CompositeRule(
+                [clipping] + core_rules +
                 # Parameters are not changed at all
                 # when nans are encountered.
-                RemoveNotFinite(0.0)]))
+                [RemoveNotFinite(0.0)]))
 
         # More variables for debugging: some of them can be added only
         # after the `algorithm` object is created.
@@ -718,13 +729,14 @@ def main(cmd_args):
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             data.get_stream("valid"), prefix="valid",
             before_first_epoch=not cmd_args.fast_start,
-            after_epoch=True)
+            after_epoch=True, after_training=True)
         recognizer.init_beam_search(10)
         per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
         per_monitoring = DataStreamMonitoring(
             [per], data.get_stream("valid", batches=False, shuffle=False),
             prefix="valid").set_conditions(
-                before_first_epoch=not cmd_args.fast_start, every_n_epochs=2)
+                before_first_epoch=not cmd_args.fast_start, every_n_epochs=2,
+                after_training=True)
         track_the_best = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
@@ -782,6 +794,9 @@ def main(cmd_args):
                 Printing(every_n_batches=1)]))
         main_loop.run()
     elif cmd_args.mode == "search":
+        from matplotlib import pyplot
+        from lvsr.notebook import show_alignment
+
         # Try to guess if just parameters or the whole model was given.
         if cmd_args.save_path.endswith('.pkl'):
             recognizer, = cPickle.load(
@@ -802,9 +817,18 @@ def main(cmd_args):
             [weights_std(weights.dimshuffle(0, 'x', 1)),
              monotonicity_penalty(weights.dimshuffle(0, 'x', 1))])
 
-        error_sum = 0
+        print_to = sys.stdout
+        if cmd_args.report:
+            alignments_path = os.path.join(cmd_args.report, "alignments")
+            if not os.path.exists(cmd_args.report):
+                os.mkdir(cmd_args.report)
+                os.mkdir(alignments_path)
+            print_to = open(os.path.join(cmd_args.report, "report.txt"), 'w')
+
+        total_errors = .0
+        total_length = .0
         for number, data in enumerate(it):
-            print("Utterance", number)
+            print("Utterance", number, file=print_to)
 
             outputs, search_costs = recognizer.beam_search(data[0])
             recognized = dataset.decode(
@@ -819,18 +843,27 @@ def main(cmd_args):
             weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
                 weights_groundtruth)
             error = min(1, wer(groundtruth, recognized))
-            error_sum += error
+            total_errors += len(groundtruth) * error
+            total_length += len(groundtruth)
 
-            print("Beam search cost:", search_costs[0])
-            print("Recognizer:", recognized)
-            print("Recognized cost:", costs_recognized.sum())
-            print("Recognized weight std:", weight_std_recognized)
-            print("Recognized monotonicity penalty:", mono_penalty_recognized)
-            print("Groundtruth:", groundtruth)
-            print("Groundtruth cost:", costs_groundtruth.sum())
-            print("Groundtruth weight std:", weight_std_groundtruth)
-            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth)
-            print("PER:", error)
-            print("Average PER:", error_sum / (number + 1))
+            if cmd_args.report:
+                show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
+                pyplot.savefig(os.path.join(
+                    alignments_path, "{}.groundtruth.png".format(number)))
+                show_alignment(weights_recognized, recognized, bos_symbol=True)
+                pyplot.savefig(os.path.join(
+                    alignments_path, "{}.recognized.png".format(number)))
+
+            print("Beam search cost:", search_costs[0], file=print_to)
+            print("Recognizer:", recognized, file=print_to)
+            print("Recognized cost:", costs_recognized.sum(), file=print_to)
+            print("Recognized weight std:", weight_std_recognized, file=print_to)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
+            print("Groundtruth:", groundtruth, file=print_to)
+            print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
+            print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
+            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+            print("PER:", error, file=print_to)
+            print("Average PER:", total_errors / total_length, file=print_to)
 
             # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
