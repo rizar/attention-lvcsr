@@ -14,7 +14,8 @@ from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import (
     Tanh, MLP, Brick, application,
-    Initializable, Identity, Rectifier)
+    Initializable, Identity, Rectifier,
+    Sequence, Bias)
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -244,6 +245,10 @@ class Data(object):
         return stream
 
 
+class InitializableSequence(Sequence, Initializable):
+    pass
+
+
 class SpeechRecognizer(Initializable):
     """Encapsulate all reusable logic.
 
@@ -270,6 +275,7 @@ class SpeechRecognizer(Initializable):
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
                  bottom_activation='tanh',
+                 post_merge_dims=None,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
@@ -361,13 +367,23 @@ class SpeechRecognizer(Initializable):
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 location_attention=location_attention,
                 name="hybrid_att")
-        readout = Readout(
+        readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
                 + [attention.take_glimpses.outputs[0]],
             emitter=SoftmaxEmitter(initial_output=num_phonemes, name="emitter"),
             feedback_brick=LookupFeedback(num_phonemes + 1, dim_dec),
             name="readout")
+        if post_merge_dims:
+            readout_config['merged_dim'] = post_merge_dims[0]
+            readout_config['post_merge'] = InitializableSequence([
+                    Bias(post_merge_dims[0]).apply,
+                    bottom_activation.apply,
+                    MLP([bottom_activation] * (len(post_merge_dims) - 1) + [Identity()],
+                        post_merge_dims + [num_phonemes]).apply,
+                ],
+                name='post_merge')
+        readout = Readout(**readout_config)
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
             name="generator")
