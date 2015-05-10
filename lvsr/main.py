@@ -668,6 +668,7 @@ def main(cmd_args):
             logger.info('apply noise')
             regularized_cg = apply_noise(cg, cg.parameters, reg_config['noise'])
         regularized_cost = regularized_cg.outputs[0]
+        regularized_weights_penalty = regularized_cg.outputs[1]
 
         # Model is weird class, we spend lots of time arguing with Bart
         # what it should be. However it can already nice things, e.g.
@@ -697,7 +698,7 @@ def main(cmd_args):
             core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
         algorithm = GradientDescent(
             cost=regularized_cost + (
-                train_conf["penalty_coof"] * weights_penalty / batch_size
+                train_conf["penalty_coof"] * regularized_weights_penalty / batch_size
                 if 'penalty_coof' in train_conf else 0),
             params=params.values(),
             step_rule=CompositeRule(
