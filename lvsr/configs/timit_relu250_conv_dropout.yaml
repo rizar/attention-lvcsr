@@ -1,0 +1,7 @@
+parent: $LVSR/lvsr/configs/timit_bothgru_cumsum_250.yaml
+net:
+    attention_type: content_and_conv
+    conv_n: 100
+    bottom_activation: relu
+regularization:
+    dropout: 0.5
