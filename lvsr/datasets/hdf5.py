@@ -60,7 +60,8 @@ class HDF5SpeechDataset(Dataset):
         transcripts = self.transcripts[
             transcripts_location['beg']:transcripts_location['end']]
         # Temporary flattening
-        assert features.shape[1] == 1 and transcripts.shape[1] == 1
-        features = features.flatten()
+        assert transcripts.shape[1] == 1
+        if self.feature_name == 'wav':
+            features = features.flatten()
         transcripts = transcripts.flatten()
         return (features, transcripts)

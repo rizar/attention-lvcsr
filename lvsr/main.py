@@ -146,6 +146,7 @@ class Data(object):
                  max_length, normalization,
                  merge_k_frames=None,
                  pad_k_frames=None,
+                 feature_name='wav',
                  # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None,
                  # For WSJ
@@ -160,6 +161,7 @@ class Data(object):
         self.sort_k_batches = sort_k_batches
         self.merge_k_frames = merge_k_frames
         self.pad_k_frames = pad_k_frames
+        self.feature_name = feature_name
         self.max_length = max_length
         self.add_eos = add_eos
         self._eos_label = eos_label
@@ -176,7 +178,13 @@ class Data(object):
 
     @property
     def num_features(self):
-        return 129 * (self.merge_k_frames if self.merge_k_frames else 1)
+        merge_multiplier = self.merge_k_frames if self.merge_k_frames else 1
+        if self.feature_name == 'wav':
+            return 129 * merge_multiplier
+        elif self.feature_name == 'fbank_and_delta_delta':
+            return 123 * merge_multiplier
+        else:
+            raise ValueError("Unknown features {}".format(self.feature_name))
 
     @property
     def eos_label(self):
@@ -193,11 +201,13 @@ class Data(object):
                 name_mapping = {"train": "train",
                                 "valid": "dev",
                                 "test": "test"}
-                self.dataset_cache[part] = TIMIT2(name_mapping[part],
-                                                  add_eos=self.add_eos)
+                self.dataset_cache[part] = TIMIT2(
+                    name_mapping[part], feature_name=self.feature_name,
+                    add_eos=self.add_eos)
             elif self.dataset == "WSJ":
                 name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
-                self.dataset_cache[part] = WSJ(name_mapping[part])
+                self.dataset_cache[part] = WSJ(
+                    name_mapping[part], feature_name=self.feature_name)
             else:
                 raise ValueError
         return self.dataset_cache[part]
@@ -223,9 +233,10 @@ class Data(object):
             stream = Mapping(stream, SortMapping(_length))
             stream = Unpack(stream)
 
-        stream = Mapping(
-            stream, functools.partial(apply_preprocessing,
-                                      log_spectrogram))
+        if self.feature_name == 'wav':
+            stream = Mapping(
+                stream, functools.partial(apply_preprocessing,
+                                        log_spectrogram))
         if self.pad_k_frames:
             stream = Mapping(
                 stream, _SilentPadding(self.pad_k_frames))
