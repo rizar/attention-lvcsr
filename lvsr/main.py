@@ -666,7 +666,10 @@ def main(cmd_args):
             regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
         if reg_config['noise'] is not None:
             logger.info('apply noise')
-            regularized_cg = apply_noise(cg, cg.parameters, reg_config['noise'])
+            attention = r.generator.transition.attention
+            attention_params = Selector(attention).get_params().values()
+            noise_subjects = [p for p in cg.parameters if p not in attention_params]
+            regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
         regularized_cost = regularized_cg.outputs[0]
         regularized_weights_penalty = regularized_cg.outputs[1]
 
