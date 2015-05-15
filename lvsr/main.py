@@ -6,6 +6,7 @@ import os
 import functools
 import cPickle
 import sys
+import copy
 from collections import OrderedDict
 
 import numpy
@@ -260,6 +261,33 @@ class InitializableSequence(Sequence, Initializable):
     pass
 
 
+class Encoder(Initializable):
+
+    def __init__(self, enc_transition, dim, dim_input, depth, **kwargs):
+        super(Encoder, self).__init__(**kwargs)
+        bidir = Bidirectional(enc_transition(
+            dim=dim, activation=Tanh()), name='bidir0')
+        fork = Fork([name for name in bidir.prototype.apply.sequences
+                    if name != 'mask'], name='fork0')
+        fork.input_dim = dim_input
+        fork.output_dims = [dim for name in fork.output_names]
+
+        self.children = [fork, bidir]
+        for layer in range(1, depth):
+            self.children.append(copy.deepcopy(fork))
+            self.children[-1].name = 'fork{}'.format(layer)
+            self.children[-1].input_dim = 2 * dim
+            self.children.append(copy.deepcopy(bidir))
+            self.children[-1].name = 'bidir{}'.format(layer)
+
+    @application
+    def apply(self, input_, mask=None):
+        for fork, bidir in zip(self.children[::2], self.children[1::2]):
+            input_ = bidir.apply(mask=mask, **fork.apply(input_, as_dict=True))
+        return input_
+
+
+
 class SpeechRecognizer(Initializable):
     """Encapsulate all reusable logic.
 
@@ -286,7 +314,7 @@ class SpeechRecognizer(Initializable):
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
                  bottom_activation='tanh',
-                 post_merge_dims=None,
+                 post_merge_dims=None, birnn_depth=1,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.eos_label = eos_label
@@ -295,24 +323,31 @@ class SpeechRecognizer(Initializable):
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
-        # Build the bricks
-        encoder = Bidirectional(self.enc_transition(
-            dim=dim_bidir, activation=Tanh()))
-        fork = Fork([name for name in encoder.prototype.apply.sequences
-                    if name != 'mask'])
-        fork.input_dim = dims_bottom[-1]
-        fork.output_dims = [dim_bidir for name in fork.output_names]
-        top = (MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
-               if dims_top is not None else Identity())
-        if bottom_activation == 'tanh':
-            bottom_activation = Tanh()
-        elif bottom_activation == 'relu':
-            bottom_activation = Rectifier()
+        # The bottom part, before BiRNN
+        if dims_bottom:
+            if bottom_activation == 'tanh':
+                bottom_activation = Tanh()
+            elif bottom_activation == 'relu':
+                bottom_activation = Rectifier()
+            else:
+                raise ValueError("unknown activation {}".format(bottom_activation))
+            bottom = MLP([bottom_activation] * len(dims_bottom),
+                        [num_features] + dims_bottom,
+                        name="bottom")
         else:
-            raise ValueError("unknown activation {}".format(bottom_activation))
-        bottom = MLP([bottom_activation] * len(dims_bottom),
-                     [num_features] + dims_bottom,
-                     name="bottom")
+            bottom = Identity(name='bottom')
+
+        # BiRNN
+        encoder = Encoder(self.enc_transition, dim_bidir,
+                          dims_bottom[-1] if len(dims_bottom) else num_features,
+                          birnn_depth)
+
+        # The top part, on top of BiRNN but before the attention
+        if dims_top:
+            top = MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
+        else:
+            top = Identity(name='top')
+
         transition = self.dec_transition(
             dim=dim_dec, activation=Tanh(), name="transition")
         # Choose attention mechanism according to the configuration
@@ -401,11 +436,10 @@ class SpeechRecognizer(Initializable):
 
         # Remember child bricks
         self.encoder = encoder
-        self.fork = fork
         self.bottom = bottom
         self.top = top
         self.generator = generator
-        self.children = [encoder, fork, top, bottom, generator]
+        self.children = [encoder, top, bottom, generator]
 
         # Create input variables
         self.recordings = tensor.tensor3("recordings")
@@ -431,9 +465,8 @@ class SpeechRecognizer(Initializable):
             labels, labels_mask,
             attended=self.top.apply(
                 self.encoder.apply(
-                    **dict_union(self.fork.apply(self.bottom.apply(recordings),
-                                                 as_dict=True),
-                    mask=recordings_mask))),
+                    input_=self.bottom.apply(recordings),
+                    mask=recordings_mask)),
             attended_mask=recordings_mask)
 
     @application
@@ -441,9 +474,7 @@ class SpeechRecognizer(Initializable):
         return self.generator.generate(
             n_steps=recordings.shape[0], batch_size=recordings.shape[1],
             attended=self.top.apply(
-                self.encoder.apply(
-                    **dict_union(self.fork.apply(self.bottom.apply(recordings),
-                                                 as_dict=True)))),
+                self.encoder.apply(input_=self.bottom.apply(recordings))),
             attended_mask=tensor.ones_like(recordings[:, :, 0]))
 
     def load_params(self, path):
