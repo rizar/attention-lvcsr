@@ -12,6 +12,7 @@ class HDF5SpeechDataset(Dataset):
     A dataset class for the format we agreed with Jan on.
     """
     provides_sources = ('recordings', 'labels')
+    axis_labels = None
 
     def __init__(self, path, split, feature_name="wav"):
         self.path = path
