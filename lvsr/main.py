@@ -768,8 +768,11 @@ def main(cmd_args):
             prefix="valid").set_conditions(
                 before_first_epoch=not cmd_args.fast_start, every_n_epochs=2,
                 after_training=False)
-        track_the_best = TrackTheBest(
+        track_the_best_per = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
+                before_first_epoch=True, after_epoch=True)
+        track_the_best_likelihood = TrackTheBest(
+            validation.record_name(cost)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
         adaptive_clipping = AdaptiveClipping(
             algorithm.total_gradient_norm.name,
@@ -788,7 +791,7 @@ def main(cmd_args):
                 CodeVersion(['lvsr']),
                 every_batch_monitoring, average_monitoring,
                 validation, per_monitoring,
-                track_the_best,
+                track_the_best_per, track_the_best_likelihood,
                 adaptive_clipping,
                 FinishAfter(after_n_batches=cmd_args.num_batches)
                 .add_condition("after_batch", _gradient_norm_is_none),
@@ -815,18 +818,15 @@ def main(cmd_args):
                            save_separately=["model", "log"])
                 .add_condition(
                     'after_epoch',
-                    OnLogRecord(track_the_best.notification_name),
+                    OnLogRecord(track_the_best_per.notification_name),
                     (root_path + "_best" + extension,))
                 .add_condition(
-                    'before_epoch',
-                    OnLogRecord(track_the_best.notification_name),
-                    (root_path + "_best" + extension,)),
+                    'after_epoch',
+                    OnLogRecord(track_the_best_likelihood.notification_name),
+                    (root_path + "_best_ll" + extension,)),
                 ProgressBar(),
                 Printing(every_n_batches=1)]))
         main_loop.run()
-
-        from theano.printing import debugprint
-        debugprint(algorithm._function, file=open('debugprint.txt', 'w'))
     elif cmd_args.mode == "search":
         from matplotlib import pyplot
         from lvsr.notebook import show_alignment
