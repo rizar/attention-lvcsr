@@ -27,7 +27,8 @@ from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
-                               Momentum, RemoveNotFinite, AdaDelta)
+                               Momentum, RemoveNotFinite, AdaDelta,
+                               Restrict, VariableClipping)
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
@@ -43,7 +44,7 @@ from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
-from blocks.roles import OUTPUT
+from blocks.roles import OUTPUT, WEIGHT
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
 from blocks.select import Selector
@@ -741,13 +742,20 @@ def main(cmd_args):
         if 'adadelta' in rule_names:
             logger.info("Using AdaDelta for training")
             core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
+        max_norm_rules = []
+        if reg_config.get('max_norm', False):
+            logger.info("Applying MaxNorm constraint")
+            weights = VariableFilter(roles=[WEIGHT])(cg.parameters)
+            max_norm_rules = [
+                Restrict(VariableClipping(reg_config['max_norm'], axis=0),
+                         weights)]
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * regularized_weights_penalty / batch_size
                 if 'penalty_coof' in train_conf else 0),
             params=params.values(),
             step_rule=CompositeRule(
-                [clipping] + core_rules +
+                [clipping] + core_rules + max_norm_rules +
                 # Parameters are not changed at all
                 # when nans are encountered.
                 [RemoveNotFinite(0.0)]))
