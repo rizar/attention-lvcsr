@@ -27,28 +27,35 @@ All the code is in `lvsr`. It is structured as follows:
 1. Make sure that `$FUEL_DATA_PATH/timit` contains `timit.h5`
 
 2. `cd fully-neural-lvsr && source env.sh`
-   After that you can run experiments from any directory. Note: it is important  
+
+   After that you can run experiments from any directory. _Note:_ it is important  
    that Blocks and Theano are _not_ installed by `pip -e`, otherwise it is impossible
-   to override them with $PYTHONPATH
+   to override them with `$PYTHONPATH`
 
 3. Prepare the normalization parameters. Forcing feature means to be zero and variances 
    one has proven to be crucial to make anything work.
- 
+
    `$LVSR/lvsr/run.py init_norm timit_delta_norm.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml data.feature_name "'fbank_and_delta_delta'" data.normalization None`
  
    That will create a pickle `timit_delta_norm.pkl` in the current directory.
 
-4. Run training. Something like this should do the job:
+4. Run training with max column constraint:
 
-   ``lvsr/firsttry/main.py train timit_bothgru_cumsum.pkl lvsr/configs/timit_bothgru_cumsum.py`` 
+   `$LVSR/lvsr/run.py train timit_bothgru2_fbank_qctc_maxnorm.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.max_norm 1`
 
-    _norm.pkl_ should be in the same directory where training is started.
+   The training progress can be tracked by Bokeh. When log-likelihood stops improving, restart
+   with weight noise:
+
+   `$LVSR/blocks/bin/blocks-dump timit_bothgru2_fbank_qctc_maxnorm.pkl`
+
+   `$LVSR/lvsr/run.py train --params timit_bothgru2_fbank_qctc_maxnorm/params.npz timit_bothgru2_fbank_qctc_noise.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.noise 0.05 training.scale 0.005`
+
+    I am in progress of figuring out if both regularization can be used throughout the training process.
 
 5. Use the trained model:
 
-   ``lvsr/firsttry/main.py search timit_bothgru_cumsum_model.pkl``
+   `lvsr/firsttry/main.py search --part=test timit_bothgru2_fbank_qctc_noise_model.pkl  $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml` 
 
-   Currently it needs a GPU to beam-search, but this can fixed very quickly 
-   (I just have a lot of them and don't care too much).
-  
+   A GPU is needed unless `https://github.com/Theano/Theano/pull/2339` is used.
 
+Don't hesitate to contact for more information!
