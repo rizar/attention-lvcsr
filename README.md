@@ -32,6 +32,8 @@ All the code is in `lvsr`. It is structured as follows:
 
    `cd fully-neural-lvsr`
 
+   `git submodule init`
+
    `git submodule update`
 
    `source env.sh`
