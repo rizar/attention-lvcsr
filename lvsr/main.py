@@ -633,6 +633,11 @@ def main(cmd_args):
             brick.push_initialization_config()
         recognizer.initialize()
 
+        # Separate attention_params to be handled differently
+        # when regularization is applied
+        attention = recognizer.generator.transition.attention
+        attention_params = Selector(attention).get_params().values()
+
         logger.info("Initialization schemes for all bricks.\n"
             "Works well only in my branch with __repr__ added to all them,\n"
             "there is an issue #463 in Blocks to do that properly.")
@@ -709,8 +714,6 @@ def main(cmd_args):
             regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
         if reg_config['noise'] is not None:
             logger.info('apply noise')
-            attention = r.generator.transition.attention
-            attention_params = Selector(attention).get_params().values()
             noise_subjects = [p for p in cg.parameters if p not in attention_params]
             regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
         regularized_cost = regularized_cg.outputs[0]
@@ -744,11 +747,15 @@ def main(cmd_args):
             core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
         max_norm_rules = []
         if reg_config.get('max_norm', False):
-            logger.info("Applying MaxNorm constraint")
-            weights = VariableFilter(roles=[WEIGHT])(cg.parameters)
+            logger.info("Apply MaxNorm")
+            maxnorm_subjects = VariableFilter(roles=[WEIGHT])(
+                set(params.values()) - set(attention_params))
+            logger.info("Parameters NOT covered by MaxNorm:\n"
+                        + pprint.pformat([name for name, p in params.items()
+                                          if not p in maxnorm_subjects]))
             max_norm_rules = [
                 Restrict(VariableClipping(reg_config['max_norm'], axis=0),
-                         weights)]
+                         maxnorm_subjects)]
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 train_conf["penalty_coof"] * regularized_weights_penalty / batch_size
