@@ -2,49 +2,41 @@
 
 ### What is available
 
-All the code is in _lvsr_. It is structured as follows:
+All the code is in `lvsr`. It is structured as follows:
 
-* the _datasets_ folder contain the dataset classes. TIMIT and WSJ are available.
+* the `datasets` folder contain the dataset classes. TIMIT and WSJ are available.
   It expects hdf5 tables in `$FUEL_DATA_PATH`, the one for TIMIT is called
   `timit.hdf5` and can be found at `/data/lisatmp3/bahdanau/timit.h5`
 
-* the _configs_ folder contain experiment configuration in the format understood by 
-  the _firsttry_
+* the `configs` folder contain experiment configurations
 
-* _firsttry_ contains the do-it-all script splitted into _main.py_ and \_\_init.py\_\_ , as
-  it has be to done to ensure that unpickling of the main loop object goes smoothly.
+* `main.py` contains most of the code, `run.py` is the script to run
 
-* _attenion.py_ contains different attention mechanisms tried. Warning: low code quality, 
+* `attention.py` contains different attention mechanisms tried. Warning: low code quality, 
   lots of copy-pasted code. 
 
-* _preprocessing.py_ contains implemented preprocessings, the only is available so far is
-  log\_spectrogram
+* `preprocessing.py` contains implemented preprocessings, the only is available so far is
+  `log_spectrogram`
 
-* _error\_rate.py_ : Levenshtein distance and WER
+* `error_rate.py` : Levenshtein distance and WER
 
-* _experessions.py_ : nice pieces of Theano code such as monotonicity penalty, weights entropy
+* `expressions.py` : nice pieces of Theano code such as monotonicity penalty, weights entropy
 
 ### How to use it
 
-1. Install blocks, see http://blocks.readthedocs.org/en/latest/setup.html.
+1. Make sure that `$FUEL_DATA_PATH/timit` contains `timit.h5`
 
-   OR
-
-   If you want to be on the safe side, use submodules _Theano_ and _blocks_.
-   This will give you the right versions. Run `source env.sh` in the repository
-   root, to setup _$PYTHONPATH_, note that it will not work if these packages are
-   already installed locally in the development mode (that is `python setup.py
-   develop`). Another issue is that all the dependencies will have to be installed
-   manually, if not present.
-
-2. Make sure that _$FUEL\_PATH/timit_ contains all required data.
+2. `cd fully-neural-lvsr && source env.sh`
+   After that you can run experiments from any directory. Note: it is important  
+   that Blocks and Theano are _not_ installed by `pip -e`, otherwise it is impossible
+   to override them with $PYTHONPATH
 
 3. Prepare the normalization parameters. Forcing feature means to be zero and variances 
    one has proven to be crucial to make anything work.
  
-   ``firsttry/main.py init_norm norm.pkl``
+   `$LVSR/lvsr/run.py init_norm timit_delta_norm.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml data.feature_name "'fbank_and_delta_delta'" data.normalization None`
  
-   That will create a pickle _norm.pkl_ in the current directory.
+   That will create a pickle `timit_delta_norm.pkl` in the current directory.
 
 4. Run training. Something like this should do the job:
 
