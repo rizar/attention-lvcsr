@@ -16,7 +16,7 @@ from theano import tensor
 from blocks.bricks import (
     Tanh, MLP, Brick, application,
     Initializable, Identity, Rectifier,
-    Sequence, Bias)
+    Sequence, Bias, Linear)
 from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
@@ -269,7 +269,8 @@ class Encoder(Initializable):
         bidir = Bidirectional(enc_transition(
             dim=dim, activation=Tanh()), name='bidir0')
         fork = Fork([name for name in bidir.prototype.apply.sequences
-                    if name != 'mask'], name='fork0')
+                     if name != 'mask'],
+                     name='fork0', prototype=Linear())
         fork.input_dim = dim_input
         fork.output_dims = [dim for name in fork.output_names]
 

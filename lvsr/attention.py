@@ -246,10 +246,12 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
                                            prototype=state_transformer,
                                            name="state_trans")
         if not attended_transformer:
+            # Only this contributor to the match vector
+            # is allowed to have biases
             attended_transformer = Linear(name="preprocess")
         if not energy_computer:
             energy_computer = ShallowEnergyComputer(name="energy_comp")
-        self.filter_handler = Linear(name="handler")
+        self.filter_handler = Linear(name="handler", use_bias=False)
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
 
