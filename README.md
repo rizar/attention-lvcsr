@@ -4,7 +4,7 @@
 
 All the code is in `lvsr`. It is structured as follows:
 
-* the `datasets` folder contain the dataset classes. TIMIT and WSJ are available.
+* the `datasets` folder contains the dataset classes. TIMIT and WSJ are available.
   It expects hdf5 tables in `$FUEL_DATA_PATH`, the one for TIMIT is called
   `timit.hdf5` and can be found at `/data/lisatmp3/bahdanau/timit.h5`
 
@@ -24,9 +24,17 @@ All the code is in `lvsr`. It is structured as follows:
 
 ### How to use it
 
+
 1. Make sure that `$FUEL_DATA_PATH/timit` contains `timit.h5`
 
-2. `cd fully-neural-lvsr && source env.sh`
+
+2. `git clone https://github.com/rizar/fully-neural-lvsr.git`
+
+   `cd fully-neural-lvsr`
+
+   `git submodule update`
+
+   `source env.sh`
 
    After that you can run experiments from any directory. _Note:_ it is important  
    that Blocks and Theano are _not_ installed by `pip -e`, otherwise it is impossible
@@ -43,14 +51,14 @@ All the code is in `lvsr`. It is structured as follows:
 
    `$LVSR/lvsr/run.py train timit_bothgru2_fbank_qctc_maxnorm.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.max_norm 1`
 
-   The training progress can be tracked by Bokeh. When log-likelihood stops improving, restart
-   with weight noise:
+   The training progress can be tracked with Bokeh (don't forget to have `bokeh-server` running!).
+   When log-likelihood stops improving, restart with weight noise:
 
    `$LVSR/blocks/bin/blocks-dump timit_bothgru2_fbank_qctc_maxnorm.pkl`
 
    `$LVSR/lvsr/run.py train --params timit_bothgru2_fbank_qctc_maxnorm/params.npz timit_bothgru2_fbank_qctc_noise.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.noise 0.05 training.scale 0.005`
 
-    I am in progress of figuring out if both regularization can be used throughout the training process.
+    I am in progress of figuring out if both regularizations can be used throughout the training process.
 
 5. Use the trained model:
 
