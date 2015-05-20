@@ -1,14 +1,12 @@
 # Fully Neural LVSR
 
-### WARNING, OUTDATED, CONTACT @rizar
-
 ### What is available
 
 All the code is in _lvsr_. It is structured as follows:
 
-* the _datasets_ folder contain the dataset classes. Currently only TIMIT is available.
-  It expects data in the format from _/data/lisa/data/timit/readable_, that is already
-  nicely packed into numpy arrays.
+* the _datasets_ folder contain the dataset classes. TIMIT and WSJ are available.
+  It expects hdf5 tables in `$FUEL_DATA_PATH`, the one for TIMIT is called
+  `timit.hdf5` and can be found at `/data/lisatmp3/bahdanau/timit.h5`
 
 * the _configs_ folder contain experiment configuration in the format understood by 
   the _firsttry_
