@@ -749,8 +749,7 @@ def main(cmd_args):
         max_norm_rules = []
         if reg_config.get('max_norm', False):
             logger.info("Apply MaxNorm")
-            maxnorm_subjects = VariableFilter(roles=[WEIGHT])(
-                set(params.values()) - set(attention_params))
+            maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
             logger.info("Parameters NOT covered by MaxNorm:\n"
                         + pprint.pformat([name for name, p in params.items()
                                           if not p in maxnorm_subjects]))
