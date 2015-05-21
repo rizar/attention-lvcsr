@@ -2,5 +2,3 @@ parent: $LVSR/lvsr/configs/timit_relu250_fbank.yaml
 net:
     dims_bottom: []
     birnn_depth: 2
-training:
-    penalty_coof: 0.05
