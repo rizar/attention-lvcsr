@@ -760,8 +760,8 @@ def main(cmd_args):
                          maxnorm_subjects)]
         algorithm = GradientDescent(
             cost=regularized_cost + (
-                train_conf["penalty_coof"] * regularized_weights_penalty / batch_size
-                if 'penalty_coof' in train_conf else 0),
+                reg_config["penalty_coof"] * regularized_weights_penalty / batch_size
+                if 'penalty_coof' in reg_config else 0),
             params=params.values(),
             step_rule=CompositeRule(
                 [clipping] + core_rules + max_norm_rules +
