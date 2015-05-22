@@ -22,7 +22,7 @@ def load_log(name):
     print "Best PER: {}".format(log.status.get('best_valid_per', '?'))
 
 
-def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500):
+def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.0):
     indices = slice(start, finish if finish > 0 else None)
 
     f, axis = pyplot.subplots(1, 2)
@@ -60,6 +60,7 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500):
         log = models['df_' + name]
         axis[0].plot(log.valid_per.interpolate()[indices],
                   label=name)
+        axis[0].set_ylim(0, max_per)
         axis[0].legend(loc='best')
     for name in names:
         log = models['df_' + name]
