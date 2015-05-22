@@ -272,7 +272,8 @@ class Encoder(Initializable):
                      if name != 'mask'],
                      name='fork0', prototype=Linear())
         fork.input_dim = dim_input
-        fork.output_dims = [dim for name in fork.output_names]
+        fork.output_dims = [bidir.prototype.get_dim(name)
+                            for name in fork.output_names]
 
         self.children = [fork, bidir]
         for layer in range(1, depth):
@@ -325,14 +326,15 @@ class SpeechRecognizer(Initializable):
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
+        if bottom_activation == 'tanh':
+            bottom_activation = Tanh()
+        elif bottom_activation == 'relu':
+            bottom_activation = Rectifier()
+        else:
+            raise ValueError("unknown activation {}".format(bottom_activation))
+
         # The bottom part, before BiRNN
         if dims_bottom:
-            if bottom_activation == 'tanh':
-                bottom_activation = Tanh()
-            elif bottom_activation == 'relu':
-                bottom_activation = Rectifier()
-            else:
-                raise ValueError("unknown activation {}".format(bottom_activation))
             bottom = MLP([bottom_activation] * len(dims_bottom),
                         [num_features] + dims_bottom,
                         name="bottom")
