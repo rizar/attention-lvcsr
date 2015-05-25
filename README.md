@@ -25,8 +25,8 @@ All the code is in `lvsr`. It is structured as follows:
 ### How to use it
 
 
-1. Make sure that `$FUEL_DATA_PATH/timit` contains `timit.h5`
-
+1. Make sure that `$FUEL_DATA_PATH/timit` contains `timit.h5` and `phonemes.pkl` (which can
+   be found at `/data/lisa/data/timit/readable/phonemes.pkl`)
 
 2. `git clone https://github.com/rizar/fully-neural-lvsr.git`
 
@@ -49,18 +49,9 @@ All the code is in `lvsr`. It is structured as follows:
  
    That will create a pickle `timit_delta_norm.pkl` in the current directory.
 
-4. Run training with max column constraint:
+4. Run training:
 
-   `$LVSR/lvsr/run.py train timit_bothgru2_fbank_qctc_maxnorm.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.max_norm 1`
-
-   The training progress can be tracked with Bokeh (don't forget to have `bokeh-server` running!).
-   When log-likelihood stops improving, restart with weight noise:
-
-   `$LVSR/blocks/bin/blocks-dump timit_bothgru2_fbank_qctc_maxnorm.pkl`
-
-   `$LVSR/lvsr/run.py train --params timit_bothgru2_fbank_qctc_maxnorm/params.npz timit_bothgru2_fbank_qctc_noise.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml regularization.noise 0.05 training.scale 0.005`
-
-    I am in progress of figuring out if both regularizations can be used throughout the training process.
+   `$LVSR/lvsr/run.py train timit_bothgru2_fbank_lm_mn.pkl $LVSR/lvsr/configs/timit_bothgru2_fbank_qctc.yaml net.use_states_for_readout True net.birnn_depth 2 regularization.max_norm 1 regularization.noise 0.05`
 
 5. Use the trained model:
 
