@@ -764,7 +764,7 @@ def main(cmd_args):
                 reg_config["penalty_coof"] * regularized_weights_penalty / batch_size
                 if 'penalty_coof' in reg_config else 0) + (
                 reg_config["decay"] *
-                l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters))),
+                l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters))) ** 2,
             params=params.values(),
             step_rule=CompositeRule(
                 [clipping] + core_rules + max_norm_rules +
