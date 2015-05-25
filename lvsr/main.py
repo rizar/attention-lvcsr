@@ -269,7 +269,7 @@ class Encoder(Initializable):
         super(Encoder, self).__init__(**kwargs)
         bidir = Bidirectional(
             RecurrentWithFork(
-                enc_transition(dim=dim, activation=Tanh()),
+                enc_transition(dim=dim, activation=Tanh()).apply,
                 dim_input,
                 name='with_fork'),
             name='bidir0')
@@ -277,6 +277,8 @@ class Encoder(Initializable):
         self.children = [bidir]
         for layer in range(1, depth):
             self.children.append(copy.deepcopy(bidir))
+            for child in self.children[-1].children:
+                child.input_dim = 2 * dim
             self.children[-1].name = 'bidir{}'.format(layer)
 
     @application
@@ -793,6 +795,7 @@ def main(cmd_args):
             return result
 
         # Build main loop.
+        logger.info("Initialize extensions")
         every_batch_monitoring = TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
              algorithm.total_step_norm, clipping.threshold], after_batch=True)
