@@ -32,6 +32,7 @@ from blocks.algorithms import (GradientDescent, Scale,
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
+from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
 from blocks.extensions.saveload import Checkpoint, Dump
@@ -761,7 +762,9 @@ def main(cmd_args):
         algorithm = GradientDescent(
             cost=regularized_cost + (
                 reg_config["penalty_coof"] * regularized_weights_penalty / batch_size
-                if 'penalty_coof' in reg_config else 0),
+                if 'penalty_coof' in reg_config else 0) + (
+                reg_config["decay"] *
+                l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters))),
             params=params.values(),
             step_rule=CompositeRule(
                 [clipping] + core_rules + max_norm_rules +
