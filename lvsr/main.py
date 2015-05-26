@@ -757,11 +757,10 @@ def main(cmd_args):
                 Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                          maxnorm_subjects)]
         algorithm = GradientDescent(
-            cost=regularized_cost + (
-                reg_config["penalty_coof"] * regularized_weights_penalty / batch_size
-                if 'penalty_coof' in reg_config else 0) + (
-                reg_config["decay"] *
-                l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters))) ** 2,
+            cost=regularized_cost +
+                reg_config.get("penalty_coof", .0) * regularized_weights_penalty / batch_size +
+                reg_config.get("decay", .0) *
+                l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
             params=params.values(),
             step_rule=CompositeRule(
                 [clipping] + core_rules + max_norm_rules +
