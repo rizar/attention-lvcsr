@@ -18,7 +18,8 @@ from blocks.bricks import (
     Initializable, Identity, Rectifier,
     Sequence, Bias, Linear)
 from blocks.bricks.recurrent import (
-    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
+    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional,
+    RecurrentWithFork)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
@@ -267,29 +268,25 @@ class Encoder(Initializable):
 
     def __init__(self, enc_transition, dim, dim_input, depth, **kwargs):
         super(Encoder, self).__init__(**kwargs)
-        bidir = Bidirectional(enc_transition(
-            dim=dim, activation=Tanh()), name='bidir0')
-        fork = Fork([name for name in bidir.prototype.apply.sequences
-                     if name != 'mask'],
-                     name='fork0', prototype=Linear())
-        fork.input_dim = dim_input
-        fork.output_dims = [bidir.prototype.get_dim(name)
-                            for name in fork.output_names]
+        bidir = Bidirectional(
+            RecurrentWithFork(
+                enc_transition(dim=dim, activation=Tanh()).apply,
+                dim_input,
+                name='with_fork'),
+            name='bidir0')
 
-        self.children = [fork, bidir]
+        self.children = [bidir]
         for layer in range(1, depth):
-            self.children.append(copy.deepcopy(fork))
-            self.children[-1].name = 'fork{}'.format(layer)
-            self.children[-1].input_dim = 2 * dim
             self.children.append(copy.deepcopy(bidir))
+            for child in self.children[-1].children:
+                child.input_dim = 2 * dim
             self.children[-1].name = 'bidir{}'.format(layer)
 
     @application
     def apply(self, input_, mask=None):
-        for fork, bidir in zip(self.children[::2], self.children[1::2]):
-            input_ = bidir.apply(mask=mask, **fork.apply(input_, as_dict=True))
+        for bidir in self.children:
+            input_ = bidir.apply(input_, mask)
         return input_
-
 
 
 class SpeechRecognizer(Initializable):
@@ -801,6 +798,7 @@ def main(cmd_args):
             return result
 
         # Build main loop.
+        logger.info("Initialize extensions")
         every_batch_monitoring = TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
              algorithm.total_step_norm, clipping.threshold], after_batch=True)
