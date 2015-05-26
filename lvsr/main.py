@@ -775,10 +775,13 @@ def main(cmd_args):
             algorithm.total_step_norm, algorithm.total_gradient_norm,
             clipping.threshold]
         for name, param in params.items():
-            observables.append(named_copy(
-                param.norm(2), name + "_norm"))
-            observables.append(named_copy(
-                algorithm.gradients[param].norm(2), name + "_grad_norm"))
+            num_elements = numpy.product(param.get_value().shape)
+            norm = param.norm(2) / num_elements
+            grad_norm = algorithm.gradients[param].norm(2) / num_elements
+            step_norm = algorithm.steps[param].norm(2) / num_elements
+            stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
+            stats.name = name + '_stats'
+            observables.append(stats)
 
         def attach_aggregation_schemes(variables):
             # Aggregation specification has to be factored out as a separate
