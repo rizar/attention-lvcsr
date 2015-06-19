@@ -17,7 +17,7 @@ class WSJ(Dataset):
     provides_sources = ('recordings', 'labels')
     num_characters = 127
 
-    def __init__(self, split, feature_name="wav", path=None):
+    def __init__(self, split, feature_name="wav", path=None, **kwargs):
         if not path:
             path = os.path.join(fuel.config.data_path, "WSJ/wsj.h5")
 
@@ -26,6 +26,7 @@ class WSJ(Dataset):
         self.split = split
 
         self.load()
+        super(WSJ, self).__init__(**kwargs)
 
     @property
     def features(self):
