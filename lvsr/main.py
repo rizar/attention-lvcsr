@@ -18,14 +18,12 @@ from blocks.bricks import (
     Initializable, Identity, Rectifier,
     Sequence, Bias, Linear)
 from blocks.bricks.recurrent import (
-    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional,
-    RecurrentWithFork)
+    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback)
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
-from blocks.dump import load_parameter_values
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
                                Momentum, RemoveNotFinite, AdaDelta,
@@ -36,10 +34,10 @@ from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
-from blocks.extensions.saveload import Checkpoint, Dump
+from blocks.extensions.saveload import Checkpoint
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
-from blocks.extensions.plot import Plot
+from blocks.extras.extensions.plot import Plot
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
@@ -63,6 +61,7 @@ from lvsr.attention import (
     ShiftPredictor, ShiftPredictor2, HybridAttention,
     SequenceContentAndConvAttention,
     SequenceContentAndCumSumAttention)
+from lvsr.bricks import RecurrentWithFork
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import monotonicity_penalty, entropy, weights_std
@@ -354,9 +353,6 @@ class SpeechRecognizer(Initializable):
             dim=dim_dec, activation=Tanh(), name="transition")
         # Choose attention mechanism according to the configuration
         if attention_type == "content":
-            # Simple content-based attention from ala machine translation project.
-            # The main deficiency: one wrongly generated phoneme ruins everything,
-            # there is no alignment memory to recover from.
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
@@ -368,53 +364,9 @@ class SpeechRecognizer(Initializable):
                 attended_dim=2 * dim_bidir, match_dim=dim_dec,
                 prior=prior,
                 name="conv_att")
-        elif attention_type == "content_and_cumsum":
-            attention = SequenceContentAndCumSumAttention(
-                state_names=transition.apply.states,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
-                prior=prior, name="cumsum_att")
-        elif attention_type == "hybrid":
-            # Like "content", but with an additional location-based attention
-            # mechanism. It takes the current state as input and predicts
-            # good shifts from the current position (where the current position
-            # is a truncated to an integer expected position). This predictions
-            # in the forms of energies for each position ares added to the energies
-            # produced by the content-based attention. In fact only for shifts
-            # in the range [-max_left; max_right] the energies are computed,
-            # for other shifts padding is used. Setting padding to a small value
-            # like -10 acts as forcing the network to operate within a certain
-            # window near its current position and significantly speeds up
-            # training.
-            predictor = MLP([Tanh(), None],
-                            [None] + shift_predictor_dims + [None],
-                            name="predictor")
-            location_attention = ShiftPredictor(
-                state_names=transition.apply.states,
-                max_left=max_left, max_right=max_right, padding=padding,
-                predictor=predictor,
-                attended_dim=2 * dim_bidir,
-                name="loc_att")
-            attention = HybridAttention(
-                state_names=transition.apply.states,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
-                location_attention=location_attention,
-                name="hybrid_att")
-        elif attention_type == "hybrid2":
-            # An attempt to replicate gating mechnanism by Jan. Crashes
-            # when log-likelihood is about 50, further investigations
-            # are needed.
-            predictor = MLP([Tanh(), None],
-                            [None] + shift_predictor_dims + [None],
-                            name="predictor")
-            location_attention = ShiftPredictor2(
-                state_names=transition.apply.states,
-                predictor=predictor, attended_dim=2 * dim_bidir,
-                name="loc_att")
-            attention = HybridAttention(
-                state_names=transition.apply.states,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
-                location_attention=location_attention,
-                name="hybrid_att")
+        else:
+            raise ValueError("Unknown attention type {}"
+                             .format(attention_type))
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
@@ -481,7 +433,7 @@ class SpeechRecognizer(Initializable):
 
     def load_params(self, path):
         generated = self.get_generate_graph()
-        Model(generated[1]).set_param_values(load_parameter_values(path))
+        Model(generated[1]).set_param_values(numpy.load(path))
 
     def get_generate_graph(self):
         return self.generate(self.recordings)
@@ -529,7 +481,7 @@ class SpeechRecognizer(Initializable):
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
-            bricks=[self.generator], name="outputs")(
+            applications=[self.generator.generate], name="outputs")(
                 ComputationGraph(generated[1]))
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
