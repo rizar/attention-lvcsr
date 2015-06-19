@@ -8,9 +8,17 @@ import argparse
 
 from lvsr.main import main
 
+
+class StoreIfNotUnderscore(argparse.Action):
+
+    def __call__(self, parser, namespace, values, option_string):
+        if values != '_':
+            setattr(namespace, self.dest, values)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        "Phoneme recognition on TIMIT",
+        "Fully neural speech recognition",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         "mode", choices=[
@@ -21,6 +29,7 @@ if __name__ == "__main__":
         help="The path to save the training process.")
     parser.add_argument(
         "config_path", default=None, nargs="?",
+        action=StoreIfNotUnderscore,
         help="The configuration")
     parser.add_argument(
         "config_changes", default=[], nargs='*',
