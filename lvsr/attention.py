@@ -42,6 +42,9 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
                  attended_transformer=None, energy_computer=None,
                  prior=None, **kwargs):
         super(SequenceContentAndConvAttention, self).__init__(**kwargs)
+        if not state_transformer:
+            state_transformer = Linear(use_bias=False)
+
         self.match_dim = match_dim
         self.state_transformer = state_transformer
 

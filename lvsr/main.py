@@ -58,9 +58,7 @@ from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
 from lvsr.attention import (
-    ShiftPredictor, ShiftPredictor2, HybridAttention,
-    SequenceContentAndConvAttention,
-    SequenceContentAndCumSumAttention)
+    SequenceContentAndConvAttention)
 from lvsr.bricks import RecurrentWithFork
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
