@@ -1,7 +1,6 @@
 parent: $LVSR/lvsr/configs/timit_bothgru.yaml
 data:
     dataset: WSJ
-    max_length: 200000
     normalization: wsj_norm.pkl
 net:
     dim_dec: 250
