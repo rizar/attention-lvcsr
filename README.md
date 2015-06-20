@@ -12,7 +12,8 @@ respective master branches. `theano` contains a very useful PR by Frederic
 Bastien that allows to unpickled GPU-based shared variables on CPU. `blocks`
 has a PR merged which is currently waiting for review. Unfortunately 
 simply adding the `blocks` folder to ``PYTHONPATH`` will not cut it 
-because of the tricks required to make Blocks a namespace package...
+because of the tricks required to make Blocks a namespace package:
+you have to install it (at least in a virtual environment).
 
 ### What is available
 
@@ -26,13 +27,14 @@ All the code is in `lvsr`. It is structured as follows:
 
 * `error_rate.py` : Levenshtein distance and WER
 
-* `expressions.py` : nice pieces of Theano code such as monotonicity penalty, weights entropy
+* `expressions.py` : nice pieces of Theano code such as monotonicity penalty, 
+   weights entropy, 1-D convolution
 
 * `bricks.py` : additional bricks, in fact only one so far
 
 * `config.py` : hierarhical configuration support
 
-#### Almost obsolete
+##### Almost obsolete
 
 This code will become unnecessary as soon as preprocessed ``H5PyDataset`` compatible
 tables are available.
@@ -48,27 +50,26 @@ tables are available.
 
 First set important envinronment variables:
 
-0. `git clone https://github.com/rizar/fully-neural-lvsr.git`
+`git clone https://github.com/rizar/fully-neural-lvsr.git`
 
-   `source env.sh`
+`source env.sh`
 
 #### WSJ
-
 
 1. Make sure that `$FUEL_DATA_PATH/wsj` contains `wsj.h5`
 
 2. Prepare the normalization parameters: 
 
-    `$LVSR/lvsr/run.py init_norm wsj_norm.zip _ data.datasets "'WSJ'"`
+   `$LVSR/lvsr/run.py init_norm wsj_norm.pkl _ data.datasets "'WSJ'"`
 
 3. Run training:
 
-   `$LVSR/lvsr/run.py train wsj_good.zip $LVSR/lvrs/configs/wsj_good.yaml`
+   `$LVSR/lvsr/run.py train wsj_good.zip $LVSR/lvsr/configs/wsj_good.yaml`
 
 4. Test:
 
    `$LVSR/lvsr/run.py search --part=test wsj_good.zip  $LVSR/lvsr/configs/wsj_good.yaml`
- 
+
 Don't hesitate to contact for more information!
 
 #### TIMIT
