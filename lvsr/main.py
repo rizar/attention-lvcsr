@@ -520,7 +520,8 @@ class PhonemeErrorRate(MonitoredQuantity):
         super(PhonemeErrorRate, self).__init__(**kwargs)
 
     def initialize(self):
-        self.error_sum = 0
+        self.total_errors = 0.
+        self.total_length = 0.
         self.num_examples = 0
 
     def accumulate(self, recording, transcription):
@@ -532,9 +533,10 @@ class PhonemeErrorRate(MonitoredQuantity):
         recognized = self.dataset.decode(outputs[0])
         groundtruth = self.dataset.decode(transcription)
         error = min(1, wer(groundtruth, recognized))
-        self.error_sum += error
+        self.total_errors += error * len(groundtruth)
+        self.total_length += len(groundtruth)
         self.num_examples += 1
-        self.mean_error = self.error_sum / self.num_examples
+        self.mean_error = self.total_errors / self.total_length
 
     def readout(self):
         return self.mean_error
