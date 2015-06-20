@@ -101,22 +101,41 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             match_vectors.shape[:-1], ndim=match_vectors.ndim - 1)
         return energies
 
+    @staticmethod
+    def mask_row(offset, length, empty_row):
+        return tensor.set_subtensor(empty_row[offset:offset+length], 1)
+
     @application(outputs=['weighted_averages', 'weights', 'energies', 'step'])
     def take_glimpses(self, attended, preprocessed_attended=None,
                       attended_mask=None, weights=None, step=None, **states):
-        # Cut
+        # Cut the considered window.
         p = self.prior
         length = attended.shape[0]
-        begin = p['initial_begin'] + step[0] * p['min_speed']
-        end = p['initial_end'] + step[0] * p['max_speed']
-        # Just to allow a too long beam search finish.
-        begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
-        end = tensor.maximum(0, tensor.minimum(length, end))
+        if p.get('expanding', True):
+            begin = p['initial_begin'] + step[0] * p['min_speed']
+            end = p['initial_end'] + step[0] * p['max_speed']
+            begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
+            end = tensor.maximum(0, tensor.minimum(length, end))
+            additional_mask = None
+        else:
+            positions = (weights * tensor.arange(length)[None, :]).sum(axis=1).astype('int64')
+            begin = tensor.maximum(0, positions.min() - p['before'])
+            end = tensor.minimum(length, positions.max() + p['after'] + 1)
+            window_length = end - begin
+            begins = tensor.maximum(0, positions - begin - p['before'])
+            ends = tensor.minimum(end, positions + p['after'] + 1 - begin)
+            empty_row = tensor.zeros((window_length,))
+            additional_mask, _ = theano.scan(
+                self.mask_row,
+                sequences=[begins, ends - begins],
+                non_sequences=[empty_row],
+                outputs_info=[None])
         attended_cut = attended[begin:end]
         preprocessed_attended_cut = (preprocessed_attended[begin:end]
                                      if preprocessed_attended else None)
-        attended_mask_cut = (attended_mask[begin:end]
-                             if attended_mask else None)
+        attended_mask_cut = (
+            (attended_mask[begin:end] if attended_mask else None)
+            * (additional_mask.T if additional_mask else 1))
         weights_cut = weights[:, begin:end]
 
         # Call
