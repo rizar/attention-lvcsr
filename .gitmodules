@@ -4,3 +4,6 @@
 [submodule "Theano"]
 	path = Theano
 	url = https://github.com/rizar/Theano
+[submodule "fuel"]
+	path = fuel
+	url = git@github.com:rizar/fuel.git
