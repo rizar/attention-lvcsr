@@ -82,7 +82,9 @@ class _LengthFilter(object):
         self.max_length = max_length
 
     def __call__(self, example):
-        return len(example[0]) <= self.max_length
+        if self.max_length:
+            return len(example[0]) <= self.max_length
+        return True
 
 
 def _gradient_norm_is_none(log):
@@ -170,6 +172,8 @@ class Data(object):
 
         self.dataset_cache = {}
 
+        self.length_filter =_LengthFilter(self.max_length)
+
     @property
     def num_labels(self):
         if self.dataset == "TIMIT":
@@ -225,8 +229,7 @@ class Data(object):
             if not self.dataset == "WSJ":
                 raise ValueError("text preprocessing only for WSJ")
             stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
-        if self.max_length:
-            stream = Filter(stream, _LengthFilter(self.max_length))
+        stream = Filter(stream, self.length_filter)
         if self.sort_k_batches and batches:
             stream = Batch(stream,
                         iteration_scheme=ConstantScheme(
@@ -542,6 +545,17 @@ class PhonemeErrorRate(MonitoredQuantity):
         return self.mean_error
 
 
+class SwitchOffLengthFilter(SimpleExtension):
+
+    def __init__(self, length_filter, **kwargs):
+        self.length_filter = length_filter
+        super(SwitchOffLengthFilter, self).__init__(**kwargs)
+
+    def do(self, *args, **kwargs):
+        self.length_filter.max_length = None
+        self.main_loop.log.current_row['length_filter_switched'] = True
+
+
 def main(cmd_args):
     # Experiment configuration
     config = prototype
@@ -570,7 +584,6 @@ def main(cmd_args):
     elif cmd_args.mode == "show_data":
         stream = data.get_stream("train")
         data = next(stream.get_epoch_iterator(as_dict=True))
-        import IPython; IPython.embed()
 
     elif cmd_args.mode == "train":
         root_path, extension = os.path.splitext(cmd_args.save_path)
@@ -753,17 +766,23 @@ def main(cmd_args):
 
         # Build main loop.
         logger.info("Initialize extensions")
-        every_batch_monitoring = TrainingDataMonitoring(
+        extensions = [
+            Timing(after_batch=True),
+            CGStatistics(),
+            CodeVersion(['lvsr'])]
+        extensions.append(TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
-             algorithm.total_step_norm, clipping.threshold], after_batch=True)
+             algorithm.total_step_norm, clipping.threshold], after_batch=True))
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
+        extensions.append(average_monitoring)
         validation = DataStreamMonitoring(
             attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
             data.get_stream("valid"), prefix="valid",
             before_first_epoch=not cmd_args.fast_start,
             after_epoch=True, after_training=False)
+        extensions.append(validation)
         recognizer.init_beam_search(10)
         per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
         per_monitoring = DataStreamMonitoring(
@@ -771,16 +790,53 @@ def main(cmd_args):
             prefix="valid").set_conditions(
                 before_first_epoch=not cmd_args.fast_start, every_n_epochs=2,
                 after_training=False)
+        extensions.append(per_monitoring)
         track_the_best_per = TrackTheBest(
             per_monitoring.record_name(per)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
         track_the_best_likelihood = TrackTheBest(
             validation.record_name(cost)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
-        adaptive_clipping = AdaptiveClipping(
+        extensions.append(AdaptiveClipping(
             algorithm.total_gradient_norm.name,
             clipping, train_conf['gradient_threshold'],
-            decay_rate=0.998, burnin_period=500)
+            decay_rate=0.998, burnin_period=500))
+        extensions += [
+            SwitchOffLengthFilter(data.length_filter,
+                after_n_batches=train_conf.get('stop_filtering', 1)),
+            FinishAfter(after_n_batches=cmd_args.num_batches)
+            .add_condition("after_batch", _gradient_norm_is_none),
+            # Live plotting: requires launching `bokeh-server`
+            # and allows to see what happens online.
+            Plot(os.path.basename(cmd_args.save_path),
+                    [# Plot 1: training and validation costs
+                    [average_monitoring.record_name(regularized_cost),
+                    validation.record_name(cost)],
+                    # Plot 2: gradient norm,
+                    [average_monitoring.record_name(algorithm.total_gradient_norm),
+                    average_monitoring.record_name(clipping.threshold)],
+                    # Plot 3: phoneme error rate
+                    [per_monitoring.record_name(per)],
+                    # Plot 4: training and validation mean weight entropy
+                    [average_monitoring._record_name('weights_entropy_per_label'),
+                    validation._record_name('weights_entropy_per_label')],
+                    # Plot 5: training and validation monotonicity penalty
+                    [average_monitoring._record_name('weights_penalty_per_recording'),
+                    validation._record_name('weights_penalty_per_recording')]],
+                    every_n_batches=10),
+            Checkpoint(cmd_args.save_path,
+                        before_first_epoch=not cmd_args.fast_start, after_epoch=True,
+                        save_separately=["model", "log"])
+            .add_condition(
+                'after_epoch',
+                OnLogRecord(track_the_best_per.notification_name),
+                (root_path + "_best" + extension,))
+            .add_condition(
+                'after_epoch',
+                OnLogRecord(track_the_best_likelihood.notification_name),
+                (root_path + "_best_ll" + extension,)),
+            ProgressBar(),
+            Printing(every_n_batches=1)]
 
         # Save the config into the status
         log = TrainingLog()
@@ -788,47 +844,7 @@ def main(cmd_args):
         main_loop = MainLoop(
             model=model, log=log, algorithm=algorithm,
             data_stream=data.get_stream("train"),
-            extensions=([
-                Timing(after_batch=True),
-                CGStatistics(),
-                CodeVersion(['lvsr']),
-                every_batch_monitoring, average_monitoring,
-                validation, per_monitoring,
-                track_the_best_per, track_the_best_likelihood,
-                adaptive_clipping,
-                FinishAfter(after_n_batches=cmd_args.num_batches)
-                .add_condition("after_batch", _gradient_norm_is_none),
-                # Live plotting: requires launching `bokeh-server`
-                # and allows to see what happens online.
-                Plot(os.path.basename(cmd_args.save_path),
-                     [# Plot 1: training and validation costs
-                      [average_monitoring.record_name(regularized_cost),
-                       validation.record_name(cost)],
-                      # Plot 2: gradient norm,
-                      [average_monitoring.record_name(algorithm.total_gradient_norm),
-                       average_monitoring.record_name(clipping.threshold)],
-                      # Plot 3: phoneme error rate
-                      [per_monitoring.record_name(per)],
-                      # Plot 4: training and validation mean weight entropy
-                      [average_monitoring._record_name('weights_entropy_per_label'),
-                       validation._record_name('weights_entropy_per_label')],
-                      # Plot 5: training and validation monotonicity penalty
-                      [average_monitoring._record_name('weights_penalty_per_recording'),
-                       validation._record_name('weights_penalty_per_recording')]],
-                     every_n_batches=10),
-                Checkpoint(cmd_args.save_path,
-                           before_first_epoch=not cmd_args.fast_start, after_epoch=True,
-                           save_separately=["model", "log"])
-                .add_condition(
-                    'after_epoch',
-                    OnLogRecord(track_the_best_per.notification_name),
-                    (root_path + "_best" + extension,))
-                .add_condition(
-                    'after_epoch',
-                    OnLogRecord(track_the_best_likelihood.notification_name),
-                    (root_path + "_best_ll" + extension,)),
-                ProgressBar(),
-                Printing(every_n_batches=1)]))
+            extensions=extensions)
         main_loop.run()
     elif cmd_args.mode == "search":
         from matplotlib import pyplot
