@@ -11,3 +11,4 @@ net:
     bottom_activation: relu
 data:
     preprocess_text: True
+    preprocess_features: log_spectrogram

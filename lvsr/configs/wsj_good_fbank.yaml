@@ -1,0 +1,10 @@
+parent: $LVSR/lvsr/configs/wsj_good.yaml
+data:
+    dataset: WSJnew
+    normalization: wsj_norm_new.pkl
+    recordings_source: fbank_dd
+    labels_source: characters
+    preprocess_text: False
+    preprocess_features: False
+    
+

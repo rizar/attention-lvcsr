@@ -11,6 +11,7 @@ from collections import OrderedDict
 
 import numpy
 import theano
+import fuel
 from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import (
@@ -53,10 +54,11 @@ from fuel.schemes import (
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
-    Filter)
+    Filter, FilterSources)
 from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
+from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.attention import (
     SequenceContentAndConvAttention)
 from lvsr.bricks import RecurrentWithFork
@@ -145,20 +147,26 @@ class _SilentPadding(object):
 
 class Data(object):
 
-    def __init__(self, dataset, batch_size, sort_k_batches,
+    def __init__(self, dataset, recordings_source, labels_source,
+                 batch_size, sort_k_batches,
                  max_length, normalization,
                  merge_k_frames=None,
                  pad_k_frames=None,
-                 feature_name='wav',
+                 feature_name='wav', preprocess_features=None,
                  # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None,
                  # For WSJ
                  preprocess_text=False):
+        if not dataset in ('TIMIT', 'WSJ', 'WSJnew'):
+            raise ValueError()
+
         if normalization:
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
 
         self.dataset = dataset
+        self.recordings_source = recordings_source
+        self.labels_source = labels_source
         self.normalization = normalization
         self.batch_size = batch_size
         self.sort_k_batches = sort_k_batches
@@ -169,6 +177,7 @@ class Data(object):
         self.add_eos = add_eos
         self._eos_label = eos_label
         self.preprocess_text = preprocess_text
+        self.preprocess_features = preprocess_features
 
         self.dataset_cache = {}
 
@@ -178,18 +187,18 @@ class Data(object):
     def num_labels(self):
         if self.dataset == "TIMIT":
             return self.get_dataset("train").num_phonemes
-        else:
-            return self.get_dataset("train").num_characters
+        return self.get_dataset("train").num_characters
 
     @property
     def num_features(self):
         merge_multiplier = self.merge_k_frames if self.merge_k_frames else 1
-        if self.feature_name == 'wav':
-            return 129 * merge_multiplier
-        elif self.feature_name == 'fbank_and_delta_delta':
-            return 123 * merge_multiplier
-        else:
-            raise ValueError("Unknown features {}".format(self.feature_name))
+        # For old datasets
+        if self.dataset in ['TIMIT', 'WSJ']:
+            if self.feature_name == 'wav':
+                return 129 * merge_multiplier
+            elif self.feature_name == 'fbank_and_delta_delta':
+                return 123 * merge_multiplier
+        return self.get_dataset("train").num_features * merge_multiplier
 
     @property
     def eos_label(self):
@@ -197,24 +206,28 @@ class Data(object):
             return self._eos_label
         if self.dataset == "TIMIT":
             return TIMIT2.eos_label
-        else:
+        elif self.dataset == "WSJ":
             return 124
+        return self.get_dataset("train").eos_label
 
     def get_dataset(self, part):
+        timit_name_mapping = {"train": "train", "valid": "dev", "test": "test"}
+        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
+
         if not part in self.dataset_cache:
             if self.dataset == "TIMIT":
-                name_mapping = {"train": "train",
-                                "valid": "dev",
-                                "test": "test"}
                 self.dataset_cache[part] = TIMIT2(
-                    name_mapping[part], feature_name=self.feature_name,
+                    timit_name_mapping[part], feature_name=self.feature_name,
                     add_eos=self.add_eos)
             elif self.dataset == "WSJ":
-                name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
                 self.dataset_cache[part] = WSJ(
-                    name_mapping[part], feature_name=self.feature_name)
-            else:
-                raise ValueError
+                    wsj_name_mapping[part], feature_name=self.feature_name)
+            elif self.dataset == "WSJnew":
+                self.dataset_cache[part] = H5PYAudioDataset(
+                    os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
+                    which_sets=(wsj_name_mapping[part],),
+                    sources=(self.recordings_source,
+                             self.labels_source))
         return self.dataset_cache[part]
 
     def get_stream(self, part, batches=True, shuffle=True):
@@ -223,6 +236,8 @@ class Data(object):
                              iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
                   if shuffle
                   else dataset.get_example_stream())
+        stream = FilterSources(stream, (self.recordings_source,
+                                        self.labels_source))
         if self.dataset == "WSJ":
             stream = Mapping(stream, _AddEosLabel(self.eos_label))
         if self.preprocess_text:
@@ -237,7 +252,7 @@ class Data(object):
             stream = Mapping(stream, SortMapping(_length))
             stream = Unpack(stream)
 
-        if self.feature_name == 'wav':
+        if self.preprocess_features == 'log_spectrogram':
             stream = Mapping(
                 stream, functools.partial(apply_preprocessing,
                                         log_spectrogram))
@@ -305,7 +320,7 @@ class SpeechRecognizer(Initializable):
     receives everything from the "net" section of the config.
 
     """
-    def __init__(self, eos_label,
+    def __init__(self, recordings_source, labels_source, eos_label,
                  num_features, num_phonemes,
                  dim_dec, dim_bidir, dims_bottom,
                  enc_transition, dec_transition,
@@ -318,6 +333,8 @@ class SpeechRecognizer(Initializable):
                  post_merge_dims=None, birnn_depth=1,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
+        self.recordings_source = recordings_source
+        self.labels_source = labels_source
         self.eos_label = eos_label
         self.rec_weights_init = None
 
@@ -397,14 +414,14 @@ class SpeechRecognizer(Initializable):
         self.children = [encoder, top, bottom, generator]
 
         # Create input variables
-        self.recordings = tensor.tensor3("recordings")
-        self.recordings_mask = tensor.matrix("recordings_mask")
-        self.labels = tensor.lmatrix("labels")
-        self.labels_mask = tensor.matrix("labels_mask")
-        self.batch_inputs = [self.recordings, self.recordings_mask,
+        self.recordings = tensor.tensor3(self.recordings_source)
+        self.recordings_mask = tensor.matrix(self.recordings_source + "_mask")
+        self.labels = tensor.lmatrix(self.labels_source)
+        self.labels_mask = tensor.matrix(self.labels_source + "_mask")
+        self.batch_inputs = [self.recordings, self.recordings_source,
                              self.labels, self.labels_mask]
-        self.single_recording = tensor.matrix("recordings")
-        self.single_transcription = tensor.lvector("labels")
+        self.single_recording = tensor.matrix(self.recordings_source)
+        self.single_transcription = tensor.lvector(self.labels_source)
 
     def push_initialization_config(self):
         super(SpeechRecognizer, self).push_initialization_config()
@@ -577,19 +594,21 @@ def main(cmd_args):
 
     if cmd_args.mode == "init_norm":
         stream = data.get_stream("train", batches=False, shuffle=False)
-        normalization = Normalization(stream, "recordings")
+        normalization = Normalization(stream, data.recordings_source)
         with open(cmd_args.save_path, "wb") as dst:
             cPickle.dump(normalization, dst)
 
     elif cmd_args.mode == "show_data":
         stream = data.get_stream("train")
         data = next(stream.get_epoch_iterator(as_dict=True))
+        import IPython; IPython.embed()
 
     elif cmd_args.mode == "train":
         root_path, extension = os.path.splitext(cmd_args.save_path)
 
         # Build the main brick and initialize all parameters.
         recognizer = SpeechRecognizer(
+            data.recordings_source, data.labels_source,
             data.eos_label,
             data.num_features, data.num_labels,
             name="recognizer", **config["net"])
