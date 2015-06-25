@@ -56,19 +56,16 @@ First set important envinronment variables:
 
 #### WSJ
 
-1. Make sure that `$FUEL_DATA_PATH/wsj` contains `wsj.h5`
+1. Make sure that `$FUEL_DATA_PATH/wsj` contains `wsj_new.h5`,
+   the new `H5PYDataset`-compatible file.
 
-2. Prepare the normalization parameters: 
+2. Run training:
 
-   `$LVSR/lvsr/run.py init_norm wsj_norm.pkl _ data.datasets "'WSJ'"`
+   `$LVSR/lvsr/run.py train wsj_good_fbank.zip $LVSR/lvsr/configs/wsj_good_fbank.yaml`
 
-3. Run training:
+3. Test (I haven't tried yet if it works):
 
-   `$LVSR/lvsr/run.py train wsj_good.zip $LVSR/lvsr/configs/wsj_good.yaml`
-
-4. Test:
-
-   `$LVSR/lvsr/run.py search --part=test wsj_good.zip  $LVSR/lvsr/configs/wsj_good.yaml`
+   `$LVSR/lvsr/run.py search --part=test wsj_good_model.zip  $LVSR/lvsr/configs/wsj_good.yaml`
 
 Don't hesitate to contact for more information!
 
