@@ -49,6 +49,7 @@ from blocks.roles import OUTPUT, WEIGHT
 from blocks.utils import named_copy, dict_union
 from blocks.search import BeamSearch
 from blocks.select import Selector
+from blocks.serialization import load_parameter_values
 from fuel.schemes import (
     SequentialScheme, ConstantScheme, ShuffledExampleScheme)
 from fuel.streams import DataStream
@@ -217,8 +218,7 @@ class Data(object):
         if not part in self.dataset_cache:
             if self.dataset == "TIMIT":
                 self.dataset_cache[part] = TIMIT2(
-                    timit_name_mapping[part], feature_name=self.feature_name,
-                    add_eos=self.add_eos)
+                    timit_name_mapping[part], feature_name=self.feature_name)
             elif self.dataset == "WSJ":
                 self.dataset_cache[part] = WSJ(
                     wsj_name_mapping[part], feature_name=self.feature_name)
@@ -238,7 +238,7 @@ class Data(object):
                   else dataset.get_example_stream())
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source))
-        if self.dataset == "WSJ":
+        if self.add_eos:
             stream = Mapping(stream, _AddEosLabel(self.eos_label))
         if self.preprocess_text:
             if not self.dataset == "WSJ":
@@ -451,7 +451,19 @@ class SpeechRecognizer(Initializable):
 
     def load_params(self, path):
         generated = self.get_generate_graph()
-        Model(generated[1]).set_param_values(numpy.load(path))
+        param_values = {
+            key: value for key, value in load_parameter_values(path).items()
+            # Shared variables are now saved separately, thanks to the
+            # recent PRs by Dmitry Serdyuk and Bart. Unfortunately,
+            # that applies to all shared variables, and not only to the
+            # parameters. That's why temporarily we have to filter the
+            # unnecessary ones. The filter deliberately does not take into
+            # account for a few exotic ones, there will be a warning
+            # with the list of the variables that were not matched with
+            # model parameters.
+            if not ('shared' in key
+                    or 'None' in key)}
+        Model(generated[1]).set_param_values(param_values)
 
     def get_generate_graph(self):
         return self.generate(self.recordings)

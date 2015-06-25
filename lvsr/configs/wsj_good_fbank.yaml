@@ -4,6 +4,7 @@ data:
     normalization: 
     recordings_source: fbank_dd
     labels_source: characters
+    add_eos: True
     preprocess_text: False
     preprocess_features: False
     
