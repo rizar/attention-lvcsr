@@ -816,6 +816,7 @@ def main(cmd_args):
         track_the_best_likelihood = TrackTheBest(
             validation.record_name(cost)).set_conditions(
                 before_first_epoch=True, after_epoch=True)
+        extensions += [track_the_best_likelihood, track_the_best_per]
         extensions.append(AdaptiveClipping(
             algorithm.total_gradient_norm.name,
             clipping, train_conf['gradient_threshold'],
