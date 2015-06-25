@@ -4,7 +4,7 @@ data:
     normalization: wsj_norm.pkl
 net:
     dim_dec: 250
-    dim_bidir: 250
+    dims_bidir: [250]
     dims_bottom: [250]
     attention_type: content_and_conv
     conv_n: 100

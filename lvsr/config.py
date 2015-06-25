@@ -13,7 +13,7 @@ data:
     dataset: TIMIT
 net:
     dim_dec: 100
-    dim_bidir: 100
+    dims_bidir: [100]
     dims_bottom: [100]
     enc_transition: SimpleRecurrent
     dec_transition: SimpleRecurrent

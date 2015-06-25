@@ -281,21 +281,18 @@ class InitializableSequence(Sequence, Initializable):
 
 class Encoder(Initializable):
 
-    def __init__(self, enc_transition, dim, dim_input, depth, **kwargs):
+    def __init__(self, enc_transition, dims, dim_input, **kwargs):
         super(Encoder, self).__init__(**kwargs)
-        bidir = Bidirectional(
-            RecurrentWithFork(
-                enc_transition(dim=dim, activation=Tanh()).apply,
-                dim_input,
-                name='with_fork'),
-            name='bidir0')
 
-        self.children = [bidir]
-        for layer in range(1, depth):
-            self.children.append(copy.deepcopy(bidir))
-            for child in self.children[-1].children:
-                child.input_dim = 2 * dim
-            self.children[-1].name = 'bidir{}'.format(layer)
+        for layer_num, (dim_under, dim) in enumerate(
+                zip([dim_input] + list(2 * numpy.array(dims)), dims)):
+            bidir = Bidirectional(
+                RecurrentWithFork(
+                    enc_transition(dim=dim, activation=Tanh()).apply,
+                    dim_under,
+                    name='with_fork'),
+                name='bidir{}'.format(layer_num))
+            self.children.append(bidir)
 
     @application
     def apply(self, input_, mask=None):
@@ -322,7 +319,7 @@ class SpeechRecognizer(Initializable):
     """
     def __init__(self, recordings_source, labels_source, eos_label,
                  num_features, num_phonemes,
-                 dim_dec, dim_bidir, dims_bottom,
+                 dim_dec, dims_bidir, dims_bottom,
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
@@ -330,7 +327,7 @@ class SpeechRecognizer(Initializable):
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
                  bottom_activation='tanh',
-                 post_merge_dims=None, birnn_depth=1,
+                 post_merge_dims=None,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
@@ -357,13 +354,13 @@ class SpeechRecognizer(Initializable):
             bottom = Identity(name='bottom')
 
         # BiRNN
-        encoder = Encoder(self.enc_transition, dim_bidir,
-                          dims_bottom[-1] if len(dims_bottom) else num_features,
-                          birnn_depth)
+        encoder = Encoder(self.enc_transition, dims_bidir,
+                          dims_bottom[-1] if len(dims_bottom) else num_features)
 
         # The top part, on top of BiRNN but before the attention
         if dims_top:
-            top = MLP([Tanh()], [2 * dim_bidir] + dims_top + [2 * dim_bidir], name="top")
+            top = MLP([Tanh()],
+                      [2 * dims_bidir[-1]] + dims_top + [2 * dims_bidir[-1]], name="top")
         else:
             top = Identity(name='top')
 
@@ -373,13 +370,13 @@ class SpeechRecognizer(Initializable):
         if attention_type == "content":
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                attended_dim=2 * dims_bidir[-1], match_dim=dim_dec,
                 name="cont_att")
         elif attention_type == "content_and_conv":
             attention = SequenceContentAndConvAttention(
                 state_names=transition.apply.states,
                 conv_n=conv_n,
-                attended_dim=2 * dim_bidir, match_dim=dim_dec,
+                attended_dim=2 * dims_bidir[-1], match_dim=dim_dec,
                 prior=prior,
                 name="conv_att")
         else:
