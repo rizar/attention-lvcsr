@@ -860,8 +860,9 @@ def main(cmd_args):
                     validation._record_name('weights_penalty_per_recording')]],
                     every_n_batches=10),
             Checkpoint(cmd_args.save_path,
-                        before_first_epoch=not cmd_args.fast_start, after_epoch=True,
-                        save_separately=["model", "log"])
+                       before_first_epoch=not cmd_args.fast_start, after_epoch=True,
+                       save_separately=["model", "log"],
+                       use_cpickle=True)
             .add_condition(
                 'after_epoch',
                 OnLogRecord(track_the_best_per.notification_name),
