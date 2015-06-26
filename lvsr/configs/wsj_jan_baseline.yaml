@@ -1,0 +1,10 @@
+parent: $LVSR/lvsr/configs/wsj_good_fbank.yaml
+net:
+    dims_bidir: [250, 250, 250]
+    subsample: [1, 1, 2]
+    prior:
+        initial_begin: 0
+        initial_end: 100
+        min_speed: 3
+        max_speed: 5.5
+

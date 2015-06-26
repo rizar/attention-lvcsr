@@ -281,8 +281,9 @@ class InitializableSequence(Sequence, Initializable):
 
 class Encoder(Initializable):
 
-    def __init__(self, enc_transition, dims, dim_input, **kwargs):
+    def __init__(self, enc_transition, dims, dim_input, subsample, **kwargs):
         super(Encoder, self).__init__(**kwargs)
+        self.subsample = subsample
 
         for layer_num, (dim_under, dim) in enumerate(
                 zip([dim_input] + list(2 * numpy.array(dims)), dims)):
@@ -296,8 +297,9 @@ class Encoder(Initializable):
 
     @application
     def apply(self, input_, mask=None):
-        for bidir in self.children:
+        for bidir, take_each in zip(self.children, self.subsample):
             input_ = bidir.apply(input_, mask)
+            input_ = input_[::take_each]
         return input_
 
 
@@ -323,6 +325,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 subsample=None,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
@@ -354,8 +357,11 @@ class SpeechRecognizer(Initializable):
             bottom = Identity(name='bottom')
 
         # BiRNN
+        if not subsample:
+            subsample = [1] * len(dims_bidir)
         encoder = Encoder(self.enc_transition, dims_bidir,
-                          dims_bottom[-1] if len(dims_bottom) else num_features)
+                          dims_bottom[-1] if len(dims_bottom) else num_features,
+                          subsample)
 
         # The top part, on top of BiRNN but before the attention
         if dims_top:

@@ -130,6 +130,8 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
                 sequences=[begins, ends - begins],
                 non_sequences=[empty_row],
                 outputs_info=[None])
+        begin = tensor.floor(begin).astype('int64')
+        end = tensor.ceil(end).astype('int64')
         attended_cut = attended[begin:end]
         preprocessed_attended_cut = (preprocessed_attended[begin:end]
                                      if preprocessed_attended else None)
