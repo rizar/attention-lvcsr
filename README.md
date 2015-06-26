@@ -4,7 +4,7 @@ Dependencies:
 
 - Theano (please install from the submodule `theano`)
 - blocks (please install from the submodule `blocks`)
-- Fuel
+- Fuel (please install from the submodule `fuel`)
 - blocks-extras
 
 As of June 20 the submodule versions are not so much different from the
