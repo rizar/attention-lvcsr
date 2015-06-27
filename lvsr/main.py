@@ -803,7 +803,8 @@ def main(cmd_args):
         extensions = [
             Timing(after_batch=True),
             CGStatistics(),
-            CodeVersion(['lvsr'])]
+            #CodeVersion(['lvsr']),
+            ]
         extensions.append(TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
              algorithm.total_step_norm, clipping.threshold], after_batch=True))
