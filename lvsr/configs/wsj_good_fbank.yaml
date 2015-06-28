@@ -7,5 +7,12 @@ data:
     add_eos: True
     preprocess_text: False
     preprocess_features: False
+net:
+    # 0.8 times respective settings from wsj_good_fbank.yaml
+    prior:
+        initial_begin: 0
+        initial_end: 160
+        min_speed: 4.8
+        max_speed: 8.8
     
 
