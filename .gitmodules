@@ -6,7 +6,7 @@
 	url = https://github.com/rizar/Theano
 [submodule "fuel"]
 	path = libs/fuel
-	url = https://github.com/rizar/fuel.git
+	url = https://github.com/janchorowski/fuel.git
 [submodule "libs/picklable-itertools"]
 	path = libs/picklable-itertools
 	url = https://github.com/mila-udem/picklable-itertools.git
