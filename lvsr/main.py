@@ -697,6 +697,8 @@ def main(cmd_args):
         # To exclude subsampling related bugs
         max_attended_mask_length = named_copy(attended_mask.shape[0],
                                               "max_attended_mask_length")
+        max_attended_length = named_copy(attended.shape[0],
+                                         "max_attended_length")
         max_num_phonemes = named_copy(r.labels.shape[0],
                                       "max_num_phonemes")
         min_energy = named_copy(energies.min(), "min_energy")
@@ -715,7 +717,7 @@ def main(cmd_args):
             cost, weights_penalty, weights_entropy,
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
-            batch_size, max_recording_length, max_num_phonemes,
+            batch_size, max_num_phonemes,
             mask_density])
 
         # Regularization. It is applied explicitly to all variables
@@ -821,7 +823,8 @@ def main(cmd_args):
         extensions.append(TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
              algorithm.total_step_norm, clipping.threshold,
-             max_attended_mask_length], after_batch=True))
+             max_recording_length,
+             max_attended_length, max_attended_mask_length], after_batch=True))
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
