@@ -2,12 +2,11 @@
 """Learn to reverse the words in a text."""
 import logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 import argparse
 
 from lvsr.main import main
-
 
 class StoreIfNotUnderscore(argparse.Action):
 
