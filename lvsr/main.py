@@ -65,7 +65,8 @@ from lvsr.attention import (
 from lvsr.bricks import RecurrentWithFork
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
-from lvsr.expressions import monotonicity_penalty, entropy, weights_std
+from lvsr.expressions import (
+    monotonicity_penalty, entropy, weights_std, pad_to_a_multiple)
 from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.preprocessing import log_spectrogram, Normalization
@@ -298,9 +299,14 @@ class Encoder(Initializable):
     @application
     def apply(self, input_, mask=None):
         for bidir, take_each in zip(self.children, self.subsample):
+            input_ = pad_to_a_multiple(input_, take_each, 0.)
+            if mask:
+                mask = pad_to_a_multiple(mask, take_each, 0.)
             input_ = bidir.apply(input_, mask)
             input_ = input_[::take_each]
-        return input_
+            if mask:
+                mask = mask[::take_each]
+        return input_, (mask if mask else tensor.ones_like(input_[:, :, 0]))
 
 
 class SpeechRecognizer(Initializable):
@@ -436,21 +442,23 @@ class SpeechRecognizer(Initializable):
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
+        encoded, encoded_mask = self.encoder.apply(
+            input_=self.bottom.apply(recordings),
+            mask=recordings_mask)
+        encoded = self.top.apply(encoded)
         return self.generator.cost_matrix(
             labels, labels_mask,
-            attended=self.top.apply(
-                self.encoder.apply(
-                    input_=self.bottom.apply(recordings),
-                    mask=recordings_mask)),
-            attended_mask=recordings_mask)
+            attended=encoded, attended_mask=encoded_mask)
 
     @application
     def generate(self, recordings):
+        encoded, encoded_mask = self.encoder.apply(
+            input_=self.bottom.apply(recordings))
+        encoded = self.top.apply(encoded)
         return self.generator.generate(
             n_steps=recordings.shape[0], batch_size=recordings.shape[1],
-            attended=self.top.apply(
-                self.encoder.apply(input_=self.bottom.apply(recordings))),
-            attended_mask=tensor.ones_like(recordings[:, :, 0]))
+            attended=encoded,
+            attended_mask=encoded_mask)
 
     def load_params(self, path):
         generated = self.get_generate_graph()
@@ -669,20 +677,28 @@ def main(cmd_args):
         # regularization on their variables, see Blocks #514.
         cost_cg = ComputationGraph(cost)
         r = recognizer
-        (energies,) = VariableFilter(
+        energies, = VariableFilter(
             applications=[r.generator.readout.readout], name="output_0")(
                     cost_cg)
-        (bottom_output,) = VariableFilter(
+        bottom_output, = VariableFilter(
             applications=[r.bottom.apply], name="output")(
                     cost_cg)
-        (attended,) = VariableFilter(
+        attended, = VariableFilter(
             applications=[r.generator.transition.apply], name="attended")(
                     cost_cg)
-        (weights,) = VariableFilter(
+        attended_mask, = VariableFilter(
+            applications=[r.generator.transition.apply], name="attended_mask")(
+                    cost_cg)
+        weights, = VariableFilter(
             applications=[r.generator.cost_matrix], name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                          "max_recording_length")
+        # To exclude subsampling related bugs
+        max_attended_mask_length = named_copy(attended_mask.shape[0],
+                                              "max_attended_mask_length")
+        max_attended_length = named_copy(attended.shape[0],
+                                         "max_attended_length")
         max_num_phonemes = named_copy(r.labels.shape[0],
                                       "max_num_phonemes")
         min_energy = named_copy(energies.min(), "min_energy")
@@ -701,7 +717,7 @@ def main(cmd_args):
             cost, weights_penalty, weights_entropy,
             min_energy, max_energy,
             mean_attended, mean_bottom_output,
-            batch_size, max_recording_length, max_num_phonemes,
+            batch_size, max_num_phonemes,
             mask_density])
 
         # Regularization. It is applied explicitly to all variables
@@ -807,7 +823,9 @@ def main(cmd_args):
             ]
         extensions.append(TrainingDataMonitoring(
             [observables[0], algorithm.total_gradient_norm,
-             algorithm.total_step_norm, clipping.threshold], after_batch=True))
+             algorithm.total_step_norm, clipping.threshold,
+             max_recording_length,
+             max_attended_length, max_attended_mask_length], after_batch=True))
         average_monitoring = TrainingDataMonitoring(
             attach_aggregation_schemes(observables),
             prefix="average", every_n_batches=10)
@@ -841,7 +859,7 @@ def main(cmd_args):
             SwitchOffLengthFilter(data.length_filter,
                 after_n_batches=train_conf.get('stop_filtering', 1)),
             FinishAfter(after_n_batches=cmd_args.num_batches)
-            .add_condition("after_batch", _gradient_norm_is_none),
+            .add_condition(["after_batch"], _gradient_norm_is_none),
             # Live plotting: requires launching `bokeh-server`
             # and allows to see what happens online.
             Plot(os.path.basename(cmd_args.save_path),
@@ -865,11 +883,11 @@ def main(cmd_args):
                        save_separately=["model", "log"],
                        use_cpickle=True)
             .add_condition(
-                'after_epoch',
+                ['after_epoch'],
                 OnLogRecord(track_the_best_per.notification_name),
                 (root_path + "_best" + extension,))
             .add_condition(
-                'after_epoch',
+                ['after_epoch'],
                 OnLogRecord(track_the_best_likelihood.notification_name),
                 (root_path + "_best_ll" + extension,)),
             ProgressBar(),
