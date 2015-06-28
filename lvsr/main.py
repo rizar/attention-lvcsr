@@ -858,7 +858,7 @@ def main(cmd_args):
             SwitchOffLengthFilter(data.length_filter,
                 after_n_batches=train_conf.get('stop_filtering', 1)),
             FinishAfter(after_n_batches=cmd_args.num_batches)
-            .add_condition("after_batch", _gradient_norm_is_none),
+            .add_condition(["after_batch"], _gradient_norm_is_none),
             # Live plotting: requires launching `bokeh-server`
             # and allows to see what happens online.
             Plot(os.path.basename(cmd_args.save_path),
@@ -882,11 +882,11 @@ def main(cmd_args):
                        save_separately=["model", "log"],
                        use_cpickle=True)
             .add_condition(
-                'after_epoch',
+                ['after_epoch'],
                 OnLogRecord(track_the_best_per.notification_name),
                 (root_path + "_best" + extension,))
             .add_condition(
-                'after_epoch',
+                ['after_epoch'],
                 OnLogRecord(track_the_best_likelihood.notification_name),
                 (root_path + "_best_ll" + extension,)),
             ProgressBar(),
