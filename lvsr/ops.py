@@ -38,17 +38,13 @@ class FSTTransitionOp(Op):
     the output symbol (word)."""
     __props__ = ()
 
-    def __init__(self, fst, symbol_table):
+    def __init__(self, fst):
         self.fst = fst
-        self.disambig_symbol = symbol_table['#1']
 
     def _get_next_state(self, state, input):
         arcs = {arc.ilabel:arc for arc in self.fst[state]}
         if int(input) in arcs:
             arc = arcs[int(input)]
-            return arc.nextstate, arc.olabel
-        elif self.disambig_symbol in arcs:
-            arc = arcs[self.disambig_symbol]
             return arc.nextstate, arc.olabel
         else:
             # Just return state 0, output 0
