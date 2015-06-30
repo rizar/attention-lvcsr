@@ -4,8 +4,8 @@ from lvsr.ops import FSTProbabilitiesOp, FSTTransitionOp, FST, read_symbols
 
 
 def test_fst_transition_op():
-    x = tensor.iscalar('x')
-    s = tensor.iscalar('s')
+    x = tensor.ivector('x')
+    s = tensor.ivector('s')
 
     subprocess.call('lm2fst.sh tests/simple_lm.arpa', shell=True)
     fst = FST('LG.fst')
@@ -15,11 +15,11 @@ def test_fst_transition_op():
 
     f = function([s, x], [new_s, new_x])
 
-    assert f(0, 2) == [1, 0]
+    assert f([0], [2]) == [[1], [0]]
 
 
 def test_fst_probabilities_op():
-    s = tensor.iscalar('s')
+    s = tensor.ivector('s')
 
     subprocess.call('lm2fst.sh tests/simple_lm.arpa', shell=True)
     fst = FST('LG.fst')
@@ -29,4 +29,4 @@ def test_fst_probabilities_op():
 
     f = function([s], probs)
 
-    f(0)
+    assert f([0]).ndim == 2
