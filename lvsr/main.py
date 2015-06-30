@@ -296,7 +296,7 @@ class Encoder(Initializable):
                 name='bidir{}'.format(layer_num))
             self.children.append(bidir)
 
-    @application
+    @application(outputs=['encoded', 'encoded_mask'])
     def apply(self, input_, mask=None):
         for bidir, take_each in zip(self.children, self.subsample):
             input_ = pad_to_a_multiple(input_, take_each, 0.)
@@ -501,7 +501,8 @@ class SpeechRecognizer(Initializable):
                                else tensor.zeros((self.single_transcription.shape[0],
                                                   self.single_recording.shape[0]))]
             states, = VariableFilter(
-                applications=[self.encoder.apply], roles=[OUTPUT])(cg)
+                applications=[self.encoder.apply], roles=[OUTPUT],
+                name="encoded")(cg)
             ctc_matrix_output = []
             if len(self.generator.readout.source_names) == 1:
                 ctc_matrix_output = [
