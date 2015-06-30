@@ -54,5 +54,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--report", default=None,
         help="Destination to save a detailed report.")
+    parser.add_argument(
+        "--test-tag", default=None, type=int,
+        help="Tag the batch with test data for debugging?")
     args = parser.parse_args()
     main(args)

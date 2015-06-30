@@ -116,7 +116,7 @@ class _AddEosLabel(object):
         self.eos_label = eos_label
 
     def __call__(self, example):
-        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label])
+        return (example[0], list(example[1]) + [self.eos_label])
 
 
 class _MergeKFrames(object):
@@ -442,8 +442,9 @@ class SpeechRecognizer(Initializable):
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
+        bottom_processed = self.bottom.apply(recordings) 
         encoded, encoded_mask = self.encoder.apply(
-            input_=self.bottom.apply(recordings),
+            input_=bottom_processed,
             mask=recordings_mask)
         encoded = self.top.apply(encoded)
         return self.generator.cost_matrix(
@@ -663,6 +664,17 @@ def main(cmd_args):
         if cmd_args.params:
             logger.info("Load parameters from " + cmd_args.params)
             recognizer.load_params(cmd_args.params)
+
+        if cmd_args.test_tag:
+            import theano.tensor
+            theano.tensor.TensorVariable.__str__ = theano.tensor.TensorVariable.__repr__
+            __stream = data.get_stream("train")
+            __data = next(__stream.get_epoch_iterator(as_dict=True))
+            recognizer.recordings.tag.test_value = __data[data.recordings_source]
+            recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
+            recognizer.labels.tag.test_value = __data[data.labels_source]
+            recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
+            theano.config.compute_test_value = 'warn'
 
         batch_cost = recognizer.get_cost_graph().sum()
         batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
