@@ -14,5 +14,7 @@ net:
         initial_end: 160
         min_speed: 4.8
         max_speed: 8.8
+        before: 400
+        after: 400
     
 
