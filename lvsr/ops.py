@@ -5,6 +5,15 @@ from theano import Op
 from fuel.utils import do_not_pickle_attributes
 
 
+def read_symbols(fname):
+    syms = fst.SymbolTable('eps')
+    with open(fname) as sf:
+        for line in sf:
+            s,i = line.strip().split()
+            syms[s] = int(i)
+    return syms
+
+
 @do_not_pickle_attributes('fst')
 class FST(object):
     """Picklable wrapper around FST."""
@@ -30,7 +39,7 @@ class FSTTransitionOp(Op):
 
     def __init__(self, fst, symbol_table):
         self.fst = fst
-        self.misambig_symbol = symbol_table['#1']
+        self.disambig_symbol = symbol_table['#1']
 
     def perform(self, node, inputs, output_storage):
         state, input = inputs
@@ -39,12 +48,17 @@ class FSTTransitionOp(Op):
         arcs = {arc.ilabel:arc for arc in self.fst[state]}
         if int(input) in arcs:
             arc = arcs[int(input)]
+            nextstate = arc.nextstate
+            olabel = arc.olabel
         elif self.disambig_symbol in arcs:
             arc = arcs[self.disambig_symbol]
+            nextstate = arc.nextstate
+            olabel = arc.olabel
         else:
-            raise ValueError
-        new_state[0] = arc.nextstate
-        output[0] = arc.olabel
+            nextstate = 0
+            olabel = 0
+        new_state[0] = nextstate
+        output[0] = olabel
 
 
     def make_node(self, state, input):
@@ -58,21 +72,22 @@ class FSTTransitionOp(Op):
 class FSTProbabilitiesOp(Op):
     """Returns transition log probabilities for all possible input symbols."""
     __props__ = ()
+    max_prob = 1e+12
 
     def __init__(self, fst, symbol_table):
         self.fst = fst
         self.symbol_table = symbol_table
-        self.max_prob = 1e+12
 
     def perform(self, node, inputs, output_storage):
         state, = inputs
-        arcs = {arc.ilabel:arc for arc in self.fst[state]}
-        logprobs = numpy.ones(self.symbol_table) * self.max_prob
-        for i, name in enumerate(self.symbol_table):
-            logprobs[i] = arcs[name].weight
+        arcs = {arc.ilabel: arc for arc in self.fst[state]}
+        logprobs = numpy.ones(len(self.symbol_table)) * self.max_prob
+        for i, (_, idx) in enumerate(self.symbol_table.items()):
+            if idx in arcs:
+                logprobs[i] = arcs[idx].weight
         output_storage[0][0] = logprobs
 
-    def make_node(self, state, input):
+    def make_node(self, state):
         # check that the theano version has support for __props__
         assert hasattr(self, '_props')
         state = theano.tensor.as_tensor_variable(state)

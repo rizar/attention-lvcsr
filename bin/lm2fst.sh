@@ -1,4 +1,5 @@
 create_lexicon.py $1
+
 cat $1                 | \
     grep -v '<s> <s>'   | \
     grep -v '</s> <s>'   | \
@@ -25,7 +26,8 @@ make_lexicon_fst.pl                            \
         --osymbols=words.txt                       \
         --keep_isymbols=false --keep_osymbols=false|\
     fstaddselfloops  "echo 2 |" "echo 5 |"         | \
-    fstarcsort --sort_type=olabel                     \
+    fstarcsort --sort_type=olabel                  |  \
+    fstrelabel --relabel_isymbols=relabel.txt          \
     > L_disambig.fst
 
 fsttablecompose L_disambig.fst G.fst         |\
