@@ -425,7 +425,7 @@ class SpeechRecognizer(Initializable):
         else:
             top = Identity(name='top')
 
-        if dec_stack==1:
+        if dec_stack == 1:
             transition = self.dec_transition(
                 dim=dim_dec, activation=Tanh(), name="transition")
         else:
