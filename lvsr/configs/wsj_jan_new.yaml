@@ -1,0 +1,56 @@
+data:
+    dataset: WSJnew
+
+    recordings_source: fbank_dd
+    max_length: null
+    normalization: null
+    preprocess_features: False
+
+    labels_source: characters
+    preprocess_text: False
+    add_eos: True
+
+    sort_k_batches: null
+    batch_size: 10
+
+initialization: 
+    - [/recognizer, weights_init, IsotropicGaussian(0.01)]
+    - [/recognizer, biases_init, Constant(0.0)]
+    - [/recognizer, rec_weights_init, Orthogonal()]
+    - [/recognizer, initial_states_init, IsotropicGaussian(0.001)]
+
+net:
+    bottom_activation: Rectifier()
+    dims_bottom: []
+
+    enc_transition: GatedRecurrent
+    dims_bidir: [256, 256, 256, 256]
+    subsample: [1, 1, 2, 2]
+    
+    dims_top: []
+    
+    embed_outputs: False
+    dec_transition: GatedRecurrent
+    dec_stack: 1
+    dim_dec: 256
+    attention_type: content_and_conv
+    dim_matcher: 512
+    conv_n: 100
+    conv_num_filters: 10
+    prior: {initial_begin: 0, initial_end: 100, max_speed: 5.5, min_speed: 3}
+    
+    post_merge_dims: [256]
+    post_merge_activation: Maxout(2)
+    
+    use_states_for_readout: True
+    
+training: 
+    rules: [momentum, adadelta]
+    scale: 1.0
+    momentum: 0.0
+
+    decay_rate: 0.95
+    epsilon: 1e-8
+
+    gradient_threshold: 10.0
+    

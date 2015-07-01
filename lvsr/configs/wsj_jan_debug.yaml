@@ -1,16 +1,7 @@
-parent: $LVSR/lvsr/configs/wsj_good_fbank.yaml
+parent: $LVSR/lvsr/configs/wsj_jan_new.yaml
 net:
     dims_bidir: [17, 17, 17]
-    subsample: [1, 2, 4]
+    subsample: [1, 2, 2]
     dim_dec: 19
-    dims_bottom: [11]
     attention_type: content_and_conv
     conv_n: 13
-    prior:
-        initial_begin: 0
-        initial_end: 100
-        min_speed: 3
-        max_speed: 5.5
-
-data:
-    batch_size: 2
