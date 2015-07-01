@@ -8,7 +8,7 @@ training:
     epsilon: 1e-8
 net:
     use_states_for_readout: True
-    bottom_activation: relu
+    bottom_activation: Rectifier()
 data:
     preprocess_text: True
     preprocess_features: log_spectrogram
