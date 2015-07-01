@@ -44,6 +44,12 @@ class Parameters(AnnotatingList):
             add_role(value, PARAMETER)
             add_annotation(value, self.brick)
 
+    def __getattr__(self, name):
+        for l in self:
+            if getattr(l, 'name', None) == name:
+                return l
+        raise AttributeError
+
 
 class Children(AnnotatingList):
     """Adds the brick to the list of parents of its children."""
