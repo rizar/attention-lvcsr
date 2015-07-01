@@ -38,7 +38,8 @@ class Conv1D(Initializable):
 
 class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
     @lazy()
-    def __init__(self, match_dim, conv_n, state_transformer=None,
+    def __init__(self, match_dim, conv_n, conv_num_filters=1, 
+                 state_transformer=None,
                  attended_transformer=None, energy_computer=None,
                  prior=None, **kwargs):
         super(SequenceContentAndConvAttention, self).__init__(**kwargs)
@@ -67,7 +68,8 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
         self.prior = prior
 
         self.conv_n = conv_n
-        self.conv = Conv1D(1, 2 * conv_n + 1)
+        self.conv_num_filters = conv_num_filters
+        self.conv = Conv1D(conv_num_filters, 2 * conv_n + 1)
 
         self.children = [self.state_transformers, self.attended_transformer,
                          self.energy_computer, self.filter_handler, self.conv]
@@ -80,7 +82,7 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
         self.attended_transformer.output_dim = self.match_dim
         self.energy_computer.input_dim = self.match_dim
         self.energy_computer.output_dim = 1
-        self.filter_handler.input_dim = 1
+        self.filter_handler.input_dim = self.conv_num_filters
         self.filter_handler.output_dim = self.match_dim
 
     @application
