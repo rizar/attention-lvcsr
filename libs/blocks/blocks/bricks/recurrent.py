@@ -771,21 +771,29 @@ class RecurrentStack(BaseRecurrent, Initializable):
     See :class:`.BaseRecurrent` for more initialization parameters.
 
     """
-    @staticmethod
-    def suffix(name, level):
+    def suffix(self, name, level):
         if name == "mask":
-            return "mask"
-        if level == 0:
-            return name
-        return name + '_' + str(level)
+            mangled_name = "mask"
+        elif level == 0:
+            mangled_name = name
+        else:
+            mangled_name = name + '_' + str(level)
+        if (mangled_name in self.property_to_level_map and
+            self.property_to_level_map[mangled_name] != (name, level)):
+            logger.warning("The RecurrentStack is non-consistently mangling a name: %s", name)
+        self.property_to_level_map[mangled_name] = (name, level)
+        return mangled_name
 
-    @staticmethod
-    def suffixes(names, level):
-        return [RecurrentStack.suffix(name, level)
+    def suffixes(self, names, level):
+        return [self.suffix(name, level)
                 for name in names if name != "mask"]
 
-    @staticmethod
-    def split_suffix(name):
+    def split_suffix(self, name):
+        unmangled = self.property_to_level_map.get(name)
+        if unmangled is not None:
+            return unmangled
+        logger.warning("The RecurrentStack is unmangling a name it didn't mangle: %s", name)
+        # Try this fragile magic
         # Target name with suffix to the correct layer
         name_level = name.split('_')
         if len(name_level) == 2:
@@ -819,6 +827,8 @@ class RecurrentStack(BaseRecurrent, Initializable):
 
         self.children = self.transitions + self.forks
 
+        self.property_to_level_map = {'mask':('mask',0)}
+
         # Programmatically set the apply parameters.
         # parameters of base level are exposed as is
         # excpet for mask which we will put at the very end. See below.
@@ -844,7 +854,7 @@ class RecurrentStack(BaseRecurrent, Initializable):
                         )
 
         # place mask at end because it has a default value (None)
-        # and therefor should come after arguments that may come us
+        # and therefore should come after arguments that may come us
         # unnamed arguments
         if "mask" in transitions[0].apply.sequences:
             self.apply.sequences.append("mask")
