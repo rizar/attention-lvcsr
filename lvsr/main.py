@@ -399,10 +399,10 @@ class SpeechRecognizer(Initializable):
 
         bottom_activation = eval(bottom_activation)
         post_merge_activation = eval(post_merge_activation)
-        
+
         if dim_matcher is None:
             dim_matcher = dim_dec
-        
+
         # The bottom part, before BiRNN
         if dims_bottom:
             bottom = MLP([bottom_activation] * len(dims_bottom),
@@ -424,16 +424,16 @@ class SpeechRecognizer(Initializable):
                       [2 * dims_bidir[-1]] + dims_top + [2 * dims_bidir[-1]], name="top")
         else:
             top = Identity(name='top')
-        
+
         if dec_stack==1:
             transition = self.dec_transition(
                 dim=dim_dec, activation=Tanh(), name="transition")
         else:
-            transitions = [self.dec_transition(dim=dim_dec, 
-                                               activation=Tanh(), 
+            transitions = [self.dec_transition(dim=dim_dec,
+                                               activation=Tanh(),
                                                name="transition_{}".format(trans_level))
                            for trans_level in xrange(dec_stack)]
-            transition = RecurrentStack(transitions=transitions, 
+            transition = RecurrentStack(transitions=transitions,
                                         skip_connections=True)
         # Choose attention mechanism according to the configuration
         if attention_type == "content":
@@ -469,8 +469,13 @@ class SpeechRecognizer(Initializable):
                     Bias(post_merge_dims[0]).apply,
                     post_merge_activation.apply,
                     MLP([post_merge_activation] * (len(post_merge_dims) - 1) + [Identity()],
-                        #HUGE TODO: how to deal with this?
-                        [d//getattr(post_merge_activation, 'num_pieces', 1) for d in post_merge_dims] + [num_phonemes]).apply,
+                        # MLP was designed to support Maxout is activation
+                        # (because Maxout in a way is not one). However
+                        # a single layer Maxout network works with the trick below.
+                        # For deeper Maxout network one has to use the
+                        # Sequence brick.
+                        [d//getattr(post_merge_activation, 'num_pieces', 1)
+                         for d in post_merge_dims] + [num_phonemes]).apply,
                 ],
                 name='post_merge')
         readout = Readout(**readout_config)
@@ -503,13 +508,13 @@ class SpeechRecognizer(Initializable):
             global_push_initialization_config(self,
                                               rec_weights_config,
                                               BaseRecurrent)
-        if self.initial_states_init: 
-            global_push_initialization_config(self, 
+        if self.initial_states_init:
+            global_push_initialization_config(self,
                                               {'initial_states_init': self.initial_states_init})
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
-        bottom_processed = self.bottom.apply(recordings) 
+        bottom_processed = self.bottom.apply(recordings)
         encoded, encoded_mask = self.encoder.apply(
             input_=bottom_processed,
             mask=recordings_mask)
