@@ -16,14 +16,16 @@ from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import (
     Tanh, MLP, Brick, application,
-    Initializable, Identity, Rectifier,
+    Initializable, Identity, Rectifier, Maxout,
     Sequence, Bias, Linear)
 from blocks.bricks.recurrent import (
-    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional)
+    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional, BaseRecurrent,
+    RecurrentStack)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork
 from blocks.bricks.sequence_generators import (
-    SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback)
+    SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback,
+    AbstractFeedback)
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
@@ -46,7 +48,7 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT, WEIGHT
-from blocks.utils import named_copy, dict_union
+from blocks.utils import named_copy, dict_union, check_theano_variable
 from blocks.search import BeamSearch
 from blocks.select import Selector
 from blocks.serialization import load_parameter_values
@@ -299,14 +301,56 @@ class Encoder(Initializable):
     @application(outputs=['encoded', 'encoded_mask'])
     def apply(self, input_, mask=None):
         for bidir, take_each in zip(self.children, self.subsample):
-            input_ = pad_to_a_multiple(input_, take_each, 0.)
-            if mask:
-                mask = pad_to_a_multiple(mask, take_each, 0.)
+            #No need to pad if all we do is subsample!
+            #input_ = pad_to_a_multiple(input_, take_each, 0.)
+            #if mask:
+            #    mask = pad_to_a_multiple(mask, take_each, 0.)
             input_ = bidir.apply(input_, mask)
             input_ = input_[::take_each]
             if mask:
                 mask = mask[::take_each]
         return input_, (mask if mask else tensor.ones_like(input_[:, :, 0]))
+
+
+def global_push_initialization_config(brick, initialization_config,
+                                      filter_type=object):
+    #TODO: this needs proper selectors! NOW!
+    if not brick.initialization_config_pushed:
+        raise Exception("Please push_initializatio_config first to prevent it "
+                        "form overriding the changes made by "
+                        "global_push_initialization_config")
+    if isinstance(brick, filter_type):
+        for k,v in initialization_config.items():
+            if hasattr(brick, k):
+                setattr(brick, k, v)
+    for c in brick.children:
+        global_push_initialization_config(c, initialization_config, filter_type)
+
+
+class OneOfNFeedback(AbstractFeedback, Initializable):
+    """A feedback brick for the case when readout are integers.
+
+    Stores and retrieves distributed representations of integers.
+
+    """
+    def __init__(self, num_outputs=None, feedback_dim=None, **kwargs):
+        super(OneOfNFeedback, self).__init__(**kwargs)
+        self.num_outputs = num_outputs
+        self.feedback_dim = num_outputs
+
+    @application
+    def feedback(self, outputs):
+        assert self.output_dim == 0
+        eye = tensor.eye(self.num_outputs)
+        check_theano_variable(outputs, None, "int")
+        output_shape = [outputs.shape[i]
+                        for i in range(outputs.ndim)] + [self.feedback_dim]
+        return eye[outputs.flatten()].reshape(output_shape)
+
+    def get_dim(self, name):
+        if name == 'feedback':
+            return self.feedback_dim
+        return super(LookupFeedback, self).get_dim(name)
 
 
 class SpeechRecognizer(Initializable):
@@ -335,25 +379,30 @@ class SpeechRecognizer(Initializable):
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
-                 bottom_activation='tanh',
+                 bottom_activation='Tanh()',
+                 post_merge_activation='Tanh()',
                  post_merge_dims=None,
+                 dim_matcher=None,
+                 embed_outputs=True,
+                 dec_stack=1,
+                 conv_num_filters=1,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
         self.labels_source = labels_source
         self.eos_label = eos_label
         self.rec_weights_init = None
+        self.initial_states_init = None
 
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
 
-        if bottom_activation == 'tanh':
-            bottom_activation = Tanh()
-        elif bottom_activation == 'relu':
-            bottom_activation = Rectifier()
-        else:
-            raise ValueError("unknown activation {}".format(bottom_activation))
-
+        bottom_activation = eval(bottom_activation)
+        post_merge_activation = eval(post_merge_activation)
+        
+        if dim_matcher is None:
+            dim_matcher = dim_dec
+        
         # The bottom part, before BiRNN
         if dims_bottom:
             bottom = MLP([bottom_activation] * len(dims_bottom),
@@ -375,39 +424,53 @@ class SpeechRecognizer(Initializable):
                       [2 * dims_bidir[-1]] + dims_top + [2 * dims_bidir[-1]], name="top")
         else:
             top = Identity(name='top')
-
-        transition = self.dec_transition(
-            dim=dim_dec, activation=Tanh(), name="transition")
+        
+        if dec_stack==1:
+            transition = self.dec_transition(
+                dim=dim_dec, activation=Tanh(), name="transition")
+        else:
+            transitions = [self.dec_transition(dim=dim_dec, 
+                                               activation=Tanh(), 
+                                               name="transition_{}".format(trans_level))
+                           for trans_level in xrange(dec_stack)]
+            transition = RecurrentStack(transitions=transitions, 
+                                        skip_connections=True)
         # Choose attention mechanism according to the configuration
         if attention_type == "content":
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
-                attended_dim=2 * dims_bidir[-1], match_dim=dim_dec,
+                attended_dim=2 * dims_bidir[-1], match_dim=dim_matcher,
                 name="cont_att")
         elif attention_type == "content_and_conv":
             attention = SequenceContentAndConvAttention(
                 state_names=transition.apply.states,
                 conv_n=conv_n,
-                attended_dim=2 * dims_bidir[-1], match_dim=dim_dec,
+                conv_num_filters=conv_num_filters,
+                attended_dim=2 * dims_bidir[-1], match_dim=dim_matcher,
                 prior=prior,
                 name="conv_att")
         else:
             raise ValueError("Unknown attention type {}"
                              .format(attention_type))
+        if embed_outputs:
+            feedback = LookupFeedback(num_phonemes + 1, dim_dec)
+        else:
+            feedback = OneOfNFeedback(num_phonemes + 1)
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
                 + [attention.take_glimpses.outputs[0]],
             emitter=SoftmaxEmitter(initial_output=num_phonemes, name="emitter"),
-            feedback_brick=LookupFeedback(num_phonemes + 1, dim_dec),
+            feedback_brick=feedback,
             name="readout")
         if post_merge_dims:
             readout_config['merged_dim'] = post_merge_dims[0]
             readout_config['post_merge'] = InitializableSequence([
                     Bias(post_merge_dims[0]).apply,
-                    bottom_activation.apply,
-                    MLP([bottom_activation] * (len(post_merge_dims) - 1) + [Identity()],
-                        post_merge_dims + [num_phonemes]).apply,
+                    post_merge_activation.apply,
+                    MLP([post_merge_activation] * (len(post_merge_dims) - 1) + [Identity()],
+                        #HUGE TODO: how to deal with this?
+                        [d//getattr(post_merge_activation, 'num_pieces', 1) for d in post_merge_dims] + [num_phonemes]).apply,
                 ],
                 name='post_merge')
         readout = Readout(**readout_config)
@@ -435,10 +498,14 @@ class SpeechRecognizer(Initializable):
     def push_initialization_config(self):
         super(SpeechRecognizer, self).push_initialization_config()
         if self.rec_weights_init:
-            self.encoder.weights_init = self.rec_weights_init
-            self.encoder.push_initialization_config()
-            self.generator.transition.transition.weights_init = self.rec_weights_init
-            self.generator.transition.transition.push_initialization_config()
+            rec_weights_config = {'weights_init': self.rec_weights_init,
+                                  'recurrent_weights_init': self.rec_weights_init}
+            global_push_initialization_config(self,
+                                              rec_weights_config,
+                                              BaseRecurrent)
+        if self.initial_states_init: 
+            global_push_initialization_config(self, 
+                                              {'initial_states_init': self.initial_states_init})
 
     @application
     def cost(self, recordings, recordings_mask, labels, labels_mask):
@@ -653,8 +720,8 @@ def main(cmd_args):
             "there is an issue #463 in Blocks to do that properly.")
         def show_init_scheme(cur):
             result = dict()
-            for attr in ['weights_init', 'biases_init']:
-                if hasattr(cur, attr):
+            for attr in dir(cur):
+                if attr.endswith('_init'):
                     result[attr] = getattr(cur, attr)
             for child in cur.children:
                 result[child.name] = show_init_scheme(child)
