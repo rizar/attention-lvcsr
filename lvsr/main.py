@@ -5,6 +5,7 @@ import math
 import os
 import functools
 import cPickle
+import cPickle as pickle
 import sys
 import copy
 from collections import OrderedDict
@@ -36,7 +37,8 @@ from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
-    FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
+    FinishAfter, Printing, Timing, ProgressBar, SimpleExtension,
+    TrainingExtension, saveload)
 from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
@@ -48,7 +50,8 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT, WEIGHT
-from blocks.utils import named_copy, dict_union, check_theano_variable
+from blocks.utils import named_copy, dict_union, check_theano_variable,\
+    reraise_as
 from blocks.search import BeamSearch
 from blocks.select import Selector
 from blocks.serialization import load_parameter_values
@@ -72,6 +75,7 @@ from lvsr.expressions import (
 from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.preprocessing import log_spectrogram, Normalization
+from blocks import serialization
 
 
 floatX = theano.config.floatX
@@ -693,6 +697,41 @@ class SwitchOffLengthFilter(SimpleExtension):
         self.length_filter.max_length = None
         self.main_loop.log.current_row['length_filter_switched'] = True
 
+class LoadLog(TrainingExtension):
+    """Loads a the log from the checkoint.
+
+    Makes a `LOADED_FROM` record in the log with the dump path.
+
+    Parameters
+    ----------
+    path : str
+        The path to the folder with dump.
+
+    """
+    def __init__(self, path, **kwargs):
+        super(LoadLog, self).__init__(**kwargs)
+        self.path = path[:-4] + '_log.zip'
+
+    def load_to(self, main_loop):
+
+        with open(self.path, "rb") as source:
+            loaded_log = pickle.load(source)
+            #TODO: remove and fix the printing issue!
+            loaded_log.status['resumed_from'] = None
+        main_loop.log = loaded_log
+
+    def before_training(self):
+        if not os.path.exists(self.path):
+            logger.warning("No log dump found")
+            return
+        logger.info("loading log from {}".format(self.path))
+        try:
+            self.load_to(self.main_loop)
+            #self.main_loop.log.current_row[saveload.LOADED_FROM] = self.path
+        except Exception:
+            reraise_as("Failed to load the state")
+
+
 
 def main(cmd_args):
     # Experiment configuration
@@ -932,6 +971,8 @@ def main(cmd_args):
         extensions = []
         if cmd_args.use_load_ext and cmd_args.params:
             extensions.append(Load(cmd_args.params, load_iteration_state=True, load_log=True))
+        if cmd_args.load_log and cmd_args.params:
+            extensions.append(LoadLog(cmd_args.params))
         extensions += [
             Timing(after_batch=True),
             CGStatistics(),
@@ -1008,7 +1049,8 @@ def main(cmd_args):
                 OnLogRecord(track_the_best_likelihood.notification_name),
                 (root_path + "_best_ll" + extension,)),
             ProgressBar(),
-            Printing(every_n_batches=1)]
+            Printing(every_n_batches=1,
+                     attribute_filter=Printing.create_filter_from_names())]
 
         # Save the config into the status
         log = TrainingLog()

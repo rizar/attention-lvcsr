@@ -46,6 +46,9 @@ if __name__ == "__main__":
         "--use-load-ext", default=False, action="store_true",
         help="Use the load ext to reload log and main loop state")
     parser.add_argument(
+        "--load-log", default=False, action="store_true",
+        help="Load the log from a separate pickle")
+    parser.add_argument(
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins.")
     parser.add_argument(
