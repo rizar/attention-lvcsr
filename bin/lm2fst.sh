@@ -25,7 +25,9 @@ make_lexicon_fst.pl                            \
         --isymbols=characters.txt                 \
         --osymbols=words.txt                       \
         --keep_isymbols=false --keep_osymbols=false|\
-    fstaddselfloops  "echo 2 |" "echo 5 |"         | \
+    fstaddselfloops  \
+        "echo `grep -oP '(?<=#0 )[0-9]+' characters.txt` |" \
+        "echo `grep -oP '(?<=#0 )[0-9]+' words.txt` |"         | \
     fstarcsort --sort_type=olabel                  |  \
     fstrelabel --relabel_isymbols=relabel.txt          \
     > L_disambig.fst
