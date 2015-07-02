@@ -855,8 +855,8 @@ def main(cmd_args):
         params = model.get_params()
         logger.info("Parameters:\n" +
                     pprint.pformat(
-                        [(key, value.get_value().shape) for key, value
-                         in params.items()],
+                        [(key, params[key].get_value().shape) for key
+                         in sorted(params.keys())],
                         width=120))
 
         # Define the training algorithm.
@@ -1018,6 +1018,8 @@ def main(cmd_args):
             data_stream=data.get_stream("train"),
             extensions=extensions)
         main_loop.run()
+
+
     elif cmd_args.mode == "search":
         from matplotlib import pyplot
         from lvsr.notebook import show_alignment
