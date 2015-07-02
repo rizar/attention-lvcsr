@@ -990,9 +990,11 @@ def main(cmd_args):
         from lvsr.notebook import show_alignment
 
         # Try to guess if just parameters or the whole model was given.
-        if cmd_args.save_path.endswith('.npz'):
+        if cmd_args.params is not None:
             recognizer = SpeechRecognizer(
-                data.eos_label, 29, WSJ.num_characters, name="recognizer", **config["net"])
+                data.recordings_source, data.labels_source,
+                data.eos_label, data.num_features, data.num_labels,
+                name='recognizer', **config["net"])
             recognizer.load_params(cmd_args.save_path)
         else:
             recognizer, = cPickle.load(
