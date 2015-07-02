@@ -30,7 +30,12 @@ def main(filename):
                 continue
             if line.startswith('\\2-grams') or line.startswith('\\end'):
                 break
-            _, word, _ = line.split()
+            line = line.split()
+            if len(line) not in [2,3]:
+                # max robustness to junk, please note that you may or may not
+                # have a backoff-weight
+                continue
+            word = line[1]
             if word.startswith("<") or word.startswith("#"):
                 continue
             f_words.write("{} {}\n".format(word.strip(), n_words))
