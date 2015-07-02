@@ -1020,8 +1020,11 @@ class RecurrentStack(BaseRecurrent, Initializable):
         return transition.get_dim(name)
 
     @application
-    def initial_state(self, state_name, batch_size, *args, **kwargs):
-        state_name, level = self.split_suffix(state_name)
-        transition = self.transitions[level]
-        return transition.initial_state(state_name, batch_size,
-                                        *args, **kwargs)
+    def initial_states(self, batch_size, *args, **kwargs):
+        result = {}
+        for level, transition in enumerate(self.transitions):
+            initial_states = transition.initial_states(
+                batch_size, as_dict=True, *args, **kwargs)
+            result.update({self.suffix(name, level): initial_states[name]
+                           for name in initial_states})
+        return [result[name] for name in self.apply.states]
