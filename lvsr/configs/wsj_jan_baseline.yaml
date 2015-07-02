@@ -6,6 +6,8 @@ net:
     post_merge_activation: Rectifier()
     # 0.5 times respective settings from wsj_good_fbank.yaml
     prior:
+        before: 200
+        after: 200
         initial_begin: 0
         initial_end: 80
         min_speed: 2.4
