@@ -401,15 +401,12 @@ class SpeechRecognizer(Initializable):
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
-                 do_beam_search=True,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
         self.labels_source = labels_source
         self.eos_label = eos_label
         self.data_prepend_eos = data_prepend_eos
-
-        self.do_beam_search = do_beam_search
 
         self.rec_weights_init = None
         self.initial_states_init = None
@@ -615,19 +612,15 @@ class SpeechRecognizer(Initializable):
         See Blocks issue #500.
 
         """
-        if not self.do_beam_search:
-            return
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
-            applications=[self.generator.generate], name="outputs")( 
+            applications=[self.generator.generate], name="outputs")(
                 ComputationGraph(generated['outputs']))
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
     def beam_search(self, recording):
-        if not self.do_beam_search:
-            return
         if not hasattr(self, '_beam_search'):
             self.init_beam_search(self.beam_size)
         input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
@@ -669,9 +662,6 @@ class PhonemeErrorRate(MonitoredQuantity):
 
     def accumulate(self, recording, transcription):
         # Hack to avoid hopeless decoding of an untrained model
-        if not self.recognizer.do_beam_search:
-            self.mean_error = 1
-            return
         if self.num_examples > 10 and self.mean_error > 0.8:
             self.mean_error = 1
             return
@@ -737,7 +727,7 @@ def main(cmd_args):
             data.recordings_source, data.labels_source,
             data.eos_label,
             data.num_features, data.num_labels,
-            name="recognizer", 
+            name="recognizer",
             data_prepend_eos=data.prepend_eos,
             **config["net"])
         for brick_path, attribute, value in config['initialization']:
