@@ -112,13 +112,23 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-class _AddEosLabel(object):
+class _AddEosLabelEnd(object):
 
     def __init__(self, eos_label):
         self.eos_label = eos_label
 
     def __call__(self, example):
         return (example[0], list(example[1]) + [self.eos_label])
+
+
+class _AddEosLabelBeginEnd(object):
+
+    def __init__(self, eos_label):
+        self.eos_label = eos_label
+
+    def __call__(self, example):
+        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label])
+
 
 
 class _MergeKFrames(object):
@@ -159,6 +169,7 @@ class Data(object):
                  feature_name='wav', preprocess_features=None,
                  # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None,
+                 prepend_eos=True,
                  # For WSJ
                  preprocess_text=False):
         if not dataset in ('TIMIT', 'WSJ', 'WSJnew'):
@@ -182,7 +193,7 @@ class Data(object):
         self._eos_label = eos_label
         self.preprocess_text = preprocess_text
         self.preprocess_features = preprocess_features
-
+        self.prepend_eos = prepend_eos
         self.dataset_cache = {}
 
         self.length_filter =_LengthFilter(self.max_length)
@@ -242,7 +253,10 @@ class Data(object):
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source))
         if self.add_eos:
-            stream = Mapping(stream, _AddEosLabel(self.eos_label))
+            if self.prepend_eos:
+                stream = Mapping(stream, _AddEosLabelBeginEnd(self.eos_label))
+            else:
+                stream = Mapping(stream, _AddEosLabelEnd(self.eos_label))
         if self.preprocess_text:
             if not self.dataset == "WSJ":
                 raise ValueError("text preprocessing only for WSJ")
@@ -386,16 +400,23 @@ class SpeechRecognizer(Initializable):
                  embed_outputs=True,
                  dec_stack=1,
                  conv_num_filters=1,
+                 data_prepend_eos=True,
+                 do_beam_search=True,
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
         self.labels_source = labels_source
         self.eos_label = eos_label
+        self.data_prepend_eos = data_prepend_eos
+
+        self.do_beam_search = do_beam_search
+
         self.rec_weights_init = None
         self.initial_states_init = None
 
         self.enc_transition = eval(enc_transition)
         self.dec_transition = eval(dec_transition)
+        self.dec_stack = dec_stack
 
         bottom_activation = eval(bottom_activation)
         post_merge_activation = eval(post_merge_activation)
@@ -531,7 +552,8 @@ class SpeechRecognizer(Initializable):
         return self.generator.generate(
             n_steps=recordings.shape[0], batch_size=recordings.shape[1],
             attended=encoded,
-            attended_mask=encoded_mask)
+            attended_mask=encoded_mask,
+            as_dict=True)
 
     def load_params(self, path):
         generated = self.get_generate_graph()
@@ -547,7 +569,7 @@ class SpeechRecognizer(Initializable):
             # model parameters.
             if not ('shared' in key
                     or 'None' in key)}
-        Model(generated[1]).set_param_values(param_values)
+        Model(generated['outputs']).set_param_values(param_values)
 
     def get_generate_graph(self):
         return self.generate(self.recordings)
@@ -593,21 +615,25 @@ class SpeechRecognizer(Initializable):
         See Blocks issue #500.
 
         """
+        if not self.do_beam_search:
+            return
         self.beam_size = beam_size
         generated = self.get_generate_graph()
         samples, = VariableFilter(
-            applications=[self.generator.generate], name="outputs")(
-                ComputationGraph(generated[1]))
+            applications=[self.generator.generate], name="outputs")( 
+                ComputationGraph(generated['outputs']))
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
     def beam_search(self, recording):
+        if not self.do_beam_search:
+            return
         if not hasattr(self, '_beam_search'):
             self.init_beam_search(self.beam_size)
         input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
-            ignore_first_eol=True)
+            ignore_first_eol=self.data_prepend_eos)
         return outputs, search_costs
 
     def __getstate__(self):
@@ -643,6 +669,9 @@ class PhonemeErrorRate(MonitoredQuantity):
 
     def accumulate(self, recording, transcription):
         # Hack to avoid hopeless decoding of an untrained model
+        if not self.recognizer.do_beam_search:
+            self.mean_error = 1
+            return
         if self.num_examples > 10 and self.mean_error > 0.8:
             self.mean_error = 1
             return
@@ -708,7 +737,9 @@ def main(cmd_args):
             data.recordings_source, data.labels_source,
             data.eos_label,
             data.num_features, data.num_labels,
-            name="recognizer", **config["net"])
+            name="recognizer", 
+            data_prepend_eos=data.prepend_eos,
+            **config["net"])
         for brick_path, attribute, value in config['initialization']:
             brick, = Selector(recognizer).select(brick_path).bricks
             setattr(brick, attribute, eval(value))
@@ -849,6 +880,9 @@ def main(cmd_args):
         if reg_config.get('max_norm', False):
             logger.info("Apply MaxNorm")
             maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
+            logger.info("Parameters covered by MaxNorm:\n"
+                        + pprint.pformat([name for name, p in params.items()
+                                          if p in maxnorm_subjects]))
             logger.info("Parameters NOT covered by MaxNorm:\n"
                         + pprint.pformat([name for name, p in params.items()
                                           if not p in maxnorm_subjects]))

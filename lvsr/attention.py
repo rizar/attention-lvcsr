@@ -113,25 +113,38 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
         # Cut the considered window.
         p = self.prior
         length = attended.shape[0]
-        if p.get('expanding', True):
+        prior_type = p.get('type', 'expanding')
+        if prior_type=='expanding':
             begin = p['initial_begin'] + step[0] * p['min_speed']
             end = p['initial_end'] + step[0] * p['max_speed']
             begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
             end = tensor.maximum(0, tensor.minimum(length, end))
             additional_mask = None
+        elif prior_type=='window_around_expected_position':
+            #check whether we want the mean or median!
+            if p['window_around_mean']:
+                position_in_attended = tensor.arange(length, dtype=floatX)[None, :]
+                expected_last_source_pos = (weights * position_in_attended).sum(axis=1)
+            else: #window around median
+                ali_to_05 = tensor.extra_ops.cumsum(weights, axis=1) - 0.5
+                ali_to_05 = (ali_to_05>=0)
+                ali_median_pos = ali_to_05[:,1:] - ali_to_05[:,:-1]  
+                expected_last_source_pos = tensor.argmax(ali_median_pos, axis=1)
+            #the window taken around each element
+            begins = tensor.floor(expected_last_source_pos - p['before'])
+            ends = tensor.ceil(expected_last_source_pos + p['after'])
+            #the global window to optimize computations
+            begin = tensor.maximum(0, begins.min()).astype('int64')
+            end = tensor.minimum(length, ends.max()).astype('int64')
+            #the new mask, already cut to begin:end
+            if p['window_around_mean']:
+                position_in_attended_cut = position_in_attended[:,begin:end]
+            else:
+                position_in_attended_cut = tensor.arange(begin, end, dtype=floatX)[None, :]
+            additional_mask = ((position_in_attended_cut > begins[:,None]) * 
+                               (position_in_attended_cut < ends[:,None]))
         else:
-            positions = (weights * tensor.arange(length)[None, :]).sum(axis=1).astype('int64')
-            begin = tensor.maximum(0, positions.min() - p['before'])
-            end = tensor.minimum(length, positions.max() + p['after'] + 1)
-            window_length = end - begin
-            begins = tensor.maximum(0, positions - begin - p['before'])
-            ends = tensor.minimum(end, positions + p['after'] + 1 - begin)
-            empty_row = tensor.zeros((window_length,))
-            additional_mask, _ = theano.scan(
-                self.mask_row,
-                sequences=[begins, ends - begins],
-                non_sequences=[empty_row],
-                outputs_info=[None])
+            raise Exception("Unknown prior type: %s", prior_type)
         begin = tensor.floor(begin).astype('int64')
         end = tensor.ceil(end).astype('int64')
         attended_cut = attended[begin:end]

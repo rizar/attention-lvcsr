@@ -5,3 +5,9 @@ net:
     dim_dec: 19
     attention_type: content_and_conv
     conv_n: 13
+    dec_stack: 2
+    prior:
+        type: window_around_expected_position
+        window_around_mean: True
+        before: 150
+        after: 150

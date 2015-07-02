@@ -9,6 +9,7 @@ data:
     labels_source: characters
     preprocess_text: False
     add_eos: True
+    prepend_eos: False
 
     sort_k_batches: null
     batch_size: 10
@@ -37,13 +38,26 @@ net:
     dim_matcher: 512
     conv_n: 100
     conv_num_filters: 10
-    prior: {initial_begin: 0, initial_end: 100, max_speed: 5.5, min_speed: 3}
+    prior:
+      # params for type: expanding, which is the default!
+      initial_begin: 0
+      initial_end: 100
+      max_speed: 5.5
+      min_speed: 3
+
+      # params for type: window_around_expected_position
+      window_around_mean: True
+      before: 150
+      after: 150
     
     post_merge_dims: [256]
     post_merge_activation: Maxout(2)
     
     use_states_for_readout: True
-    
+
+regularization:
+    max_norm: 1
+
 training: 
     rules: [momentum, adadelta]
     scale: 1.0
