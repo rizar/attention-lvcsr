@@ -738,8 +738,7 @@ def main(cmd_args):
             recognizer.load_params(cmd_args.params)
 
         if cmd_args.test_tag:
-            import theano.tensor
-            theano.tensor.TensorVariable.__str__ = theano.tensor.TensorVariable.__repr__
+            tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
             __stream = data.get_stream("train")
             __data = next(__stream.get_epoch_iterator(as_dict=True))
             recognizer.recordings.tag.test_value = __data[data.recordings_source]
@@ -991,13 +990,13 @@ def main(cmd_args):
         from lvsr.notebook import show_alignment
 
         # Try to guess if just parameters or the whole model was given.
-        if cmd_args.save_path.endswith('.pkl'):
-            recognizer, = cPickle.load(
-                open(cmd_args.save_path)).get_top_bricks()
-        elif cmd_args.save_path.endswith('.npz'):
+        if cmd_args.save_path.endswith('.npz'):
             recognizer = SpeechRecognizer(
                 data.eos_label, 29, WSJ.num_characters, name="recognizer", **config["net"])
             recognizer.load_params(cmd_args.save_path)
+        else:
+            recognizer, = cPickle.load(
+                open(cmd_args.save_path)).get_top_bricks()
         recognizer.init_beam_search(cmd_args.beam_size)
 
         dataset = data.get_dataset(cmd_args.part)
