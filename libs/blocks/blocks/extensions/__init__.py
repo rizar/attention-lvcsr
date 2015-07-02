@@ -6,6 +6,7 @@ from abc import ABCMeta, abstractmethod
 import progressbar
 from six import add_metaclass
 from toolz import first
+import re
 
 logger = logging.getLogger()
 
@@ -376,7 +377,37 @@ class FinishAfter(SimpleExtension):
 
 class Printing(SimpleExtension):
     """Prints log messages to the screen."""
-    def __init__(self, **kwargs):
+
+    @staticmethod
+    def filter_underscored(attr):
+        return attr.startswith('_')
+
+    @staticmethod
+    def create_filter_from_names(*args, **kwargs):
+        """
+        Filters out a given set of names or regexpes
+
+        TODO
+        """
+        huge_re_parts = []
+        if kwargs.get('include_standard_names', True):
+            huge_re_parts += ['batch_interrupt_received',
+                              'epoch_interrupt_received',
+                              'epoch_started',
+                              'received_first_batch',
+                              'resumed_from',
+                              'training_started']
+        if kwargs.get('filter_underscored', True):
+            huge_re_parts.append('_.*')
+        huge_re_parts += args
+        huge_re = '(:?' + '|'.join(['(:?{})'.format(p) for p in huge_re_parts]) + ')'
+        print (huge_re)
+        return re.compile(huge_re).match
+
+
+    DEFAULT_FILTER=filter_underscored
+
+    def __init__(self, attribute_filter=None, **kwargs):
         kwargs.setdefault("before_first_epoch", True)
         kwargs.setdefault("on_resumption", True)
         kwargs.setdefault("after_training", True)
@@ -384,9 +415,14 @@ class Printing(SimpleExtension):
         kwargs.setdefault("on_interrupt", True)
         super(Printing, self).__init__(**kwargs)
 
+        if attribute_filter is None:
+            attribute_filter = self.DEFAULT_FILTER
+
+        self._attribute_filter = attribute_filter
+
     def _print_attributes(self, attribute_tuples):
         for attr, value in sorted(attribute_tuples.items(), key=first):
-            if not attr.startswith("_"):
+            if not self._attribute_filter(attr):
                 print("\t", "{}:".format(attr), value)
 
     def do(self, which_callback, *args):
