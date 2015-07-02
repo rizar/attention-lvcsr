@@ -17,7 +17,14 @@ cat $1                 | \
     fstarcsort --sort_type=ilabel      \
     > G.fst
 
-add_lex_disambig.pl lexicon.txt lexicon_disambig.txt
+disambig_symbols=`add_lex_disambig.pl lexicon.txt lexicon_disambig.txt`
+
+for symbol in $disambig_symbols
+do
+    last_number=`tail -n 1 characters.txt | grep -oP '(?<=. )[0-9]+'`
+    echo \#$symbol $(($last_number + 1)) >> characters.txt
+    echo $(($last_number + 1)) 0 >> relabel.txt
+done
 
 make_lexicon_fst.pl                            \
     lexicon_disambig.txt                       |\

@@ -2,9 +2,7 @@
 import sys
 
 def main(filename):
-    chars = {'<eps>': 0, '<spc>': 1, '#0': 2, '#1': 3}
-    with open("relabel.txt", "w") as f:
-        f.write("3 0\n")
+    chars = {'<eps>': 0, '<spc>': 1, '#0': 2}
     with open(filename) as f, open("lexicon.txt", "w") as f_lexicon, \
             open("words.txt", "w") as f_words, \
             open("characters.txt", "w") as f_characters:
