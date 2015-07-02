@@ -38,7 +38,7 @@ class Conv1D(Initializable):
 
 class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
     @lazy()
-    def __init__(self, match_dim, conv_n, conv_num_filters=1, 
+    def __init__(self, match_dim, conv_n, conv_num_filters=1,
                  state_transformer=None,
                  attended_transformer=None, energy_computer=None,
                  prior=None, **kwargs):
@@ -120,16 +120,18 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             begin = tensor.maximum(0, tensor.minimum(length - 1, begin))
             end = tensor.maximum(0, tensor.minimum(length, end))
             additional_mask = None
-        elif prior_type=='window_around_expected_position':
+        elif prior_type.startswith('window_around'):
             #check whether we want the mean or median!
-            if p['window_around_mean']:
+            if prior_type == 'window_around_mean':
                 position_in_attended = tensor.arange(length, dtype=floatX)[None, :]
                 expected_last_source_pos = (weights * position_in_attended).sum(axis=1)
-            else: #window around median
+            elif prior_type == 'window_around_median':
                 ali_to_05 = tensor.extra_ops.cumsum(weights, axis=1) - 0.5
                 ali_to_05 = (ali_to_05>=0)
-                ali_median_pos = ali_to_05[:,1:] - ali_to_05[:,:-1]  
+                ali_median_pos = ali_to_05[:,1:] - ali_to_05[:,:-1]
                 expected_last_source_pos = tensor.argmax(ali_median_pos, axis=1)
+            else:
+                raise ValueError
             #the window taken around each element
             begins = tensor.floor(expected_last_source_pos - p['before'])
             ends = tensor.ceil(expected_last_source_pos + p['after'])
@@ -137,11 +139,9 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             begin = tensor.maximum(0, begins.min()).astype('int64')
             end = tensor.minimum(length, ends.max()).astype('int64')
             #the new mask, already cut to begin:end
-            if p['window_around_mean']:
-                position_in_attended_cut = position_in_attended[:,begin:end]
-            else:
-                position_in_attended_cut = tensor.arange(begin, end, dtype=floatX)[None, :]
-            additional_mask = ((position_in_attended_cut > begins[:,None]) * 
+            position_in_attended_cut = tensor.arange(
+                begin * 1., end * 1., 1., dtype=floatX)[None, :]
+            additional_mask = ((position_in_attended_cut > begins[:,None]) *
                                (position_in_attended_cut < ends[:,None]))
         else:
             raise Exception("Unknown prior type: %s", prior_type)
