@@ -3,6 +3,7 @@ net:
     dims_bidir: [250, 500, 1000]
     subsample: [1, 2, 2]
     post_merge_dims: [1000]
+    post_merge_activation: Rectifier()
     # 0.25 times respective settings from wsj_good_fbank.yaml
     prior:
         initial_begin: 0
