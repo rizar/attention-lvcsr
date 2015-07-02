@@ -37,7 +37,7 @@ from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension)
-from blocks.extensions.saveload import Checkpoint
+from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
 from blocks.extras.extensions.plot import Plot
@@ -76,7 +76,6 @@ from lvsr.preprocessing import log_spectrogram, Normalization
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
-
 
 def _length(example):
     return len(example[0])
@@ -367,6 +366,23 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
         return super(LookupFeedback, self).get_dim(name)
 
 
+class SpeechModel(Model):
+    def set_param_values(self, param_values):
+        filtered_param_values = {
+            key: value for key, value in param_values.items()
+            # Shared variables are now saved separately, thanks to the
+            # recent PRs by Dmitry Serdyuk and Bart. Unfortunately,
+            # that applies to all shared variables, and not only to the
+            # parameters. That's why temporarily we have to filter the
+            # unnecessary ones. The filter deliberately does not take into
+            # account for a few exotic ones, there will be a warning
+            # with the list of the variables that were not matched with
+            # model parameters.
+            if not ('shared' in key
+                    or 'None' in key)}
+        super(SpeechModel,self).set_param_values(filtered_param_values)
+
+
 class SpeechRecognizer(Initializable):
     """Encapsulate all reusable logic.
 
@@ -554,19 +570,8 @@ class SpeechRecognizer(Initializable):
 
     def load_params(self, path):
         generated = self.get_generate_graph()
-        param_values = {
-            key: value for key, value in load_parameter_values(path).items()
-            # Shared variables are now saved separately, thanks to the
-            # recent PRs by Dmitry Serdyuk and Bart. Unfortunately,
-            # that applies to all shared variables, and not only to the
-            # parameters. That's why temporarily we have to filter the
-            # unnecessary ones. The filter deliberately does not take into
-            # account for a few exotic ones, there will be a warning
-            # with the list of the variables that were not matched with
-            # model parameters.
-            if not ('shared' in key
-                    or 'None' in key)}
-        Model(generated['outputs']).set_param_values(param_values)
+        param_values = load_parameter_values(path)
+        SpeechModel(generated['outputs']).set_param_values(param_values)
 
     def get_generate_graph(self):
         return self.generate(self.recordings)
@@ -846,7 +851,7 @@ def main(cmd_args):
         # and give them hierahical names. This help to notice when a
         # because of some bug a parameter is not in the computation
         # graph.
-        model = Model(regularized_cost)
+        model = SpeechModel(regularized_cost)
         params = model.get_params()
         logger.info("Parameters:\n" +
                     pprint.pformat(
@@ -924,7 +929,10 @@ def main(cmd_args):
 
         # Build main loop.
         logger.info("Initialize extensions")
-        extensions = [
+        extensions = []
+        if cmd_args.use_load_ext and cmd_args.params:
+            extensions.append(Load(cmd_args.params, load_iteration_state=True, load_log=True))
+        extensions += [
             Timing(after_batch=True),
             CGStatistics(),
             #CodeVersion(['lvsr']),

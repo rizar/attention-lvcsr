@@ -43,6 +43,9 @@ if __name__ == "__main__":
         "--params", default=None, type=str,
         help="Load parameters from this file.")
     parser.add_argument(
+        "--use-load-ext", default=False, action="store_true",
+        help="Use the load ext to reload log and main loop state")
+    parser.add_argument(
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins.")
     parser.add_argument(
