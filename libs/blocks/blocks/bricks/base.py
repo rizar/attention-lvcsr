@@ -45,7 +45,9 @@ class Parameters(AnnotatingList):
             add_annotation(value, self.brick)
 
     def __getattr__(self, name):
-        for l in self:
+        if name == '_items':
+            raise AttributeError
+        for l in self._items:
             if getattr(l, 'name', None) == name:
                 return l
         raise AttributeError
