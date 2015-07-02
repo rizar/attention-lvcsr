@@ -62,8 +62,8 @@ class FSTTransitionOp(Op):
             next_states.append(nextstate)
             olabels.append(olabel)
 
-        new_state[0] = numpy.array(next_states)
-        output[0] = numpy.array(olabels)
+        new_state[0] = numpy.array(next_states, dtype='int64')
+        output[0] = numpy.array(olabels, dtype='int64')
 
 
     def make_node(self, state, input):
