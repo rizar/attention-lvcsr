@@ -280,3 +280,87 @@ def test_softmax_emitter_initial_outputs():
     emitter.readout_dim = 0
     assert_equal(emitter.initial_outputs(2).eval(),
                  3 * numpy.ones((2,), dtype='int64'))
+
+
+def test_sequence_generator_with_lm():
+    floatX = theano.config.floatX
+    rng = numpy.random.RandomState(1234)
+
+    readout_dim = 5
+    feedback_dim = 3
+    dim = 20
+    batch_size = 30
+    n_steps = 10
+
+    transition = GatedRecurrent(dim=dim, activation=Tanh(),
+                                weights_init=Orthogonal())
+    language_model = SequenceGenerator(
+        Readout(readout_dim=readout_dim, source_names=["states"],
+                emitter=SoftmaxEmitter(theano_seed=1234),
+                feedback_brick=LookupFeedback(readout_dim, dim,
+                                              name='feedback')),
+        SimpleRecurrent(dim, Tanh()),
+        name='language_model')
+    generator = SequenceGenerator(
+        Readout(readout_dim=readout_dim, source_names=["states", "lm_states"],
+                emitter=SoftmaxEmitter(theano_seed=1234),
+                feedback_brick=LookupFeedback(readout_dim,
+                                              feedback_dim)),
+        transition,
+        language_model=language_model,
+        weights_init=IsotropicGaussian(0.1), biases_init=Constant(0),
+        seed=1234)
+    generator.initialize()
+
+    # Test 'cost_matrix' method
+    y = tensor.lmatrix('y')
+    y.tag.test_value = numpy.zeros((15, batch_size), dtype='int64')
+    mask = tensor.matrix('mask')
+    mask.tag.test_value = numpy.ones((15, batch_size))
+
+    costs = generator.cost_matrix(y, mask)
+    assert costs.ndim == 2
+    costs_fun = theano.function([y, mask], [costs])
+    y_test = rng.randint(readout_dim, size=(n_steps, batch_size))
+    m_test = numpy.ones((n_steps, batch_size), dtype=floatX)
+    costs_val = costs_fun(y_test, m_test)[0]
+    assert costs_val.shape == (n_steps, batch_size)
+    assert_allclose(costs_val.sum(), 483.153, rtol=1e-5)
+
+    # Test 'cost' method
+    cost = generator.cost(y, mask)
+    assert cost.ndim == 0
+    cost_val = theano.function([y, mask], cost)(y_test, m_test)
+    assert_allclose(cost_val, 16.105, rtol=1e-5)
+
+    # Test 'AUXILIARY' variable 'per_sequence_element' in 'cost' method
+    cg = ComputationGraph([cost])
+    var_filter = VariableFilter(roles=[AUXILIARY])
+    aux_var_name = '_'.join([generator.name, generator.cost.name,
+                             'per_sequence_element'])
+    cost_per_el = [el for el in var_filter(cg.variables)
+                   if el.name == aux_var_name][0]
+    assert cost_per_el.ndim == 0
+    cost_per_el_val = theano.function([y, mask], [cost_per_el])(y_test, m_test)
+    assert_allclose(cost_per_el_val, 1.61051, rtol=1e-5)
+
+    # Test generate
+    states, outputs, lm_states, costs = generator.generate(
+        iterate=True, batch_size=batch_size, n_steps=n_steps)
+    cg = ComputationGraph([states, outputs, costs])
+    states_val, outputs_val, costs_val = theano.function(
+        [], [states, outputs, costs],
+        updates=cg.updates)()
+    assert states_val.shape == (n_steps, batch_size, dim)
+    assert outputs_val.shape == (n_steps, batch_size)
+    assert outputs_val.dtype == 'int64'
+    assert costs_val.shape == (n_steps, batch_size)
+    assert_allclose(states_val.sum(), -4.88367, rtol=1e-5)
+    assert_allclose(costs_val.sum(), 486.681, rtol=1e-5)
+    assert outputs_val.sum() == 627
+
+    # Test masks agnostic results of cost
+    cost1 = costs_fun([[1], [2]], [[1], [1]])[0]
+    cost2 = costs_fun([[3, 1], [4, 2], [2, 0]],
+                      [[1, 1], [1, 1], [1, 0]])[0]
+    assert_allclose(cost1.sum(), cost2[:, 1].sum(), rtol=1e-5)

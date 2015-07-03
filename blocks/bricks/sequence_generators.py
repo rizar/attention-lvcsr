@@ -30,6 +30,7 @@ pure recurrent network in :class:`FakeAttentionRecurrent`.
 """
 from abc import ABCMeta, abstractmethod
 
+from collections import OrderedDict
 from six import add_metaclass
 from theano import tensor
 
@@ -149,13 +150,17 @@ class BaseSequenceGenerator(Initializable):
 
     """
     @lazy()
-    def __init__(self, readout, transition, fork, **kwargs):
+    def __init__(self, readout, transition, fork, language_model=None,
+                 **kwargs):
         super(BaseSequenceGenerator, self).__init__(**kwargs)
         self.readout = readout
         self.transition = transition
         self.fork = fork
+        self.language_model = language_model
 
         self.children = [self.readout, self.fork, self.transition]
+        if self.language_model:
+            self.children.append(self.language_model)
 
     @property
     def _state_names(self):
@@ -169,6 +174,10 @@ class BaseSequenceGenerator(Initializable):
     def _glimpse_names(self):
         return self.transition.take_glimpses.outputs
 
+    @property
+    def _lm_state_names(self):
+        return ['lm_' + name for name in self.language_model._state_names]
+
     def _push_allocation_config(self):
         # Configure readout. That involves `get_dim` requests
         # to the transition. To make sure that it answers
@@ -176,10 +185,16 @@ class BaseSequenceGenerator(Initializable):
         self.transition.push_allocation_config()
         transition_sources = (self._state_names + self._context_names +
                               self._glimpse_names)
-        self.readout.source_dims = [self.transition.get_dim(name)
-                                    if name in transition_sources
-                                    else self.readout.get_dim(name)
-                                    for name in self.readout.source_names]
+        self.readout.source_dims = []
+        for name in self.readout.source_names:
+            if name in transition_sources:
+                self.readout.source_dims.append(self.transition.get_dim(name))
+            elif self.language_model and name in self._lm_state_names:
+                self.readout.source_dims.append(
+                    self.get_dim(name))
+            else:
+                self.readout.get_dim(name)
+
 
         # Configure fork. For similar reasons as outlined above,
         # first push `readout` configuration.
@@ -235,14 +250,7 @@ class BaseSequenceGenerator(Initializable):
         return cost
 
     @application
-    def cost_matrix(self, application_call, outputs, mask=None, **kwargs):
-        """Returns generation costs for output sequences.
-
-        See Also
-        --------
-        :meth:`cost` : Scalar cost.
-
-        """
+    def evaluate(self, application_call, outputs, mask=None, **kwargs):
         # We assume the data has axes (time, batch, features, ...)
         batch_size = outputs.shape[1]
 
@@ -270,8 +278,19 @@ class BaseSequenceGenerator(Initializable):
         feedback = tensor.set_subtensor(
             feedback[0],
             self.readout.feedback(self.readout.initial_outputs(batch_size)))
+
+        # Run the language model
+        if self.language_model:
+            lm_states = self.language_model.evaluate(
+                outputs=outputs, mask=mask, as_dict=True)
+            lm_states = {'lm_' + name: value for name, value
+                         in lm_states.items()}
+        else:
+            lm_states = {}
+
         readouts = self.readout.readout(
-            feedback=feedback, **dict_union(states, glimpses, contexts))
+            feedback=feedback,
+            **dict_union(lm_states, states, glimpses, contexts))
         costs = self.readout.cost(readouts, outputs)
         if mask is not None:
             costs *= mask
@@ -279,7 +298,22 @@ class BaseSequenceGenerator(Initializable):
         for name, variable in list(glimpses.items()) + list(states.items()):
             application_call.add_auxiliary_variable(
                 variable.copy(), name=name)
-        return costs
+        return [costs] + states.values() + glimpses.values()
+
+    @evaluate.property('outputs')
+    def evaluate_outputs(self):
+        return ['costs'] + self._state_names + self._glimpse_names
+
+    @application
+    def cost_matrix(self, outputs, mask=None, **kwargs):
+        """Returns generation costs for output sequences.
+
+        See Also
+        --------
+        :meth:`cost` : Scalar cost.
+
+        """
+        return self.evaluate(outputs, mask=mask)[0]
 
     @recurrent
     def generate(self, outputs, **kwargs):
@@ -299,12 +333,21 @@ class BaseSequenceGenerator(Initializable):
         states = dict_subset(kwargs, self._state_names)
         contexts = dict_subset(kwargs, self._context_names)
         glimpses = dict_subset(kwargs, self._glimpse_names)
-
+        lm_states = {}
+        if self.language_model:
+            lm_states = OrderedDict([(name[3:], state) for name, state in dict_subset(
+                kwargs, self._lm_state_names).items()])
+            lm_states = OrderedDict([('lm_' + name, state) for name, state
+                         in self.language_model.generate(
+                            outputs, as_dict=True, iterate=False,
+                            **lm_states).items()
+                         if 'lm_' + name in self._lm_state_names])
         next_glimpses = self.transition.take_glimpses(
-            as_dict=True, **dict_union(states, glimpses, contexts))
+            as_dict=True,
+            **dict_union(lm_states, states, glimpses, contexts))
         next_readouts = self.readout.readout(
             feedback=self.readout.feedback(outputs),
-            **dict_union(states, next_glimpses, contexts))
+            **dict_union(states, next_glimpses, contexts, lm_states))
         next_outputs = self.readout.emit(next_readouts)
         next_costs = self.readout.cost(next_readouts, next_outputs)
         next_feedback = self.readout.feedback(next_outputs)
@@ -314,7 +357,8 @@ class BaseSequenceGenerator(Initializable):
             as_list=True,
             **dict_union(next_inputs, states, next_glimpses, contexts))
         return (next_states + [next_outputs] +
-                list(next_glimpses.values()) + [next_costs])
+                list(next_glimpses.values()) + list(lm_states.values()) +
+                [next_costs])
 
     @generate.delegate
     def generate_delegate(self):
@@ -322,29 +366,41 @@ class BaseSequenceGenerator(Initializable):
 
     @generate.property('states')
     def generate_states(self):
-        return self._state_names + ['outputs'] + self._glimpse_names
+        result = self._state_names + ['outputs'] + self._glimpse_names
+        if self.language_model:
+            result.extend(self._lm_state_names)
+        return result
 
     @generate.property('outputs')
     def generate_outputs(self):
-        return (self._state_names + ['outputs'] +
-                self._glimpse_names + ['costs'])
+        result = self._state_names + ['outputs'] + self._glimpse_names
+        if self.language_model:
+            result.extend(self._lm_state_names)
+        result.append('costs')
+        return result
 
     def get_dim(self, name):
         if name in (self._state_names + self._context_names +
                     self._glimpse_names):
             return self.transition.get_dim(name)
-        elif name == 'outputs':
+        if name == 'outputs':
             return self.readout.get_dim(name)
+        if self.language_model and name in self._lm_state_names:
+            return self.language_model.get_dim(name[3:])
         return super(BaseSequenceGenerator, self).get_dim(name)
 
     @application
     def initial_states(self, batch_size, *args, **kwargs):
-        # TODO: support dict of outputs for application methods
-        # to simplify this code.
         state_dict = dict(
             self.transition.initial_states(
                 batch_size, as_dict=True, *args, **kwargs),
             outputs=self.readout.initial_outputs(batch_size))
+        if self.language_model:
+            lm_initial_states = self.language_model.initial_states(
+                batch_size, as_dict=True, *args, **kwargs)
+            state_dict = dict_union(state_dict,
+                                    {"lm_" + name: state for name, state
+                                     in lm_initial_states.items()})
         return [state_dict[state_name]
                 for state_name in self.generate.states]
 

@@ -11,7 +11,8 @@ from theano import tensor, Variable
 
 from blocks.bricks import Initializable, Logistic, Tanh, Linear
 from blocks.bricks.base import Application, application, Brick, lazy
-from blocks.initialization import NdarrayInitialization
+from blocks.initialization import NdarrayInitialization, IsotropicGaussian,\
+    Constant
 from blocks.roles import add_role, WEIGHT, INITIAL_STATE
 from blocks.utils import (pack, shared_floatx_nans, shared_floatx_zeros,
                           dict_union, dict_subset, is_shared_variable)
@@ -510,6 +511,9 @@ class GatedRecurrent(BaseRecurrent, Initializable):
         super(GatedRecurrent, self).__init__(**kwargs)
         self.dim = dim
 
+        self.recurrent_weights_init = None
+        self.initial_states_init = None
+
         if not activation:
             activation = Tanh()
         if not gate_activation:
@@ -527,6 +531,10 @@ class GatedRecurrent(BaseRecurrent, Initializable):
     def state_to_gates(self):
         return self.params[1]
 
+    @property
+    def initial_states_(self):
+        return self.params[2]
+
     def get_dim(self, name):
         if name == 'mask':
             return 0
@@ -539,23 +547,31 @@ class GatedRecurrent(BaseRecurrent, Initializable):
     def _allocate(self):
         self.params.append(shared_floatx_nans((self.dim, self.dim),
                            name='state_to_state'))
+        add_role(self.params[-1], WEIGHT)
+
         self.params.append(shared_floatx_nans((self.dim, 2 * self.dim),
                            name='state_to_gates'))
-        self.params.append(shared_floatx_zeros((self.dim,),
+        add_role(self.params[-1], WEIGHT)
+
+        self.params.append(shared_floatx_nans((self.dim,),
                            name="initial_state"))
-        for i in range(2):
-            if self.params[i]:
-                add_role(self.params[i], WEIGHT)
-        add_role(self.params[2], INITIAL_STATE)
+        add_role(self.params[-1], INITIAL_STATE)
+
 
     def _initialize(self):
-        self.weights_init.initialize(self.state_to_state, self.rng)
+        #TODO: know what to do after Blocks #740 is resolved:
+        if self.recurrent_weights_init is None:
+            self.recurrent_weights_init = self.weights_init
+        if self.initial_states_init is None:
+            self.initial_states_init = Constant(0.0)
+        self.recurrent_weights_init.initialize(self.state_to_state, self.rng)
         state_to_update = self.weights_init.generate(
             self.rng, (self.dim, self.dim))
         state_to_reset = self.weights_init.generate(
             self.rng, (self.dim, self.dim))
         self.state_to_gates.set_value(
             numpy.hstack([state_to_update, state_to_reset]))
+        self.initial_states_init.initialize(self.params.initial_state, self.rng)
 
     @recurrent(sequences=['mask', 'inputs', 'gate_inputs'],
                states=['states'], outputs=['states'], contexts=[])
@@ -599,7 +615,7 @@ class GatedRecurrent(BaseRecurrent, Initializable):
 
     @application(outputs=apply.states)
     def initial_states(self, batch_size, *args, **kwargs):
-        return [tensor.repeat(self.params[2][None, :], batch_size, 0)]
+        return [tensor.repeat(self.params.initial_state[None, :], batch_size, 0)]
 
 
 class Bidirectional(Initializable):
@@ -755,21 +771,29 @@ class RecurrentStack(BaseRecurrent, Initializable):
     See :class:`.BaseRecurrent` for more initialization parameters.
 
     """
-    @staticmethod
-    def suffix(name, level):
+    def suffix(self, name, level):
         if name == "mask":
-            return "mask"
-        if level == 0:
-            return name
-        return name + '_' + str(level)
+            mangled_name = "mask"
+        elif level == 0:
+            mangled_name = name
+        else:
+            mangled_name = name + '_' + str(level)
+        if (mangled_name in self.property_to_level_map and
+            self.property_to_level_map[mangled_name] != (name, level)):
+            logger.warning("The RecurrentStack is non-consistently mangling a name: %s", name)
+        self.property_to_level_map[mangled_name] = (name, level)
+        return mangled_name
 
-    @staticmethod
-    def suffixes(names, level):
-        return [RecurrentStack.suffix(name, level)
+    def suffixes(self, names, level):
+        return [self.suffix(name, level)
                 for name in names if name != "mask"]
 
-    @staticmethod
-    def split_suffix(name):
+    def split_suffix(self, name):
+        unmangled = self.property_to_level_map.get(name)
+        if unmangled is not None:
+            return unmangled
+        logger.warning("The RecurrentStack is unmangling a name it didn't mangle: %s", name)
+        # Try this fragile magic
         # Target name with suffix to the correct layer
         name_level = name.split('_')
         if len(name_level) == 2:
@@ -803,6 +827,8 @@ class RecurrentStack(BaseRecurrent, Initializable):
 
         self.children = self.transitions + self.forks
 
+        self.property_to_level_map = {'mask':('mask',0)}
+
         # Programmatically set the apply parameters.
         # parameters of base level are exposed as is
         # excpet for mask which we will put at the very end. See below.
@@ -828,7 +854,7 @@ class RecurrentStack(BaseRecurrent, Initializable):
                         )
 
         # place mask at end because it has a default value (None)
-        # and therefor should come after arguments that may come us
+        # and therefore should come after arguments that may come us
         # unnamed arguments
         if "mask" in transitions[0].apply.sequences:
             self.apply.sequences.append("mask")
@@ -994,8 +1020,11 @@ class RecurrentStack(BaseRecurrent, Initializable):
         return transition.get_dim(name)
 
     @application
-    def initial_state(self, state_name, batch_size, *args, **kwargs):
-        state_name, level = self.split_suffix(state_name)
-        transition = self.transitions[level]
-        return transition.initial_state(state_name, batch_size,
-                                        *args, **kwargs)
+    def initial_states(self, batch_size, *args, **kwargs):
+        result = {}
+        for level, transition in enumerate(self.transitions):
+            initial_states = transition.initial_states(
+                batch_size, as_dict=True, *args, **kwargs)
+            result.update({self.suffix(name, level): initial_states[name]
+                           for name in initial_states})
+        return [result[name] for name in self.apply.states]
