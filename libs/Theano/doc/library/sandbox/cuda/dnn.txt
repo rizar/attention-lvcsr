@@ -1,0 +1,89 @@
+.. _libdoc_cuda_dnn:
+
+================================
+:mod:`sandbox.cuda.dnn` -- cuDNN
+================================
+
+.. moduleauthor:: LISA
+
+`cuDNN <https://developer.nvidia.com/cuDNN>`_ is an NVIDIA library with
+functionality used by deep neural network. It provides optimized versions
+of some operations like the convolution. cuDNN is not currently
+installed with CUDA 6.5. You must download and install it
+yourself.
+
+To install it, decompress the downloaded file and make the ``*.h`` and
+``*.so*`` files available to the compilation environment.
+There are at least three possible ways of doing so:
+
+- The easiest is to include them in your CUDA installation. Copy the
+  ``*.h`` files to ``CUDA_ROOT/include`` and the ``*.so*`` files to
+  ``CUDA_ROOT/lib64`` (by default, ``CUDA_ROOT`` is ``/usr/local/cuda``
+  on Linux).
+- Alternatively, on Linux, you can set the environment variables
+  ``LD_LIBRARY_PATH``, ``LIBRARY_PATH`` and ``CPATH`` to the directory
+  extracted from the download. If needed, separate multiple directories
+  with ``:`` as in the ``PATH`` environment variable.
+- And as a third way, also on Linux, you can copy the ``*.h`` files
+  to ``/usr/include`` and the ``*.so*`` files to ``/lib64``.
+
+By default, Theano will detect if it can use cuDNN. If so, it will use
+it.  If not, Theano optimizations will not introduce cuDNN ops. So
+Theano will still work if the user did not introduce them manually.
+
+To get an error if Theano can not use cuDNN, use this Theano flag:
+``optimizer_including=cudnn``.
+
+.. note::
+
+   CuDNN v2 is now released, if you used any v2 release candidate, we
+   strongly suggest that you update it to the final version. From now
+   on, we only support the final release.
+
+   CuDNN v2 is much faster than v1. We recommend that everybody
+   updates to v2.
+
+.. note::
+
+    Normally you should not call GPU Ops directly, but the CPU interface
+    currently does not allow all options supported by cuDNN ops. So it is
+    possible that you will need to call them manually.
+
+.. note::
+
+    The documentation of CUDNN R1 and R2 tells that, for the following
+    2 operations, the reproducibility is not guaranteed:
+    `cudnnConvolutionBackwardFilter` and `cudnnConvolutionBackwardData`.
+    Those correspond to the gradient wrt the weights and the gradient wrt the
+    input of the convolution. They are also used sometimes in the forward 
+    pass, when they give a speed up.
+
+.. note::
+
+    There is a problem we do not understand yet when cudnn paths are
+    used with symbolic links. So avoid using that.
+
+
+Functions
+=========
+
+.. automodule:: theano.sandbox.cuda.dnn
+    :members: dnn_conv, dnn_pool
+
+Convolution Ops
+===============
+
+.. automodule:: theano.sandbox.cuda.dnn
+    :members: GpuDnnConvDesc, GpuDnnConv, GpuDnnConvGradW, GpuDnnConvGradI
+
+Pooling Ops
+===========
+
+.. automodule:: theano.sandbox.cuda.dnn
+    :members: GpuDnnPoolDesc, GpuDnnPool, GpuDnnPoolGrad
+
+Softmax Ops
+===========
+
+.. automodule:: theano.sandbox.cuda.dnn
+    :members: GpuDnnSoftmax, GpuDnnSoftmaxGrad
