@@ -1,0 +1,28 @@
+sudo: false
+branches:
+  only:
+    - master
+language: python
+matrix:
+  include:
+    - python: 2.7
+      env: FLOATX=float32
+    - python: 3.4
+      env: FLOATX=float64
+before_install:
+  - # Setup Python environment with BLAS libraries
+  - wget -q http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b
+  - export PATH=$HOME/miniconda/bin:$PATH
+  - conda update -q --yes conda
+install:
+  # Install all Python dependencies
+  - curl -O https://raw.githubusercontent.com/bartvm/blocks/master/req-travis-conda.txt
+  - conda install -q --yes python=$TRAVIS_PYTHON_VERSION mkl --file req-travis-conda.txt
+  - pip install -q -r https://raw.githubusercontent.com/bartvm/blocks/master/req-travis-pip.txt
+  - pip install -q git+git://github.com/bartvm/blocks.git -r https://raw.githubusercontent.com/bartvm/blocks/master/requirements.txt
+script:
+  - export THEANO_FLAGS=floatX=$FLOATX,optimizer=fast_compile
+  - export FUEL_FLOATX=$FLOATX
+  - nose2 tests
