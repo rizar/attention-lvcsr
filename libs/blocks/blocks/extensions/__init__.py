@@ -375,37 +375,47 @@ class FinishAfter(SimpleExtension):
         self.main_loop.log.current_row['training_finish_requested'] = True
 
 
-class Printing(SimpleExtension):
-    """Prints log messages to the screen."""
-
-    @staticmethod
-    def filter_underscored(attr):
+class PrintingFilterUnderscored(object):
+    def __call__(self, attr):
         return attr.startswith('_')
 
-    @staticmethod
-    def create_filter_from_names(*args, **kwargs):
+class PrintingFilterList(object):
+    def __init__(self,*args, **kwargs):
         """
         Filters out a given set of names or regexpes
 
-        TODO
+        Parameters
+        ----------
+        \*args : list of srt
+            Strings (or regexpes) to filter
+        filter_standard_names: bool, default True
+            If true, a standard list of names will be filtered
+        filter_underscored: bool, default True
+            If true, names beginning with an underscore will be filtered
+
         """
         huge_re_parts = []
-        if kwargs.get('include_standard_names', True):
+        filter_standard_names = kwargs.pop('filter_standard_names', True)
+        filter_underscored = kwargs.pop('filter_underscored', True)
+        super(PrintingFilterList, self).__init__(**kwargs)
+        if filter_standard_names:
             huge_re_parts += ['batch_interrupt_received',
                               'epoch_interrupt_received',
                               'epoch_started',
                               'received_first_batch',
                               'resumed_from',
                               'training_started']
-        if kwargs.get('filter_underscored', True):
+        if filter_underscored:
             huge_re_parts.append('_.*')
         huge_re_parts += args
         huge_re = '(:?' + '|'.join(['(:?{})'.format(p) for p in huge_re_parts]) + ')'
-        print (huge_re)
-        return re.compile(huge_re).match
+        self.regexp = re.compile(huge_re)
 
+    def __call__(self, attrs):
+        return self.regexp.match(attrs)
 
-    DEFAULT_FILTER=filter_underscored
+class Printing(SimpleExtension):
+    """Prints log messages to the screen."""
 
     def __init__(self, attribute_filter=None, **kwargs):
         kwargs.setdefault("before_first_epoch", True)
@@ -416,7 +426,7 @@ class Printing(SimpleExtension):
         super(Printing, self).__init__(**kwargs)
 
         if attribute_filter is None:
-            attribute_filter = self.DEFAULT_FILTER
+            attribute_filter = PrintingFilterUnderscored()
 
         self._attribute_filter = attribute_filter
 

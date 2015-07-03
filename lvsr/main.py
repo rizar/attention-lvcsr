@@ -38,7 +38,7 @@ from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension,
-    TrainingExtension, saveload)
+    TrainingExtension, saveload, PrintingFilterList)
 from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
@@ -76,7 +76,6 @@ from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.preprocessing import log_spectrogram, Normalization
 from blocks import serialization
-
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -1050,7 +1049,8 @@ def main(cmd_args):
                 (root_path + "_best_ll" + extension,)),
             ProgressBar(),
             Printing(every_n_batches=1,
-                     attribute_filter=Printing.create_filter_from_names())]
+                     attribute_filter=PrintingFilterList()
+                     )]
 
         # Save the config into the status
         log = TrainingLog()
