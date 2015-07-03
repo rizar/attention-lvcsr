@@ -1,19 +1,35 @@
 # Fully Neural LVSR
 
-Dependencies:
+We have several dependencies. The fast-changing ones, namely:
 
-- Theano (please install from the submodule `theano`)
-- blocks (please install from the submodule `blocks`)
-- Fuel (please install from the submodule `fuel`)
+- Theano
+- blocks
+- Fuel
 - blocks-extras
+- picklable-itertools
 
-As of June 20 the submodule versions are not so much different from the
+Are kept as subtrees residing in /libs. To access them please `source
+env.sh` first, and make sure that you don't have a globally installed
+version of those packages (`blocks` is a namespace package and having
+both a local verison added to `PYTHONPAHT` and a global one may lead
+to subtle versioning bugs).
+
+Using subtrees allows us to easily change any dependency. To
+understand how this works, please refer to
+https://medium.com/@porteneuve/mastering-git-subtrees-943d29a798ec and
+to https://github.com/tdd/git-stree that we have used to add the
+subtrees. The resulting git configuration is in the folder
+`.gitconfig`. You need to manually apply it. But do not worry: *All we
+ask* is that you start the commit message of any change to the
+dependency that should eventually be backported upstream with a
+`[To backport]` tag and that you make sure that his commit doesn't
+touch files outside of the dependent repo (though this can be
+corrected if needed).
+
+As of June 20 the subtree versions are not so much different from the
 respective master branches. `theano` contains a very useful PR by Frederic
 Bastien that allows to unpickled GPU-based shared variables on CPU. `blocks`
-has a PR merged which is currently waiting for review. Unfortunately 
-simply adding the `blocks` folder to ``PYTHONPATH`` will not cut it 
-because of the tricks required to make Blocks a namespace package:
-you have to install it (at least in a virtual environment).
+has a PR merged which is currently waiting for review. 
 
 ### What is available
 
