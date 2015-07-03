@@ -1,0 +1,64 @@
+sudo: false
+cache:
+  directories:
+    - $TRAVIS_BUILD_DIR/data
+branches:
+  only:
+    - master
+    - stable
+language: python
+matrix:
+  include:
+    - python: 2.7
+      env: TESTS=blocks FLOATX=float32
+    - python: 2.7
+      env: TESTS=blocks FLOATX=float32 DB=sqlite
+    - python: 3.4
+      env: TESTS=blocks FLOATX=float64
+    - python: 2.7
+      env: TESTS=blocks-examples FLOATX=float32
+    - python: 2.7
+      env: TESTS=blocks-examples FLOATX=float32 DB=sqlite
+    - python: 3.4
+      env: TESTS=blocks-examples FLOATX=float64
+before_install:
+  - # Setup Python environment with BLAS libraries
+  - wget -q http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b
+  - export PATH=$HOME/miniconda/bin:$PATH
+  - conda update -q --yes conda
+  - export FUEL_DATA_PATH=$TRAVIS_BUILD_DIR/data
+install:
+  # Install all Python dependencies
+  - conda install -q --yes python=$TRAVIS_PYTHON_VERSION mkl --file req-travis-conda.txt
+  - pip install -q -r req-travis-pip.txt
+script:
+  - pip install -e . -r requirements.txt # Tests setup.py
+  - curl https://raw.githubusercontent.com/mila-udem/fuel/master/.travis-data.sh | bash -s -- mnist
+  - # Must export environment variable so that the subprocess is aware of it
+  - export THEANO_FLAGS=floatX=$FLOATX,optimizer=fast_compile
+  - export FUEL_FLOATX=$FLOATX
+  - "if [[ $DB == 'sqlite' ]]; then echo 'log_backend: sqlite' > ~/.blocksrc; fi"
+  - # Running nose2 within coverage makes imports count towards coverage
+  - function fail { export FAILED=1; }
+  - |
+      if [[ $TESTS == 'blocks' ]]; then
+        coverage run -p --source=blocks -m nose2.__main__ -v doctests || fail
+        export THEANO_FLAGS=$THEANO_FLAGS,cxx=
+        coverage run -p --source=blocks -m nose2.__main__ -v tests || fail
+        return $FAILED
+      fi
+  - |
+      if [[ $TESTS == 'blocks-examples' ]]; then
+        cd $TRAVIS_BUILD_DIR
+        git clone https://github.com/mila-udem/blocks-examples.git
+        cd blocks-examples
+        nose2 tests
+      fi
+after_script:
+  - |
+      if [[ $TESTS == 'blocks' ]]; then
+        coverage combine
+        coveralls
+      fi
