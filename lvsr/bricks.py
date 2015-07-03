@@ -47,9 +47,9 @@ class FSTTransition(BaseRecurrent, Initializable):
         self.out_dim = len(output_symbols)
 
     @recurrent(sequences=['inputs', 'mask'],
-               states=['states', 'outputs', 'weights'],
-               outputs=['states', 'outputs', 'weights'], contexts=[])
-    def apply(self, inputs, states=None, outputs=None, weights=None,
+               states=['states', 'output_symbols', 'weights'],
+               outputs=['states', 'output_symbols', 'weights'], contexts=[])
+    def apply(self, inputs, states=None, output_symbols=None, weights=None,
               mask=None):
         new_states, output = self.transition(states, inputs)
         if mask:
@@ -58,7 +58,7 @@ class FSTTransition(BaseRecurrent, Initializable):
         weights = self.probability_computer(states)
         return new_states, tensor.cast(output, 'int64'), weights
 
-    @application(outputs=['states', 'outputs', 'weights'])
+    @application(outputs=['states', 'output_symbols', 'weights'])
     def initial_states(self, batch_size, *args, **kwargs):
         return (tensor.zeros((batch_size,), dtype='int64'),
                 tensor.zeros((batch_size,), dtype='int64'),
@@ -66,6 +66,8 @@ class FSTTransition(BaseRecurrent, Initializable):
 
     def get_dim(self, name):
         if name == 'states':
+            return 0
+        if name == 'output_symbols':
             return 0
         if name == 'outputs':
             return 0
@@ -124,26 +126,14 @@ class FSTReadout(AbstractReadout, Random):
 
 
 class ShallowFusionReadout(Readout):
-    def __init__(self, lm_weights, beta=1, **kwargs):
-        kwargs.setdefault('emitter', ShallowFusionEmitter(beta=beta))
+    def __init__(self, lm_weights_name, beta=1, **kwargs):
         super(ShallowFusionReadout, self).__init__(**kwargs)
-        self.lm_weights = lm_weights
+        self.lm_weights_name = lm_weights_name
         self.beta = beta
 
     @application
     def readout(self, **kwargs):
-        return (kwargs[self.lm_weights],
-                super(ShallowFusionReadout, self).readout(**kwargs))
-
-
-class ShallowFusionEmitter(SoftmaxEmitter):
-    def __init__(self, beta=1., **kwargs):
-        self.beta = beta
-        super(ShallowFusionEmitter, self).__init__(**kwargs)
-
-    @application
-    def probs(self, readouts):
-        weights, readouts = readouts
-        return (super(ShallowFusionEmitter, self).probs(readouts) +
-                self.beta * tensor.exp(-weights))
+        lm_probs = tensor.exp(-kwargs[self.lm_weights_name])
+        return (super(ShallowFusionReadout, self).readout(**kwargs) +
+                self.beta * lm_probs)
 

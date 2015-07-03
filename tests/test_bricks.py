@@ -8,13 +8,13 @@ from blocks.bricks import Tanh, Identity
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import GatedRecurrent
 from blocks.bricks.sequence_generators import (
-    SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback, TrivialEmitter, TrivialFeedback)
+    SequenceGenerator, LookupFeedback, SoftmaxEmitter)
 from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
 from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
 from blocks.roles import AUXILIARY
 
-from lvsr.bricks import FSTTransition, FSTReadout, ShallowFusionReadout, ShallowFusionEmitter
+from lvsr.bricks import FSTTransition, FSTReadout, ShallowFusionReadout
 from lvsr.ops import FST, read_symbols
 
 
@@ -63,7 +63,8 @@ def test_fst_sequence_generator():
         ShallowFusionReadout(
             readout_dim=readout_dim, source_names=["states"],
             feedback_brick=LookupFeedback(readout_dim, feedback_dim),
-            lm_weights='lm_weights',
+            emitter=SoftmaxEmitter(theano_seed=1234),
+            lm_weights_name='lm_weights',
             beta=0.5),
         transition,
         language_model=language_model,
@@ -85,13 +86,13 @@ def test_fst_sequence_generator():
     m_test = numpy.ones((n_steps, batch_size), dtype=floatX)
     costs_val = costs_fun(y_test, m_test)[0]
     assert costs_val.shape == (n_steps, batch_size)
-    assert_allclose(costs_val.sum(), 585.809, rtol=1e-5)
+    assert_allclose(costs_val.sum(), 719.727, rtol=1e-5)
 
     # Test 'cost' method
     cost = generator.cost(y, mask)
     assert cost.ndim == 0
     cost_val = theano.function([y, mask], cost)(y_test, m_test)
-    assert_allclose(cost_val, 19.5269, rtol=1e-5)
+    assert_allclose(cost_val, 23.9909, rtol=1e-5)
 
     # Test 'AUXILIARY' variable 'per_sequence_element' in 'cost' method
     cg = ComputationGraph([cost])
@@ -102,10 +103,10 @@ def test_fst_sequence_generator():
                    if el.name == aux_var_name][0]
     assert cost_per_el.ndim == 0
     cost_per_el_val = theano.function([y, mask], [cost_per_el])(y_test, m_test)
-    assert_allclose(cost_per_el_val, 1.95269, rtol=1e-5)
+    assert_allclose(cost_per_el_val, 2.39909, rtol=1e-5)
 
     # Test generate
-    states, outputs, lm_states, costs = generator.generate(
+    states, outputs, _, _, _, costs = generator.generate(
         iterate=True, batch_size=batch_size, n_steps=n_steps)
     cg = ComputationGraph([states, outputs, costs])
     states_val, outputs_val, costs_val = theano.function(
@@ -115,14 +116,12 @@ def test_fst_sequence_generator():
     assert outputs_val.shape == (n_steps, batch_size)
     assert outputs_val.dtype == 'int64'
     assert costs_val.shape == (n_steps, batch_size)
-    assert_allclose(states_val.sum(), -4.88367, rtol=1e-5)
-    assert_allclose(costs_val.sum(), 486.681, rtol=1e-5)
-    assert outputs_val.sum() == 627
+    assert_allclose(states_val.sum(), 2.283350, rtol=1e-5)
+    assert_allclose(costs_val.sum(), 714.814, rtol=1e-5)
+    assert outputs_val.sum() == 1551
 
     # Test masks agnostic results of cost
     cost1 = costs_fun([[1], [2]], [[1], [1]])[0]
     cost2 = costs_fun([[3, 1], [4, 2], [2, 0]],
                       [[1, 1], [1, 1], [1, 0]])[0]
     assert_allclose(cost1.sum(), cost2[:, 1].sum(), rtol=1e-5)
-
-test_fst_sequence_generator()
