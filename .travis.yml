@@ -1,0 +1,29 @@
+sudo: false
+cache:
+  directories:
+    - $TRAVIS_BUILD_DIR/mnist
+    - $TRAVIS_BUILD_DIR/cifar10
+    - $TRAVIS_BUILD_DIR/binarized_mnist
+branches:
+  only:
+    - master
+language: python
+python:
+  - "2.7"
+  - "3.4"
+before_install:
+  - wget -q http://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh -O miniconda.sh
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b
+  - export PATH=$HOME/miniconda/bin:$PATH
+  - conda update -q --yes conda
+install:
+  # Install all Python dependencies
+  - conda install -q --yes python=$TRAVIS_PYTHON_VERSION pip coverage six toolz nose numpy
+  - pip install -q nose2[coverage-plugin] coveralls
+script:
+  - rm -f .coverage
+  - nosetests
+  - coverage run --source=picklable_itertools -m nose.__main__ tests
+after_script:
+  - coveralls --verbose
