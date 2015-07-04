@@ -1,44 +1,52 @@
-create_lexicon.py $1
+#!/usr/bin/env bash
 
-cat $1                 | \
+
+LMFILE=$1
+DIR=$2
+KU=$KALDI_ROOT/egs/wsj/s5/utils
+
+cat $LMFILE | \
     grep -v '<s> <s>'   | \
     grep -v '</s> <s>'   | \
     grep -v '</s> </s>'   | \
     arpa2fst -             | \
     fstprint                | \
-    eps2disambig.pl          | \
-    s2eps.pl                  | \
+    $KU/eps2disambig.pl      | \
+    $KU/s2eps.pl              | \
     fstcompile                   \
-        --isymbols=words.txt      \
-        --osymbols=words.txt       \
+        --isymbols=$DIR/words.txt      \
+        --osymbols=$DIR/words.txt       \
         --keep_isymbols=false       \
         --keep_osymbols=false      | \
     fstrmepsilon                    | \
     fstarcsort --sort_type=ilabel      \
-    > G.fst
+    > $DIR/G.fst
 
-disambig_symbols=`add_lex_disambig.pl lexicon.txt lexicon_disambig.txt`
+disambig_symbols=`$KU/add_lex_disambig.pl $DIR/lexicon.txt $DIR/lexicon_disambig.txt`
 
-for symbol in $disambig_symbols
-do
-    last_number=`tail -n 1 characters.txt | grep -oP '(?<=. )[0-9]+'`
-    echo \#$symbol $(($last_number + 1)) >> characters.txt
-    echo $(($last_number + 1)) 0 >> relabel.txt
-done
+ndisambig=$[$ndisambig+1]; # add one disambig symbol for silence in lexicon FST. It won't hurt even if don't use it
+#start at 1, becuse we treat <spc> to be #0!!!
+( for n in `seq 1 $ndisambig`; do echo '#'$n; done ) >$DIR/disambig.txt
 
-make_lexicon_fst.pl                            \
-    lexicon_disambig.txt                       |\
+cat $DIR/chars.txt | cut -d ' ' -f 1 | \
+	#add disambiguatio symbols
+	cat - $DIR/disambig.txt | \
+	#alias <spc> with #0!!
+	#sed -e 's/<spc>/#0/' | \
+	awk '{ print $0, NR-1;}' > $DIR/chars_disambig.txt
+
+$KU/make_lexicon_fst.pl                       \
+    $DIR/lexicon_disambig.txt  |\
     fstcompile                                   \
-        --isymbols=characters.txt                 \
-        --osymbols=words.txt                       \
-        --keep_isymbols=false --keep_osymbols=false|\
+        --isymbols=$DIR/chars_disambig.txt                 \
+        --osymbols=$DIR/words.txt                       \
+        --keep_isymbols=false --keep_osymbols=false |\
     fstaddselfloops  \
-        "echo `grep -oP '(?<=#0 )[0-9]+' characters.txt` |" \
-        "echo `grep -oP '(?<=#0 )[0-9]+' words.txt` |"         | \
-    fstarcsort --sort_type=olabel                  |  \
-    fstrelabel --relabel_isymbols=relabel.txt          \
-    > L_disambig.fst
+        "echo `grep -oP '(?<=<spc> )[0-9]+' $DIR/chars_disambig.txt` |" \
+        "echo `grep -oP '(?<=#0 )[0-9]+' $DIR/words.txt` |"  | \
+    fstarcsort --sort_type=olabel > $DIR/L_disambig.fst
 
-fsttablecompose L_disambig.fst G.fst         |\
+fsttablecompose $DIR/L_disambig.fst $DIR/G.fst         |\
+	fstrmsymbols <(cat chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
     fstdeterminizestar --use-log=true        | \
-    fstminimizeencoded > LG.fst
+    fstminimizeencoded > $DIR/LG.fst
