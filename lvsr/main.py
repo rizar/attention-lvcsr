@@ -795,7 +795,7 @@ def main(cmd_args):
             applications=[r.generator.transition.apply], name="attended_mask")(
                     cost_cg)
         weights, = VariableFilter(
-            applications=[r.generator.cost_matrix], name="weights")(
+            applications=[r.generator.evaluate], name="weights")(
                     cost_cg)
         max_recording_length = named_copy(r.recordings.shape[0],
                                          "max_recording_length")
