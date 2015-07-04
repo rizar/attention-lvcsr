@@ -1,0 +1,10 @@
+<eps> 0
+<UNK> 1
+NOTHING 2
+SAYS 3
+THE 4
+BUSINESS 5
+BUSINESSMAN 6
+#0 7
+<s> 8
+</s> 9
