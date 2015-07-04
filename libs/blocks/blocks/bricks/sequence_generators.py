@@ -313,7 +313,7 @@ class BaseSequenceGenerator(Initializable):
         :meth:`cost` : Scalar cost.
 
         """
-        return self.evaluate(outputs, mask=mask)[0]
+        return self.evaluate(outputs, mask=mask, **kwargs)[0]
 
     @recurrent
     def generate(self, outputs, **kwargs):
