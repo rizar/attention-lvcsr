@@ -1037,7 +1037,7 @@ def main(cmd_args):
                     every_n_batches=10),
             Checkpoint(cmd_args.save_path,
                        before_first_epoch=not cmd_args.fast_start, after_epoch=True,
-                       every_n_batches=50,
+                       every_n_batches=train_conf.get('save_every_n_batches'),
                        save_separately=["model", "log"],
                        use_cpickle=True)
             .add_condition(
