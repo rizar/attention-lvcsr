@@ -5,6 +5,8 @@ DIR=$2
 
 WSJDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+mkdir -p $DIR
+
 $WSJDIR/create_character_lexicon.sh $LMFILE $DIR
 lm2fst.sh $LMFILE $DIR
 

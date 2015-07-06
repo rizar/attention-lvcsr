@@ -5,6 +5,8 @@ LMFILE=$1
 DIR=$2
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
+use_initial_eol=true
+
 cat $LMFILE | \
     grep -v '<s> <s>'   | \
     grep -v '</s> <s>'   | \
@@ -46,16 +48,24 @@ $KU/make_lexicon_fst.pl                       \
         "echo `grep -oP '(?<=#0 )[0-9]+' $DIR/words.txt` |"  | \
     fstarcsort --sort_type=ilabel > $DIR/L_disambig.fst
 
+if `$use_initial_eol`; then
+	initial_readout='<eol>'
+else
+	initial_readout='<eps>'
+fi
+
 {
 	#emit initial space!
-	echo "0 1 <eps> <spc>";
+	echo "0 1 $initial_readout <spc>";
 	#then loop through the rest of the input tape
-	cat $DIR/chars_disambig.txt | grep -v '<eps>' |  cut -d ' ' -f 1 | \
+	cat $DIR/chars_disambig.txt | grep -v '<eps>' | grep -v '<eol>' |  cut -d ' ' -f 1 | \
 	while read p; do
 		echo "1 1 $p $p"
 	done
+	#the <eol> transition to the final state
+	echo "1 2 <eol> <eps>"
 	#the final state
-	echo "1"
+	echo "2"
 } > $DIR/emit_a_space.fst
 
 fstcompile \
@@ -63,6 +73,7 @@ fstcompile \
 	--osymbols=$DIR/chars_disambig.txt \
 	--keep_isymbols=false --keep_osymbols=false \
 	$DIR/emit_a_space.fst | \
+	fstarcsort --sort_type=olabel | \
 	fsttablecompose - $DIR/L_disambig.fst | \
 	fstarcsort --sort_type=olabel | \
 	fsttablecompose - $DIR/G.fst         |\
