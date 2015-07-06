@@ -77,6 +77,9 @@ class FSTProbabilitiesOp(Op):
     fst : FST instance
     remap_table : dict
         Maps neutral network characters to FST characters.
+    no_transition_cost : float
+        Cost of going to the start state when no arc for an input
+        symbol is available.
 
     Notes
     -----
@@ -84,11 +87,11 @@ class FSTProbabilitiesOp(Op):
 
     """
     __props__ = ()
-    max_prob = 1e+12
 
-    def __init__(self, fst, remap_table):
+    def __init__(self, fst, remap_table, no_transition_cost):
         self.fst = fst
         self.remap_table = remap_table
+        self.no_transition_cost = no_transition_cost
 
     def perform(self, node, inputs, output_storage):
         states, = inputs
@@ -96,11 +99,12 @@ class FSTProbabilitiesOp(Op):
         all_logprobs = []
         for state in states:
             arcs = {arc.ilabel: arc for arc in self.fst[state]}
-            logprobs = numpy.ones(len(self.remap_table)) * self.max_prob
+            logprobs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
+                        * self.no_transition_cost)
             for nn_character, fst_character in self.remap_table.items():
                 if fst_character in arcs:
                     logprobs[nn_character] = arcs[fst_character].weight
-                all_logprobs.append(logprobs)
+            all_logprobs.append(logprobs)
 
         output_storage[0][0] = numpy.array(all_logprobs)
 

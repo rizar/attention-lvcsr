@@ -523,7 +523,10 @@ class SpeechRecognizer(Initializable):
 
         language_model = None
         if lm:
+            lm_weight = lm.pop('weight', 0.0)
             language_model = LanguageModel(num_labels=num_phonemes, **lm)
+            readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
+                                           lm_weight=lm_weight, **readout_config)
 
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
@@ -664,14 +667,14 @@ class SpeechRecognizer(Initializable):
 
 class LanguageModel(SequenceGenerator):
 
-    def __init__(self, type_, path, num_labels,  **kwargs):
+    def __init__(self, type_, path, num_labels, no_transition_cost=1e12, **kwargs):
         # TODO: num_labels should be possible to extract from the FST
         if type_ != 'fst':
             raise ValueError("Supports only FST's so far.")
         fst = FST(path)
         remap_table = {character: character + 1
-                       for character in range(num_labels + 1)}
-        transition = FSTTransition(fst, remap_table)
+                       for character in range(num_labels)}
+        transition = FSTTransition(fst, remap_table, no_transition_cost)
 
         # This SequenceGenerator will be used only in a very limited way.
         # That's why it is sufficient to equip it with a completely

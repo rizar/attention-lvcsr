@@ -39,7 +39,7 @@ class RecurrentWithFork(Initializable):
 
 
 class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, remap_table, **kwargs):
+    def __init__(self, fst, remap_table, no_transition_cost, **kwargs):
         """Wrap FST in a recurrent brick.
 
         Parameters
@@ -47,18 +47,23 @@ class FSTTransition(BaseRecurrent, Initializable):
         fst : FST instance
         remap_table : dict
             Maps neutral network characters to FST characters.
+        no_transition_cost : float
+            Cost of going to the start state when no arc for an input
+            symbol is available.
 
         """
         super(FSTTransition, self).__init__(**kwargs)
         self.fst = fst
         self.transition = FSTTransitionOp(fst, remap_table)
-        self.probability_computer = FSTProbabilitiesOp(fst, remap_table)
+        self.probability_computer = FSTProbabilitiesOp(
+            fst, remap_table, no_transition_cost)
+
         self.out_dim = len(remap_table)
 
     @recurrent(sequences=['inputs', 'mask'],
                states=['states', 'logprobs'],
                outputs=['states', 'logprobs'], contexts=[])
-    def apply(self, inputs, states=None, logprobs=None,
+    def apply(self, inputs, states, logprobs,
               mask=None):
         new_states = self.transition(states, inputs)
         if mask:
@@ -83,14 +88,14 @@ class FSTTransition(BaseRecurrent, Initializable):
 
 
 class ShallowFusionReadout(Readout):
-    def __init__(self, lm_weights_name, beta=1, **kwargs):
+    def __init__(self, lm_logprobs_name, lm_weight, **kwargs):
         super(ShallowFusionReadout, self).__init__(**kwargs)
-        self.lm_weights_name = lm_weights_name
-        self.beta = beta
+        self.lm_logprobs_name = lm_logprobs_name
+        self.lm_weight = lm_weight
 
     @application
     def readout(self, **kwargs):
-        lm_probs = tensor.exp(-kwargs[self.lm_weights_name])
-        return (super(ShallowFusionReadout, self).readout(**kwargs) +
-                self.beta * lm_probs)
+        lm_energies = kwargs.pop(self.lm_logprobs_name)
+        am_energies = super(ShallowFusionReadout, self).readout(**kwargs)
+        return am_energies + self.lm_weight * lm_energies
 
