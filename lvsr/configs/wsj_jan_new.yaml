@@ -70,4 +70,5 @@ training:
 
     gradient_threshold: 10.0
 
-    save_every_n_batches: 50
+    save_every_n_batches: 100
+
