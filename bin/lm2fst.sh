@@ -44,9 +44,28 @@ $KU/make_lexicon_fst.pl                       \
     fstaddselfloops  \
         "echo `grep -oP '(?<=<spc> )[0-9]+' $DIR/chars_disambig.txt` |" \
         "echo `grep -oP '(?<=#0 )[0-9]+' $DIR/words.txt` |"  | \
-    fstarcsort --sort_type=olabel > $DIR/L_disambig.fst
+    fstarcsort --sort_type=ilabel > $DIR/L_disambig.fst
 
-fsttablecompose $DIR/L_disambig.fst $DIR/G.fst         |\
-	fstrmsymbols <(cat chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
+{
+	#emit initial space!
+	echo "0 1 <eps> <spc>";
+	#then loop through the rest of the input tape
+	cat $DIR/chars_disambig.txt | grep -v '<eps>' |  cut -d ' ' -f 1 | \
+	while read p; do
+		echo "1 1 $p $p"
+	done
+	#the final state
+	echo "1"
+} > $DIR/emit_a_space.fst
+
+fstcompile \
+	--isymbols=$DIR/chars_disambig.txt \
+	--osymbols=$DIR/chars_disambig.txt \
+	--keep_isymbols=false --keep_osymbols=false \
+	$DIR/emit_a_space.fst | \
+	fsttablecompose - $DIR/L_disambig.fst | \
+	fstarcsort --sort_type=olabel | \
+	fsttablecompose - $DIR/G.fst         |\
+	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
     fstdeterminizestar --use-log=true        | \
     fstminimizeencoded > $DIR/LG.fst
