@@ -79,7 +79,9 @@ fstcompile \
 	fsttablecompose - $DIR/G.fst         |\
 	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
     fstdeterminizestar --use-log=true        | \
-    fstminimizeencoded > $DIR/LG.fst
+    fstminimizeencoded | \
+    fstpush --push_weights=true | \
+    fstrmepsilon > $DIR/LG.fst
 
 
 fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
