@@ -19,6 +19,7 @@ net:
     dec_transition: SimpleRecurrent
     attention_type: content
     use_states_for_readout: False
+    lm: {}
 regularization:
     dropout: False
     noise:

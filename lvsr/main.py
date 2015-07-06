@@ -23,7 +23,7 @@ from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional, BaseRecurrent,
     RecurrentStack)
 from blocks.bricks.attention import SequenceContentAttention
-from blocks.bricks.parallel import Fork
+from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback,
     AbstractFeedback)
@@ -68,7 +68,7 @@ from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.attention import (
     SequenceContentAndConvAttention)
 from lvsr.bricks import (
-    RecurrentWithFork, FSTTransition, FSTReadout,
+    RecurrentWithFork, FSTTransition,
     ShallowFusionReadout)
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
@@ -411,7 +411,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
-                 language_model=None,
+                 lm=None,
                  subsample=None,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
@@ -520,6 +520,11 @@ class SpeechRecognizer(Initializable):
                 ],
                 name='post_merge')
         readout = Readout(**readout_config)
+
+        language_model = None
+        if lm:
+            language_model = LanguageModel(num_labels=num_phonemes, **lm)
+
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
             language_model=language_model,
@@ -582,7 +587,8 @@ class SpeechRecognizer(Initializable):
         SpeechModel(generated['outputs']).set_param_values(param_values)
 
     def get_generate_graph(self):
-        return self.generate(self.recordings)
+        result = self.generate(self.recordings)
+        return result
 
     def get_cost_graph(self, batch=True):
         if batch:
@@ -658,15 +664,29 @@ class SpeechRecognizer(Initializable):
 
 class LanguageModel(SequenceGenerator):
 
-    def __init__(self, type_, path, **kwargs):
+    def __init__(self, type_, path, num_labels,  **kwargs):
+        # TODO: num_labels should be possible to extract from the FST
         if type_ != 'fst':
             raise ValueError("Supports only FST's so far.")
         fst = FST(path)
-        transition = FSTTransition(fst, None)
+        remap_table = {character: character + 1
+                       for character in range(num_labels + 1)}
+        transition = FSTTransition(fst, remap_table)
 
+        # This SequenceGenerator will be used only in a very limited way.
+        # That's why it is sufficient to equip it with a completely
+        # fake readout.
+        dummy_readout = Readout(
+            source_names=['logprobs'], readout_dim=len(remap_table),
+            merge=Merge(input_names=['logprobs'], prototype=Identity()),
+            post_merge=Identity(),
+            emitter=SoftmaxEmitter())
         super(LanguageModel, self).__init__(
             transition=transition,
-            readout=FSTReadout(source_names=['weights'],
+            fork=Fork(output_names=[name for name in transition.apply.sequences
+                                    if name != 'mask'],
+                      prototype=Identity()),
+            readout=dummy_readout)
 
 
 class PhonemeErrorRate(MonitoredQuantity):

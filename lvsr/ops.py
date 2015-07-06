@@ -47,53 +47,61 @@ class FSTTransitionOp(Op):
         self.fst = fst
         self.remap_table = remap_table
 
-    def _get_next_state(self, state, input_):
-        arcs = {arc.ilabel: arc for arc in self.fst[state]}
-        fst_input_ = self.remap_table[input_]
-        return arcs.get(fst_input_, 0)
-
     def perform(self, node, inputs, output_storage):
         all_states, all_inputs = inputs
 
         next_states = []
         for state, input_ in equizip(all_states, all_inputs):
-            nextstate = self._get_next_state(state, input_)
-            next_states.append(nextstate)
+            arcs = {arc.ilabel: arc for arc in self.fst[state]}
+            fst_input_ = self.remap_table[input_]
+            next_state = self.fst.fst.start
+            if fst_input_ in arcs:
+                next_state = arcs[fst_input_].nextstate
+            next_states.append(next_state)
 
-        new_state = output_storage[0]
-        new_state[0] = numpy.array(next_states, dtype='int64')
+        output_storage[0][0] = numpy.array(next_states, dtype='int64')
 
     def make_node(self, state, input_):
         # check that the theano version has support for __props__
         assert hasattr(self, '_props')
         state = theano.tensor.as_tensor_variable(state)
         input_ = theano.tensor.as_tensor_variable(input_)
-        return theano.Apply(self, [state, input_], [state.type(), input_.type()])
+        return theano.Apply(self, [state, input_], [state.type()])
 
 
 class FSTProbabilitiesOp(Op):
-    """Returns transition log probabilities for all possible input symbols."""
+    """Returns transition log probabilities for all possible input symbols.
+
+    Parameters
+    ----------
+    fst : FST instance
+    remap_table : dict
+        Maps neutral network characters to FST characters.
+
+    Notes
+    -----
+    It is assumed that neural network characters start from zero.
+
+    """
     __props__ = ()
     max_prob = 1e+12
 
-    def __init__(self, fst):
+    def __init__(self, fst, remap_table):
         self.fst = fst
-
-    def _get_next_probs(self, state):
-        arcs = {arc.ilabel: arc for arc in self.fst[state]}
-        logprobs = numpy.ones(len(self.symbol_table)) * self.max_prob
-        for i, (_, idx) in enumerate(self.symbol_table.items()):
-            if idx in arcs:
-                logprobs[i] = arcs[idx].weight
-        return logprobs
+        self.remap_table = remap_table
 
     def perform(self, node, inputs, output_storage):
         states, = inputs
 
         all_logprobs = []
         for state in states:
-            logprobs = self._get_next_probs(state)
-            all_logprobs.append(logprobs)
+            arcs = {arc.ilabel: arc for arc in self.fst[state]}
+            logprobs = numpy.ones(len(self.remap_table)) * self.max_prob
+            for nn_character, fst_character in self.remap_table.items():
+                if fst_character in arcs:
+                    logprobs[nn_character] = arcs[fst_character].weight
+                all_logprobs.append(logprobs)
+
         output_storage[0][0] = numpy.array(all_logprobs)
 
     def make_node(self, state):

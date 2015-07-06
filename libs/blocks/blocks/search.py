@@ -288,6 +288,7 @@ class BeamSearch(object):
         all_costs = numpy.zeros_like(all_outputs, dtype=config.floatX)
 
         for i in range(max_length):
+            import ipdb; ipdb.set_trace()
             if all_masks[-1].sum() == 0:
                 break
 

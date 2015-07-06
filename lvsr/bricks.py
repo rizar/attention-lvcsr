@@ -39,90 +39,47 @@ class RecurrentWithFork(Initializable):
 
 
 class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, output_symbols, **kwargs):
+    def __init__(self, fst, remap_table, **kwargs):
+        """Wrap FST in a recurrent brick.
+
+        Parameters
+        ----------
+        fst : FST instance
+        remap_table : dict
+            Maps neutral network characters to FST characters.
+
+        """
         super(FSTTransition, self).__init__(**kwargs)
         self.fst = fst
-        self.transition = FSTTransitionOp(fst)
-        self.probability_computer = FSTProbabilitiesOp(fst, output_symbols)
-        self.out_dim = len(output_symbols)
+        self.transition = FSTTransitionOp(fst, remap_table)
+        self.probability_computer = FSTProbabilitiesOp(fst, remap_table)
+        self.out_dim = len(remap_table)
 
     @recurrent(sequences=['inputs', 'mask'],
-               states=['states', 'output_symbols', 'weights'],
-               outputs=['states', 'output_symbols', 'weights'], contexts=[])
-    def apply(self, inputs, states=None, output_symbols=None, weights=None,
+               states=['states', 'logprobs'],
+               outputs=['states', 'logprobs'], contexts=[])
+    def apply(self, inputs, states=None, logprobs=None,
               mask=None):
-        new_states, output = self.transition(states, inputs)
+        new_states = self.transition(states, inputs)
         if mask:
             new_states = tensor.cast(mask * new_states +
                                      (1. - mask) * states, 'int64')
-        weights = self.probability_computer(states)
-        return new_states, tensor.cast(output, 'int64'), weights
+        logprobs = self.probability_computer(states)
+        return new_states, logprobs
 
-    @application(outputs=['states', 'output_symbols', 'weights'])
+    @application(outputs=['states', 'logprobs'])
     def initial_states(self, batch_size, *args, **kwargs):
-        return (tensor.zeros((batch_size,), dtype='int64'),
-                tensor.zeros((batch_size,), dtype='int64'),
+        return (tensor.ones((batch_size,), dtype='int64') * self.fst.fst.start,
                 tensor.zeros((batch_size, self.out_dim)))
 
     def get_dim(self, name):
         if name == 'states':
             return 0
-        if name == 'output_symbols':
-            return 0
-        if name == 'outputs':
-            return 0
-        if name == 'weights':
+        if name == 'logprobs':
             return self.out_dim
         if name == 'inputs':
             return 0
         return super(FSTTransition, self).get_dim(name)
-
-
-class FSTReadout(AbstractReadout, Random):
-    def __init__(self, source_names, readout_dim, weights_dim,
-                 beta=1., **kwargs):
-        super(FSTReadout, self).__init__(source_names, readout_dim, **kwargs)
-
-        self.beta = beta
-        self.weights_dim = weights_dim
-
-    @application
-    def readout(self, **kwargs):
-        return kwargs['weights']
-
-    @application
-    def emit(self, readouts):
-        batch_size = readouts.shape[0]
-        pvals_flat = tensor.exp(-readouts.reshape((batch_size, -1)))
-        generated = self.theano_rng.multinomial(pvals=pvals_flat)
-        return generated.reshape(readouts.shape).argmax(axis=-1)
-
-    @application
-    def cost(self, readouts, outputs):
-        max_output = readouts.shape[-1]
-        flat_outputs = outputs.flatten()
-        num_outputs = flat_outputs.shape[0]
-        return (readouts.flatten()[max_output * tensor.arange(num_outputs) +
-                                   flat_outputs].reshape(outputs.shape))
-
-    @application
-    def initial_outputs(self, batch_size):
-        return tensor.zeros((batch_size,))
-
-    @application(outputs=['feedback'])
-    def feedback(self, outputs):
-        return outputs
-
-    def get_dim(self, name):
-        if name == 'outputs':
-            return 0
-        elif name == 'feedback':
-            return 0
-        elif name == 'readouts':
-            return self.readout_dim
-        elif name == 'weights':
-            return self.weights_dim
-        return super(FSTReadout, self).get_dim(name)
 
 
 class ShallowFusionReadout(Readout):
