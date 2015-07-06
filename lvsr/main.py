@@ -67,13 +67,16 @@ import lvsr.datasets.wsj
 from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.attention import (
     SequenceContentAndConvAttention)
-from lvsr.bricks import RecurrentWithFork
+from lvsr.bricks import (
+    RecurrentWithFork, FSTTransition, FSTReadout,
+    ShallowFusionReadout)
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std, pad_to_a_multiple)
 from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
+from lvsr.ops import FST
 from lvsr.preprocessing import log_spectrogram, Normalization
 from blocks import serialization
 
@@ -408,6 +411,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 language_model=None,
                  subsample=None,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
@@ -518,6 +522,7 @@ class SpeechRecognizer(Initializable):
         readout = Readout(**readout_config)
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
+            language_model=language_model,
             name="generator")
 
         # Remember child bricks
@@ -649,6 +654,19 @@ class SpeechRecognizer(Initializable):
         emitter = self.generator.readout.emitter
         if hasattr(emitter, '_theano_rng'):
             del emitter._theano_rng
+
+
+class LanguageModel(SequenceGenerator):
+
+    def __init__(self, type_, path, **kwargs):
+        if type_ != 'fst':
+            raise ValueError("Supports only FST's so far.")
+        fst = FST(path)
+        transition = FSTTransition(fst, None)
+
+        super(LanguageModel, self).__init__(
+            transition=transition,
+            readout=FSTReadout(source_names=['weights'],
 
 
 class PhonemeErrorRate(MonitoredQuantity):
