@@ -45,8 +45,10 @@ net:
       max_speed: 5.5
       min_speed: 3
 
-      # params for type: window_around_expected_position
-      window_around_mean: True
+      type: window_around_mean
+      #type: window_around_median
+      #type: expanding
+      #type: window_based_on_length_ratio
       before: 150
       after: 150
 
@@ -67,5 +69,5 @@ training:
     epsilon: 1e-8
 
     gradient_threshold: 10.0
-    save_every_n_batches: 50
 
+    save_every_n_batches: 50
