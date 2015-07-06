@@ -69,3 +69,9 @@ fstcompile \
 	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
     fstdeterminizestar --use-log=true        | \
     fstminimizeencoded > $DIR/LG.fst
+
+
+fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
+	fstcompile --isymbols=$DIR/chars.txt                 \
+        --osymbols=$DIR/words.txt                       \
+        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
