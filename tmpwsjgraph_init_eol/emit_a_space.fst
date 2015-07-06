@@ -1,4 +1,4 @@
-0 1 <eps> <spc>
+0 1 <eol> <spc>
 1 1 <spc> <spc>
 1 1 ' '
 1 1 - -
