@@ -14,7 +14,7 @@ data:
     sort_k_batches: null
     batch_size: 10
 
-initialization: 
+initialization:
     - [/recognizer, weights_init, IsotropicGaussian(0.01)]
     - [/recognizer, biases_init, Constant(0.0)]
     - [/recognizer, rec_weights_init, Orthogonal()]
@@ -27,9 +27,9 @@ net:
     enc_transition: GatedRecurrent
     dims_bidir: [256, 256, 256, 256]
     subsample: [1, 1, 2, 2]
-    
+
     dims_top: []
-    
+
     embed_outputs: False
     dec_transition: GatedRecurrent
     dec_stack: 1
@@ -49,16 +49,16 @@ net:
       window_around_mean: True
       before: 150
       after: 150
-    
+
     post_merge_dims: [256]
     post_merge_activation: Maxout(2)
-    
+
     use_states_for_readout: True
 
 regularization:
     max_norm: 1
 
-training: 
+training:
     rules: [momentum, adadelta]
     scale: 1.0
     momentum: 0.0
@@ -67,4 +67,5 @@ training:
     epsilon: 1e-8
 
     gradient_threshold: 10.0
-    
+    save_every_n_batches: 50
+
