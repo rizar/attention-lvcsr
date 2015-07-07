@@ -363,8 +363,6 @@ class BaseSequenceGenerator(Initializable):
                 self._lm_state_names, self.language_model.generate(
                 next_outputs, dont_generate_new_outputs=True, iterate=False,
                 **unmangled_lm_states)))
-        # Now we need force language model to use outputs
-        # generate by this routine.
         return (next_states + [next_outputs] +
                 list(next_glimpses.values()) + list(next_lm_states.values()) +
                 [next_costs])
