@@ -98,4 +98,3 @@ class ShallowFusionReadout(Readout):
         lm_energies = kwargs.pop(self.lm_logprobs_name)
         am_energies = super(ShallowFusionReadout, self).readout(**kwargs)
         return am_energies + self.lm_weight * lm_energies
-

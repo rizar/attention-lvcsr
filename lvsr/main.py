@@ -210,6 +210,12 @@ class Data(object):
         return self.get_dataset("train").num_characters
 
     @property
+    def character_map(self):
+        if self.dataset == "WSJnew":
+            return self.get_dataset("train").char2num
+        return None
+
+    @property
     def num_features(self):
         merge_multiplier = self.merge_k_frames if self.merge_k_frames else 1
         # For old datasets
@@ -411,7 +417,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
-                 lm=None,
+                 lm=None, character_map=None,
                  subsample=None,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
@@ -524,7 +530,7 @@ class SpeechRecognizer(Initializable):
         language_model = None
         if lm:
             lm_weight = lm.pop('weight', 0.0)
-            language_model = LanguageModel(num_labels=num_phonemes, **lm)
+            language_model = LanguageModel(nn_char_map=character_map, **lm)
             readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
                                            lm_weight=lm_weight, **readout_config)
 
@@ -667,13 +673,17 @@ class SpeechRecognizer(Initializable):
 
 class LanguageModel(SequenceGenerator):
 
-    def __init__(self, type_, path, num_labels, no_transition_cost=1e12, **kwargs):
+    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
         # TODO: num_labels should be possible to extract from the FST
         if type_ != 'fst':
             raise ValueError("Supports only FST's so far.")
         fst = FST(path)
-        remap_table = {character: character + 1
-                       for character in range(num_labels)}
+        fst_char_map = dict(fst.fst.isyms.items())
+        del fst_char_map['<eps>']
+        if not len(fst_char_map) == len(nn_char_map):
+            raise ValueError()
+        remap_table = {nn_char_map[character]: fst_code
+                       for character, fst_code in fst_char_map.items()}
         transition = FSTTransition(fst, remap_table, no_transition_cost)
 
         # This SequenceGenerator will be used only in a very limited way.
@@ -813,6 +823,7 @@ def main(cmd_args):
             data.num_features, data.num_labels,
             name="recognizer",
             data_prepend_eos=data.prepend_eos,
+            character_map=data.character_map,
             **config["net"])
         for brick_path, attribute, value in config['initialization']:
             brick, = Selector(recognizer).select(brick_path).bricks
@@ -1113,6 +1124,7 @@ def main(cmd_args):
             recognizer = SpeechRecognizer(
                 data.recordings_source, data.labels_source,
                 data.eos_label, data.num_features, data.num_labels,
+                character_map=data.character_map,
                 name='recognizer', **config["net"])
             recognizer.load_params(cmd_args.save_path)
         else:
@@ -1123,6 +1135,9 @@ def main(cmd_args):
         dataset = data.get_dataset(cmd_args.part)
         stream = data.get_stream(cmd_args.part, batches=False, shuffle=False)
         it = stream.get_epoch_iterator()
+        decode_only = None
+        if cmd_args.decode_only is not None:
+            decode_only = eval(cmd_args.decode_only)
 
         weights = tensor.matrix('weights')
         weight_statistics = theano.function(
@@ -1141,6 +1156,8 @@ def main(cmd_args):
         total_errors = .0
         total_length = .0
         for number, data in enumerate(it):
+            if decode_only and number not in decode_only:
+                continue
             print("Utterance", number, file=print_to)
 
             outputs, search_costs = recognizer.beam_search(data[0])
