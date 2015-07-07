@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -e
 
 LMFILE=$1
 DIR=$2
@@ -7,7 +8,13 @@ KU=$KALDI_ROOT/egs/wsj/s5/utils
 
 use_initial_eol=false
 
-cat $LMFILE | \
+if [[ $LMFILE = *.gz ]]; then
+	cat_cmd="gzip -d -c"
+else
+	cat_cmd="cat"
+fi
+
+$cat_cmd $LMFILE | \
     grep -v '<s> <s>'   | \
     grep -v '</s> <s>'   | \
     grep -v '</s> </s>'   | \
@@ -27,14 +34,11 @@ cat $LMFILE | \
 disambig_symbols=`$KU/add_lex_disambig.pl $DIR/lexicon.txt $DIR/lexicon_disambig.txt`
 
 ndisambig=$[$ndisambig+1]; # add one disambig symbol for silence in lexicon FST. It won't hurt even if don't use it
-#start at 1, becuse we treat <spc> to be #0!!!
-( for n in `seq 1 $ndisambig`; do echo '#'$n; done ) >$DIR/disambig.txt
+( for n in `seq 0 $ndisambig`; do echo '#'$n; done ) >$DIR/disambig.txt
 
 cat $DIR/chars.txt | cut -d ' ' -f 1 | \
 	#add disambiguatio symbols
 	cat - $DIR/disambig.txt | \
-	#alias <spc> with #0!!
-	#sed -e 's/<spc>/#0/' | \
 	awk '{ print $0, NR-1;}' > $DIR/chars_disambig.txt
 
 $KU/make_lexicon_fst.pl                       \
@@ -44,9 +48,16 @@ $KU/make_lexicon_fst.pl                       \
         --osymbols=$DIR/words.txt                       \
         --keep_isymbols=false --keep_osymbols=false |\
     fstaddselfloops  \
-        "echo `grep -oP '(?<=<spc> )[0-9]+' $DIR/chars_disambig.txt` |" \
+        "echo `grep -oP '(?<=#0 )[0-9]+' $DIR/chars_disambig.txt` |" \
         "echo `grep -oP '(?<=#0 )[0-9]+' $DIR/words.txt` |"  | \
-    fstarcsort --sort_type=ilabel > $DIR/L_disambig.fst
+    fstarcsort --sort_type=olabel > $DIR/L_disambig.fst
+
+fsttablecompose $DIR/L_disambig.fst $DIR/G.fst | \
+	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
+    fstdeterminizestar --use-log=true        | \
+    fstminimizeencoded | \
+    fstarcsort --sort_type=ilabel | \
+    cat	> $DIR/LG_no_eol.fst
 
 if `$use_initial_eol`; then
 	initial_readout='<eol>'
@@ -55,35 +66,33 @@ else
 fi
 
 {
-	#emit initial space!
-	echo "0 1 $initial_readout <spc>";
+	#possibly eat initial <eol>
+	echo "0 1 $initial_readout <eps>";
 	#then loop through the rest of the input tape
-	cat $DIR/chars_disambig.txt | grep -v '<eps>' | grep -v '<eol>' |  cut -d ' ' -f 1 | \
+	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' |  cut -d ' ' -f 1 | \
 	while read p; do
 		echo "1 1 $p $p"
 	done
-	#the <eol> transition to the final state
+	#the <eol> transition to the final state will meit a space
 	echo "1 2 <eol> <spc>"
 	#the final state
 	echo "2"
-} > $DIR/emit_a_space.fst
+} > $DIR/eol_to_spc.fst
 
 fstcompile \
 	--isymbols=$DIR/chars_disambig.txt \
 	--osymbols=$DIR/chars_disambig.txt \
 	--keep_isymbols=false --keep_osymbols=false \
-	$DIR/emit_a_space.fst | \
+	$DIR/eol_to_spc.fst | \
 	fstarcsort --sort_type=olabel | \
-	fsttablecompose - $DIR/L_disambig.fst | \
-	fstarcsort --sort_type=olabel | \
-	fsttablecompose - $DIR/G.fst         |\
-	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
-    fstdeterminizestar --use-log=true        | \
-    fstminimizeencoded | \
-    #fstpush --push_weights=true | \
-    #fstrmepsilon | \
-    cat	> $DIR/LG.fst
+	cat	> $DIR/eol_to_spc_bin.fst
 
+fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
+	fstdeterminizestar --use-log=true        | \
+    fstminimizeencoded | \
+    fstpush --push_weights=true | \
+    fstrmepsilon | \
+    cat	> $DIR/LG.fst
 
 fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
 	fstcompile --isymbols=$DIR/chars.txt                 \

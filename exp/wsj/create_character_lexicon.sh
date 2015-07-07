@@ -61,14 +61,15 @@ allowed_characters=`cat $DIR/net-chars.txt  | grep -v '<.*>' | cut -d ' ' -f 1 |
 
 
 #TODO: shall we also output noise instead of unk??
-echo "<UNK>" "<noise>" > $DIR/lexicon.txt
+echo "<UNK> <noise> <spc>" > $DIR/lexicon.txt
 
 cat $DIR/words.txt | cut -d ' ' -f 1 | \
 	grep -v "<.*>" | \
 	grep -v "#0" > $DIR/tmp-words-to-convert.txt
 
 cat $DIR/tmp-words-to-convert.txt | \
-	tr -c -d "\n$allowed_characters" | sed -e "s/\(.\)/ \1/g" |\
+	tr -c -d "\n$allowed_characters" | sed -e "s/\(.\)/ \1/g" | \
+	sed -e "s/$/ <spc>/" | \
 	paste -d '' $DIR/tmp-words-to-convert.txt - >> $DIR/lexicon.txt
 
 rm $DIR/tmp-words-to-convert.txt
