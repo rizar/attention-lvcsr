@@ -5,7 +5,7 @@ LMFILE=$1
 DIR=$2
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=true
+use_initial_eol=false
 
 cat $LMFILE | \
     grep -v '<s> <s>'   | \
@@ -63,7 +63,7 @@ fi
 		echo "1 1 $p $p"
 	done
 	#the <eol> transition to the final state
-	echo "1 2 <eol> <eps>"
+	echo "1 2 <eol> <spc>"
 	#the final state
 	echo "2"
 } > $DIR/emit_a_space.fst
@@ -80,8 +80,9 @@ fstcompile \
 	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
     fstdeterminizestar --use-log=true        | \
     fstminimizeencoded | \
-    fstpush --push_weights=true | \
-    fstrmepsilon > $DIR/LG.fst
+    #fstpush --push_weights=true | \
+    #fstrmepsilon | \
+    cat	> $DIR/LG.fst
 
 
 fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
