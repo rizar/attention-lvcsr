@@ -66,5 +66,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--test-tag", default=None, type=int,
         help="Tag the batch with test data for debugging?")
+    parser.add_argument(
+        "--decode-only", default=None,
+        help="Only decode the following utternaces")
     args = parser.parse_args()
     main(args)

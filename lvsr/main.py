@@ -23,7 +23,7 @@ from blocks.bricks.recurrent import (
     SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional, BaseRecurrent,
     RecurrentStack)
 from blocks.bricks.attention import SequenceContentAttention
-from blocks.bricks.parallel import Fork
+from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback,
     AbstractFeedback)
@@ -67,13 +67,16 @@ import lvsr.datasets.wsj
 from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.attention import (
     SequenceContentAndConvAttention)
-from lvsr.bricks import RecurrentWithFork
+from lvsr.bricks import (
+    RecurrentWithFork, FSTTransition,
+    ShallowFusionReadout)
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std, pad_to_a_multiple)
 from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
 from lvsr.error_rate import wer
+from lvsr.ops import FST
 from lvsr.preprocessing import log_spectrogram, Normalization
 from blocks import serialization
 
@@ -205,6 +208,12 @@ class Data(object):
         if self.dataset == "TIMIT":
             return self.get_dataset("train").num_phonemes
         return self.get_dataset("train").num_characters
+
+    @property
+    def character_map(self):
+        if self.dataset == "WSJnew":
+            return self.get_dataset("train").char2num
+        return None
 
     @property
     def num_features(self):
@@ -408,6 +417,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 lm=None, character_map=None,
                  subsample=None,
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
@@ -516,8 +526,17 @@ class SpeechRecognizer(Initializable):
                 ],
                 name='post_merge')
         readout = Readout(**readout_config)
+
+        language_model = None
+        if lm:
+            lm_weight = lm.pop('weight', 0.0)
+            language_model = LanguageModel(nn_char_map=character_map, **lm)
+            readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
+                                           lm_weight=lm_weight, **readout_config)
+
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
+            language_model=language_model,
             name="generator")
 
         # Remember child bricks
@@ -577,7 +596,8 @@ class SpeechRecognizer(Initializable):
         SpeechModel(generated['outputs']).set_param_values(param_values)
 
     def get_generate_graph(self):
-        return self.generate(self.recordings)
+        result = self.generate(self.recordings)
+        return result
 
     def get_cost_graph(self, batch=True):
         if batch:
@@ -649,6 +669,37 @@ class SpeechRecognizer(Initializable):
         emitter = self.generator.readout.emitter
         if hasattr(emitter, '_theano_rng'):
             del emitter._theano_rng
+
+
+class LanguageModel(SequenceGenerator):
+
+    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
+        # TODO: num_labels should be possible to extract from the FST
+        if type_ != 'fst':
+            raise ValueError("Supports only FST's so far.")
+        fst = FST(path)
+        fst_char_map = dict(fst.fst.isyms.items())
+        del fst_char_map['<eps>']
+        if not len(fst_char_map) == len(nn_char_map):
+            raise ValueError()
+        remap_table = {nn_char_map[character]: fst_code
+                       for character, fst_code in fst_char_map.items()}
+        transition = FSTTransition(fst, remap_table, no_transition_cost)
+
+        # This SequenceGenerator will be used only in a very limited way.
+        # That's why it is sufficient to equip it with a completely
+        # fake readout.
+        dummy_readout = Readout(
+            source_names=['logprobs'], readout_dim=len(remap_table),
+            merge=Merge(input_names=['logprobs'], prototype=Identity()),
+            post_merge=Identity(),
+            emitter=SoftmaxEmitter())
+        super(LanguageModel, self).__init__(
+            transition=transition,
+            fork=Fork(output_names=[name for name in transition.apply.sequences
+                                    if name != 'mask'],
+                      prototype=Identity()),
+            readout=dummy_readout)
 
 
 class PhonemeErrorRate(MonitoredQuantity):
@@ -772,6 +823,7 @@ def main(cmd_args):
             data.num_features, data.num_labels,
             name="recognizer",
             data_prepend_eos=data.prepend_eos,
+            character_map=data.character_map,
             **config["net"])
         for brick_path, attribute, value in config['initialization']:
             brick, = Selector(recognizer).select(brick_path).bricks
@@ -1072,6 +1124,7 @@ def main(cmd_args):
             recognizer = SpeechRecognizer(
                 data.recordings_source, data.labels_source,
                 data.eos_label, data.num_features, data.num_labels,
+                character_map=data.character_map,
                 name='recognizer', **config["net"])
             recognizer.load_params(cmd_args.save_path)
         else:
@@ -1082,6 +1135,9 @@ def main(cmd_args):
         dataset = data.get_dataset(cmd_args.part)
         stream = data.get_stream(cmd_args.part, batches=False, shuffle=False)
         it = stream.get_epoch_iterator()
+        decode_only = None
+        if cmd_args.decode_only is not None:
+            decode_only = eval(cmd_args.decode_only)
 
         weights = tensor.matrix('weights')
         weight_statistics = theano.function(
@@ -1100,6 +1156,8 @@ def main(cmd_args):
         total_errors = .0
         total_length = .0
         for number, data in enumerate(it):
+            if decode_only and number not in decode_only:
+                continue
             print("Utterance", number, file=print_to)
 
             outputs, search_costs = recognizer.beam_search(data[0])

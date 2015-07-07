@@ -25,79 +25,87 @@ class FST(object):
         self.fst = fst.read(self.path)
 
     def __getitem__(self, i):
+        """Returns all arcs of the state i"""
         return self.fst[i]
-
-    def keys(self):
-        return self.fst.keys()
 
 
 class FSTTransitionOp(Op):
     """Performs transition in an FST.
 
-    Given a state and an input symbol (character) returns the next state and
-    the output symbol (word)."""
+    Given a state and an input symbol (character) returns the next state.
+
+    Parameters
+    ----------
+    fst : FST instance
+    remap_table : dict
+        Maps neutral network characters to FST characters.
+
+    """
     __props__ = ()
 
-    def __init__(self, fst):
+    def __init__(self, fst, remap_table):
         self.fst = fst
-
-    def _get_next_state(self, state, input):
-        arcs = {arc.ilabel:arc for arc in self.fst[state]}
-        if int(input) in arcs:
-            arc = arcs[int(input)]
-            return arc.nextstate, arc.olabel
-        else:
-            # Just return state 0, output 0
-            return 0, 0
+        self.remap_table = remap_table
 
     def perform(self, node, inputs, output_storage):
         all_states, all_inputs = inputs
-        new_state = output_storage[0]
-        output = output_storage[1]
 
         next_states = []
-        olabels = []
-        for state, input in equizip(all_states, all_inputs):
-            nextstate, olabel = self._get_next_state(state, input)
-            next_states.append(nextstate)
-            olabels.append(olabel)
+        for state, input_ in equizip(all_states, all_inputs):
+            arcs = {arc.ilabel: arc for arc in self.fst[state]}
+            fst_input_ = self.remap_table[input_]
+            next_state = self.fst.fst.start
+            if fst_input_ in arcs:
+                next_state = arcs[fst_input_].nextstate
+            next_states.append(next_state)
 
-        new_state[0] = numpy.array(next_states, dtype='int64')
-        output[0] = numpy.array(olabels, dtype='int64')
+        output_storage[0][0] = numpy.array(next_states, dtype='int64')
 
-
-    def make_node(self, state, input):
+    def make_node(self, state, input_):
         # check that the theano version has support for __props__
         assert hasattr(self, '_props')
         state = theano.tensor.as_tensor_variable(state)
-        input = theano.tensor.as_tensor_variable(input)
-        return theano.Apply(self, [state, input], [state.type(), input.type()])
+        input_ = theano.tensor.as_tensor_variable(input_)
+        return theano.Apply(self, [state, input_], [state.type()])
 
 
 class FSTProbabilitiesOp(Op):
-    """Returns transition log probabilities for all possible input symbols."""
+    """Returns transition log probabilities for all possible input symbols.
+
+    Parameters
+    ----------
+    fst : FST instance
+    remap_table : dict
+        Maps neutral network characters to FST characters.
+    no_transition_cost : float
+        Cost of going to the start state when no arc for an input
+        symbol is available.
+
+    Notes
+    -----
+    It is assumed that neural network characters start from zero.
+
+    """
     __props__ = ()
-    max_prob = 1e+12
 
-    def __init__(self, fst, symbol_table):
+    def __init__(self, fst, remap_table, no_transition_cost):
         self.fst = fst
-        self.symbol_table = symbol_table
-
-    def _get_next_probs(self, state):
-        arcs = {arc.ilabel: arc for arc in self.fst[state]}
-        logprobs = numpy.ones(len(self.symbol_table)) * self.max_prob
-        for i, (_, idx) in enumerate(self.symbol_table.items()):
-            if idx in arcs:
-                logprobs[i] = arcs[idx].weight
-        return logprobs
+        self.remap_table = remap_table
+        self.no_transition_cost = no_transition_cost
 
     def perform(self, node, inputs, output_storage):
         states, = inputs
 
         all_logprobs = []
         for state in states:
-            logprobs = self._get_next_probs(state)
+            arcs = {arc.ilabel: arc for arc in self.fst[state]}
+            logprobs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
+                        * self.no_transition_cost)
+            for nn_character, fst_character in self.remap_table.items():
+                if fst_character in arcs:
+                    logprobs[nn_character] = arcs[fst_character].weight
             all_logprobs.append(logprobs)
+
         output_storage[0][0] = numpy.array(all_logprobs)
 
     def make_node(self, state):
