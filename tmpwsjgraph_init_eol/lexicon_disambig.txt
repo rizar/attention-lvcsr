@@ -1,6 +1,6 @@
-<UNK>	<noise>
-NOTHING	N O T H I N G
-SAYS	S A Y S
-THE	T H E
-BUSINESS	B U S I N E S S #1
-BUSINESSMAN	B U S I N E S S M A N
+<UNK>	<noise> <spc>
+NOTHING	N O T H I N G <spc>
+SAYS	S A Y S <spc>
+THE	T H E <spc>
+BUSINESS	B U S I N E S S <spc>
+BUSINESSMAN	B U S I N E S S M A N <spc>
