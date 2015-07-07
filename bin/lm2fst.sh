@@ -2,11 +2,21 @@
 
 set -e
 
-LMFILE=$1
-DIR=$2
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
 use_initial_eol=false
+
+. $KU/parse_options.sh
+
+if [ $# -ne 2 ]; then
+	echo "usage: lm2fst.sh <lm_file> <dir>"
+	echo "options:"
+	echo "		--use-initial-eol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
+	exit 1
+fi
+
+LMFILE=$1
+DIR=$2
 
 if [[ $LMFILE = *.gz ]]; then
 	cat_cmd="gzip -d -c"
@@ -89,12 +99,17 @@ fstcompile \
 
 fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
 	fstdeterminizestar --use-log=true        | \
-    fstminimizeencoded | \
-    fstpush --push_weights=true | \
-    fstrmepsilon | \
-    cat	> $DIR/LG.fst
+    fstminimizeencoded > $DIR/LG.fst
+
+fstpush --push_weights=true $DIR/LG.fst | \
+    fstrmepsilon > $DIR/LG_pushed.fst
 
 fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
 	fstcompile --isymbols=$DIR/chars.txt                 \
         --osymbols=$DIR/words.txt                       \
         --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
+
+fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
+	fstcompile --isymbols=$DIR/chars.txt                 \
+        --osymbols=$DIR/words.txt                       \
+        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
