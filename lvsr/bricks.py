@@ -95,13 +95,7 @@ class ShallowFusionReadout(Readout):
 
     @application
     def readout(self, **kwargs):
-        from blocks.utils import put_hook
-        def func(x):
-            print x[0]
         lm_softmax = -kwargs.pop(self.lm_logprobs_name)
-        lm_softmax = put_hook(lm_softmax, func)
         am_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
-        am_softmax = put_hook(am_softmax, func)
         result = am_softmax + self.lm_weight * lm_softmax
-        result = put_hook(result, func)
         return result
