@@ -259,7 +259,7 @@ def read_symbols(args):
         out_file = sys.stdout
     else:
         out_file=args.outfilename
-
+    value_map.sort(order=('val',))
     numpy.savetxt(out_file, value_map, fmt="%s %d")
 
 
