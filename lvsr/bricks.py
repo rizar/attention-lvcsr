@@ -95,7 +95,6 @@ class ShallowFusionReadout(Readout):
 
     @application
     def readout(self, **kwargs):
-        lm_softmax = -kwargs.pop(self.lm_logprobs_name)
-        am_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
-        result = am_softmax + self.lm_weight * lm_softmax
-        return result
+        lm_probs = tensor.exp(-kwargs.pop(self.lm_logprobs_name))
+        am_probs = tensor.exp(super(ShallowFusionReadout, self).readout(**kwargs))
+        return tensor.log((1 - self.lm_weight) * am_probs + self.lm_weight * lm_probs)
