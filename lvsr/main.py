@@ -1196,11 +1196,11 @@ def main(cmd_args):
                     alignments_path, "{}.recognized.png".format(number)))
 
             print("Beam search cost:", search_costs[0], file=print_to)
-            print("Recognizer:", recognized, file=print_to)
+            print("Recognizer:", ''.join([' ' if chr_=='<spc>' else chr_ for chr_ in recognized]), file=print_to)
             print("Recognized cost:", costs_recognized.sum(), file=print_to)
             print("Recognized weight std:", weight_std_recognized, file=print_to)
             print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
-            print("Groundtruth:", groundtruth, file=print_to)
+            print("Groundtruth:", ''.join([' ' if chr_=='<spc>' else chr_ for chr_ in groundtruth]), file=print_to)
             print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
             print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
