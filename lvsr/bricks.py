@@ -100,21 +100,33 @@ class FSTTransition(BaseRecurrent, Initializable):
         return super(FSTTransition, self).get_dim(name)
 
 
+def normalize_log_probs(x):
+    x = x - x.max(axis=(x.ndim-1), keepdims=True)
+    x = x - tensor.log(tensor.exp(x).sum(axis=(x.ndim-1), keepdims=True))
+    return x
+
 class ShallowFusionReadout(Readout):
-    def __init__(self, lm_logprobs_name, lm_weight, **kwargs):
+    def __init__(self, lm_logprobs_name, lm_weight,
+                 normalize_am_weights=False,
+                 normalize_lm_weights=False,
+                 normalize_tot_weights=True,
+                 **kwargs):
         super(ShallowFusionReadout, self).__init__(**kwargs)
         self.lm_logprobs_name = lm_logprobs_name
         self.lm_weight = lm_weight
+        self.normalize_am_weights = normalize_am_weights
+        self.normalize_lm_weights = normalize_lm_weights
+        self.normalize_tot_weights = normalize_tot_weights
 
     @application
     def readout(self, **kwargs):
-        lm_softmax = -kwargs.pop(self.lm_logprobs_name)
-        am_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
-        x = am_softmax + self.lm_weight * lm_softmax
-        # Normalize readout. It is important because they are
-        # now used by the beam search. The case when x.ndim == 3
-        # is not so important.
-        if x.ndim == 2:
-            x = x - x.max(axis=1).dimshuffle(0, 'x')
-            x = x - tensor.log(tensor.exp(x).sum(axis=1).dimshuffle(0, 'x'))
+        lm_pre_softmax = -kwargs.pop(self.lm_logprobs_name)
+        if self.normalize_lm_weights:
+            lm_pre_softmax = normalize_log_probs(lm_pre_softmax)
+        am_pre_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
+        if self.normalize_am_weights:
+            am_pre_softmax = normalize_log_probs(am_pre_softmax)
+        x = am_pre_softmax + self.lm_weight * lm_pre_softmax
+        if self.normalize_tot_weights:
+            x = normalize_log_probs(x)
         return x

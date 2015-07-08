@@ -530,9 +530,18 @@ class SpeechRecognizer(Initializable):
         language_model = None
         if lm:
             lm_weight = lm.pop('weight', 0.0)
+            normalize_am_weights = lm.pop('normalize_am_weights', False)
+            normalize_lm_weights = lm.pop('normalize_lm_weights', False)
+            normalize_tot_weights = lm.pop('normalize_tot_weights', True)
+            if normalize_am_weights + normalize_lm_weights + normalize_tot_weights < 1:
+                logger.warn("Beam search is prone to fail with no log-prob normalization")
             language_model = LanguageModel(nn_char_map=character_map, **lm)
             readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
-                                           lm_weight=lm_weight, **readout_config)
+                                           lm_weight=lm_weight,
+                                           normalize_am_weights=normalize_am_weights,
+                                           normalize_lm_weights=normalize_lm_weights,
+                                           normalize_tot_weights=normalize_tot_weights,
+                                           **readout_config)
 
         generator = SequenceGenerator(
             readout=readout, transition=transition, attention=attention,
