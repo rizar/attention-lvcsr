@@ -1193,7 +1193,7 @@ def main(cmd_args):
             print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
             print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
-            print("PER:", error, file=print_to)
-            print("Average PER:", total_errors / total_length, file=print_to)
+            print("CER:", error, file=print_to)
+            print("Average CER:", total_errors / total_length, file=print_to)
 
             # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
