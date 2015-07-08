@@ -344,6 +344,7 @@ class BeamSearch(object):
             all_outputs[:len(seq), i] = seq
             all_masks[:len(seq), i] = 1
             all_costs[:len(cost), i] = cost
+            all_costs[len(cost):, i] = cost[-1]
         all_outputs = all_outputs[1:]
         all_masks = all_masks[1:]
         all_costs = all_costs[1:] - all_costs[:-1]
