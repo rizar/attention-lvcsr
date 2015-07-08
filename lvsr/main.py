@@ -660,7 +660,7 @@ class SpeechRecognizer(Initializable):
     def beam_search(self, recording):
         if not hasattr(self, '_beam_search'):
             self.init_beam_search(self.beam_size)
-        input_ = numpy.tile(recording, (self.beam_size, 1, 1)).transpose(1, 0, 2)
+        input_ = recording[:,numpy.newaxis,:]
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
             ignore_first_eol=self.data_prepend_eos)

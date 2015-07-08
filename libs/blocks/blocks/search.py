@@ -97,7 +97,7 @@ class BeamSearch(object):
     def _compile_initial_state_computer(self):
         # TODO: should be now extractable from the computation graph
         initial_states = self.generator.initial_states(
-                self.beam_size, as_dict=True,
+                1, as_dict=True,
                 **dict(equizip(self.context_names, self.contexts)))
         self.initial_state_computer = function(
             self.contexts, initial_states, on_unused_input='ignore')
@@ -213,7 +213,7 @@ class BeamSearch(object):
         return OrderedDict(equizip(self.state_names, next_values))
 
     @staticmethod
-    def _smallest(matrix, k, only_first_row=False):
+    def _smallest(matrix, k):
         """Find k smallest elements of a matrix.
 
         Parameters
@@ -222,18 +222,13 @@ class BeamSearch(object):
             The matrix.
         k : int
             The number of smallest elements required.
-        only_first_row : bool, optional
-            Consider only elements of the first row.
 
         Returns
         -------
         Tuple of ((row numbers, column numbers), values).
 
         """
-        if only_first_row:
-            flatten = matrix[:1, :].flatten()
-        else:
-            flatten = matrix.flatten()
+        flatten = matrix.flatten()
         if flatten.shape[0] > k:
             args = numpy.argpartition(flatten, k)[:k]
         else:
@@ -285,51 +280,72 @@ class BeamSearch(object):
             self.compile()
 
         contexts = self.compute_contexts(input_values)
+        large_contexts = OrderedDict(contexts)
         states = self.compute_initial_states(contexts)
 
         # This array will store all generated outputs, including those from
         # previous step and those from already finished sequences.
         all_outputs = states['outputs'][None, :]
-        all_masks = numpy.ones_like(all_outputs, dtype=config.floatX)
         all_costs = numpy.zeros_like(all_outputs, dtype=config.floatX)
 
+        done = []
+
         for i in range(max_length):
-            if all_masks[-1].sum() == 0:
+            if len(done) >= self.beam_size:
                 break
 
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
-            logprobs = self.compute_logprobs(contexts, states)
+            if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
+                for name, ctx in contexts.items():
+                    large_contexts[name] = numpy.take(ctx, [0]*states.values()[0].shape[0], axis=1)
+            logprobs = self.compute_logprobs(large_contexts, states)
             assert numpy.isfinite(logprobs).all()
-            next_costs = (all_costs[-1, :, None] +
-                          logprobs * all_masks[-1, :, None])
-            (finished,) = numpy.where(all_masks[-1] == 0)
-            next_costs[finished, :eol_symbol] = numpy.inf
-            next_costs[finished, eol_symbol + 1:] = numpy.inf
+            next_costs = (all_costs[-1, :, None] + logprobs)
 
-            # The `i == 0` is required because at the first step the beam
-            # size is effectively only 1.
             (indexes, outputs), chosen_costs = self._smallest(
-                next_costs, self.beam_size, only_first_row=i == 0)
+                next_costs, self.beam_size)
 
             # Rearrange everything
             for name in states:
-                states[name] = states[name][indexes]
-            all_outputs = all_outputs[:, indexes]
-            all_masks = all_masks[:, indexes]
-            all_costs = all_costs[:, indexes]
+                states[name] = numpy.take(states[name], indexes, axis=0)
+            all_outputs = numpy.take(all_outputs, indexes, axis=1)
+            all_costs = numpy.take(all_costs, indexes, axis=1)
 
             # Record chosen output and compute new states
-            states.update(self.compute_next_states(contexts, states, outputs))
+            if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
+                for name, ctx in contexts.items():
+                    large_contexts[name] = numpy.take(ctx, [0]*states.values()[0].shape[0], axis=1)
+            states = self.compute_next_states(large_contexts, states, outputs)
+
             all_outputs = numpy.vstack([all_outputs, outputs[None, :]])
             all_costs = numpy.vstack([all_costs, chosen_costs[None, :]])
+
             mask = outputs != eol_symbol
             if ignore_first_eol and i == 0:
                 mask[:] = 1
-            all_masks = numpy.vstack([all_masks, mask[None, :]])
 
+            for idx in numpy.where(mask==0)[0]:
+                done.append((all_outputs[:, idx], all_costs[:, idx]))
+
+            unfinished = numpy.where(mask==1)[0]
+            for name in states:
+                states[name] = numpy.take(states[name], unfinished, axis=0)
+            all_outputs = numpy.take(all_outputs, unfinished, axis=1)
+            all_costs = numpy.take(all_costs, unfinished, axis=1)
+
+        done = sorted(done, key=lambda x: x[1][-1])
+
+        max_len = max((seq[0].shape[0] for seq in done))
+        all_outputs = numpy.zeros((max_len, len(done)))
+        all_masks = numpy.zeros((max_len, len(done)))
+        all_costs = numpy.zeros((max_len, len(done)))
+        for i, (seq, cost) in enumerate(done):
+            all_outputs[:len(seq), i] = seq
+            all_masks[:len(seq), i] = 1
+            all_costs[:len(cost), i] = cost
         all_outputs = all_outputs[1:]
-        all_masks = all_masks[:-1]
+        all_masks = all_masks[1:]
         all_costs = all_costs[1:] - all_costs[:-1]
         result = all_outputs, all_masks, all_costs
         if as_arrays:
