@@ -52,11 +52,15 @@ class FSTTransitionOp(Op):
 
         next_states = []
         for state, input_ in equizip(all_states, all_inputs):
-            arcs = {arc.ilabel: arc for arc in self.fst[state]}
-            fst_input_ = self.remap_table[input_]
-            next_state = self.fst.fst.start
-            if fst_input_ in arcs:
-                next_state = arcs[fst_input_].nextstate
+            next_state = -1
+            if state == -1:
+                if input_ == 0:
+                    next_state = 1
+            else:
+                arcs = {arc.ilabel: arc for arc in self.fst[state]}
+                fst_input_ = self.remap_table[input_]
+                if fst_input_ in arcs:
+                    next_state = arcs[fst_input_].nextstate
             next_states.append(next_state)
 
         output_storage[0][0] = numpy.array(next_states, dtype='int64')
@@ -98,12 +102,15 @@ class FSTProbabilitiesOp(Op):
 
         all_logprobs = []
         for state in states:
-            arcs = {arc.ilabel: arc for arc in self.fst[state]}
-            logprobs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
-                        * self.no_transition_cost)
-            for nn_character, fst_character in self.remap_table.items():
-                if fst_character in arcs:
-                    logprobs[nn_character] = arcs[fst_character].weight
+            if state == -1:
+                logprobs = numpy.zeros(len(self.remap_table), dtype=theano.config.floatX)
+            else:
+                arcs = {arc.ilabel: arc for arc in self.fst[state]}
+                logprobs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
+                            * self.no_transition_cost)
+                for nn_character, fst_character in self.remap_table.items():
+                    if fst_character in arcs:
+                        logprobs[nn_character] = arcs[fst_character].weight
             all_logprobs.append(logprobs)
 
         output_storage[0][0] = numpy.array(all_logprobs)
