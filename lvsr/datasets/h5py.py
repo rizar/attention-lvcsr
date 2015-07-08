@@ -13,7 +13,7 @@ class H5PYAudioDataset(H5PYDataset):
         self.eos_label = self.char2num['<eol>']
 
     def decode(self, labels):
-        return "".join(self.num2char[label] for label in labels
-                       if label != self.eos_label)
+        return [self.num2char[label] for label in labels
+                if label != self.eos_label]
 
 
