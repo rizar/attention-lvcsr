@@ -97,4 +97,11 @@ class ShallowFusionReadout(Readout):
     def readout(self, **kwargs):
         lm_softmax = -kwargs.pop(self.lm_logprobs_name)
         am_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
-        return am_softmax + self.lm_weight * lm_softmax
+        x = am_softmax + self.lm_weight * lm_softmax
+        # Normalize readout. It is important because they are
+        # now used by the beam search. The case when x.ndim == 3
+        # is not so important.
+        if x.ndim == 2:
+            x = x - x.max(axis=1).dimshuffle(0, 'x')
+            x = x - tensor.log(tensor.exp(x).sum(axis=1).dimshuffle(0, 'x'))
+        return x
