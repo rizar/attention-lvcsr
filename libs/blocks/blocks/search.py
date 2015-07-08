@@ -234,7 +234,10 @@ class BeamSearch(object):
             flatten = matrix[:1, :].flatten()
         else:
             flatten = matrix.flatten()
-        args = numpy.argpartition(flatten, k)[:k]
+        if flatten.shape[0] < k:
+            args = numpy.argpartition(flatten, k)[:k]
+        else:
+            args = numpy.arange(flatten.shape[0])
         args = args[numpy.argsort(flatten[args])]
         return numpy.unravel_index(args, matrix.shape), flatten[args]
 
