@@ -297,6 +297,7 @@ class BeamSearch(object):
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
             logprobs = self.compute_logprobs(contexts, states)
+            assert numpy.isfinite(logprobs).all()
             next_costs = (all_costs[-1, :, None] +
                           logprobs * all_masks[-1, :, None])
             (finished,) = numpy.where(all_masks[-1] == 0)
