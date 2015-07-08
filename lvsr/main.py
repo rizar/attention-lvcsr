@@ -688,7 +688,7 @@ class LanguageModel(SequenceGenerator):
         fst_start_state = fst.fst[fst.fst.start]
         start_new_word_state = fst_start_state.stateid
         if len(fst_start_state)==1:
-            arc, = start_new_word_state.arcs
+            arc, = fst_start_state.arcs
             if arc.ilabel == nn_char_map['<eol>']:
                 start_new_word_state = arc.nextstate
         transition = FSTTransition(fst, remap_table, no_transition_cost,
