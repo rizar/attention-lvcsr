@@ -39,28 +39,48 @@ class FSTTransitionOp(Op):
     fst : FST instance
     remap_table : dict
         Maps neutral network characters to FST characters.
+    start_new_word_state : int
+        "Main looping state" of the FST which we enter after following backoff links
+    space_idx : int
+        id of the space character in network coding
+    allow_spelling_unknowns : bool
+        do we want to allow the net to enerate characters corresponding to unknown words
 
     """
     __props__ = ()
 
-    def __init__(self, fst, remap_table):
+    def __init__(self, fst, remap_table, start_new_word_state, space_idx,
+                 allow_spelling_unknowns):
         self.fst = fst
         self.remap_table = remap_table
+        self.start_new_word_state = start_new_word_state
+        self.space_idx = space_idx
+        self.allow_spelling_unknowns = allow_spelling_unknowns
+        if allow_spelling_unknowns:
+            assert self.space_idx is not None
 
     def perform(self, node, inputs, output_storage):
         all_states, all_inputs = inputs
 
         next_states = []
         for state, input_ in equizip(all_states, all_inputs):
-            next_state = -1
-            if state == -1:
-                if input_ == 0:
-                    next_state = 1
-            else:
+            #default next state if no transition is found
+            next_state = self.start_new_word_state
+
+            if self.allow_spelling_unknowns:
+                next_state = -1 #special loop state that spells out letters
+                if state == -1:
+                    if input_ == self.space_idx:
+                        next_state = self.start_new_word_state
+
+            if state != -1:
                 arcs = {arc.ilabel: arc for arc in self.fst[state]}
-                fst_input_ = self.remap_table[input_]
-                if fst_input_ in arcs:
-                    next_state = arcs[fst_input_].nextstate
+            else:
+                arcs = {}
+
+            fst_input_ = self.remap_table[input_]
+            if fst_input_ in arcs:
+                next_state = arcs[fst_input_].nextstate
             next_states.append(next_state)
 
         output_storage[0][0] = numpy.array(next_states, dtype='int64')

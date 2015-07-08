@@ -39,7 +39,10 @@ class RecurrentWithFork(Initializable):
 
 
 class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, remap_table, no_transition_cost, **kwargs):
+    def __init__(self, fst, remap_table, no_transition_cost,
+                 allow_spelling_unknowns,
+                 start_new_word_state, space_idx=None,
+                 **kwargs):
         """Wrap FST in a recurrent brick.
 
         Parameters
@@ -50,11 +53,21 @@ class FSTTransition(BaseRecurrent, Initializable):
         no_transition_cost : float
             Cost of going to the start state when no arc for an input
             symbol is available.
+        allow_spelling_unknowns : bool
+            do we allow to emit characters outside of th edictionary
+        start_new_word_state : int
+            "Main looping state" of the FST which we enter after following backoff links
+        space_idx : int
+            id of the space character in network coding
+
 
         """
         super(FSTTransition, self).__init__(**kwargs)
         self.fst = fst
-        self.transition = FSTTransitionOp(fst, remap_table)
+        self.transition = FSTTransitionOp(fst, remap_table,
+                                          start_new_word_state=start_new_word_state,
+                                          space_idx=space_idx,
+                                          allow_spelling_unknowns=allow_spelling_unknowns)
         self.probability_computer = FSTProbabilitiesOp(
             fst, remap_table, no_transition_cost)
 
