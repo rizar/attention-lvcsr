@@ -74,3 +74,4 @@ training:
 
     save_every_n_batches: 100
 
+vocabulary: $FUEL_DATA_PATH/WSJ/words.txt

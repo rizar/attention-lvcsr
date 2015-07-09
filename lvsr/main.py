@@ -1190,7 +1190,7 @@ def main(cmd_args):
         total_length = .0
         total_wer_errors = .0
         total_word_length = 0.
-        with open(config['vocabulary']) as f:
+        with open(os.path.expandvars(config['vocabulary'])) as f:
             vocabulary = dict(line.split() for line in f.readlines())
 
         def to_words(chars):
