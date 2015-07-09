@@ -110,6 +110,7 @@ class ShallowFusionReadout(Readout):
                  normalize_am_weights=False,
                  normalize_lm_weights=False,
                  normalize_tot_weights=True,
+                 am_beta=1.0,
                  **kwargs):
         super(ShallowFusionReadout, self).__init__(**kwargs)
         self.lm_logprobs_name = lm_logprobs_name
@@ -117,13 +118,14 @@ class ShallowFusionReadout(Readout):
         self.normalize_am_weights = normalize_am_weights
         self.normalize_lm_weights = normalize_lm_weights
         self.normalize_tot_weights = normalize_tot_weights
+        self.am_beta = am_beta
 
     @application
     def readout(self, **kwargs):
         lm_pre_softmax = -kwargs.pop(self.lm_logprobs_name)
         if self.normalize_lm_weights:
             lm_pre_softmax = normalize_log_probs(lm_pre_softmax)
-        am_pre_softmax = super(ShallowFusionReadout, self).readout(**kwargs)
+        am_pre_softmax = self.am_beta * super(ShallowFusionReadout, self).readout(**kwargs)
         if self.normalize_am_weights:
             am_pre_softmax = normalize_log_probs(am_pre_softmax)
         x = am_pre_softmax + self.lm_weight * lm_pre_softmax

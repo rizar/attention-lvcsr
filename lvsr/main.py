@@ -539,6 +539,7 @@ class SpeechRecognizer(Initializable):
             normalize_am_weights = lm.pop('normalize_am_weights', False)
             normalize_lm_weights = lm.pop('normalize_lm_weights', False)
             normalize_tot_weights = lm.pop('normalize_tot_weights', True)
+            am_beta = lm.pop('am_beta', 1.0)
             if normalize_am_weights + normalize_lm_weights + normalize_tot_weights < 1:
                 logger.warn("Beam search is prone to fail with no log-prob normalization")
             language_model = LanguageModel(nn_char_map=character_map, **lm)
@@ -547,6 +548,7 @@ class SpeechRecognizer(Initializable):
                                            normalize_am_weights=normalize_am_weights,
                                            normalize_lm_weights=normalize_lm_weights,
                                            normalize_tot_weights=normalize_tot_weights,
+                                           am_beta=am_beta,
                                            **readout_config)
 
         generator = SequenceGenerator(
