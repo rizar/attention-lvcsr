@@ -86,4 +86,4 @@ def preprocess_text(example):
     text = text.replace('<NOISE>', '%')
     text = text.replace(' ', '_')
     text = "".join([c for c in text if c in allowed_characters])
-    return (example[0], [ord(c) for c in text])
+    return (example[0], [ord(c) for c in text]) + example[2:]

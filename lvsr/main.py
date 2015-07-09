@@ -123,7 +123,7 @@ class _AddEosLabelEnd(object):
         self.eos_label = eos_label
 
     def __call__(self, example):
-        return (example[0], list(example[1]) + [self.eos_label])
+        return (example[0], list(example[1]) + [self.eos_label]) + tuple(example[2:])
 
 
 class _AddEosLabelBeginEnd(object):
@@ -132,7 +132,7 @@ class _AddEosLabelBeginEnd(object):
         self.eos_label = eos_label
 
     def __call__(self, example):
-        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label])
+        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label]) + tuple(example[2:])
 
 
 
@@ -150,7 +150,7 @@ class _MergeKFrames(object):
         if remainder:
             features = features[:-remainder]
         new_features = features.reshape((new_length, new_width))
-        return (new_features, example[1])
+        return (new_features) + tuple(example[1:])
 
 
 class _SilentPadding(object):
@@ -161,7 +161,7 @@ class _SilentPadding(object):
     def __call__(self, example):
         features = example[0]
         features = numpy.vstack([features, numpy.zeros_like(features[[0]])])
-        return (features, example[1])
+        return (features) + tuple(example[1:])
 
 
 class Data(object):
@@ -169,6 +169,7 @@ class Data(object):
     def __init__(self, dataset, recordings_source, labels_source,
                  batch_size, sort_k_batches,
                  max_length, normalization,
+                 uttid_source='uttids',
                  merge_k_frames=None,
                  pad_k_frames=None,
                  feature_name='wav', preprocess_features=None,
@@ -187,6 +188,7 @@ class Data(object):
         self.dataset = dataset
         self.recordings_source = recordings_source
         self.labels_source = labels_source
+        self.uttid_source = uttid_source
         self.normalization = normalization
         self.batch_size = batch_size
         self.sort_k_batches = sort_k_batches
@@ -236,7 +238,7 @@ class Data(object):
             return 124
         return self.get_dataset("train").eos_label
 
-    def get_dataset(self, part):
+    def get_dataset(self, part, add_sources=()):
         timit_name_mapping = {"train": "train", "valid": "dev", "test": "test"}
         wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
 
@@ -248,21 +250,25 @@ class Data(object):
                 self.dataset_cache[part] = WSJ(
                     wsj_name_mapping[part], feature_name=self.feature_name)
             elif self.dataset == "WSJnew":
+
                 self.dataset_cache[part] = H5PYAudioDataset(
                     os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
                     which_sets=(wsj_name_mapping[part],),
                     sources=(self.recordings_source,
-                             self.labels_source))
+                             self.labels_source) + tuple(add_sources))
         return self.dataset_cache[part]
 
-    def get_stream(self, part, batches=True, shuffle=True):
-        dataset = self.get_dataset(part)
+    def get_stream(self, part, batches=True, shuffle=True,
+                   add_sources=()):
+        dataset = self.get_dataset(part, add_sources=add_sources)
         stream = (DataStream(dataset,
                              iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
                   if shuffle
                   else dataset.get_example_stream())
+
+
         stream = FilterSources(stream, (self.recordings_source,
-                                        self.labels_source))
+                                        self.labels_source)+tuple(add_sources))
         if self.add_eos:
             if self.prepend_eos:
                 stream = Mapping(stream, _AddEosLabelBeginEnd(self.eos_label))
@@ -1153,8 +1159,9 @@ def main(cmd_args):
                 open(cmd_args.save_path)).get_top_bricks()
         recognizer.init_beam_search(cmd_args.beam_size)
 
-        dataset = data.get_dataset(cmd_args.part)
-        stream = data.get_stream(cmd_args.part, batches=False, shuffle=False)
+        dataset = data.get_dataset(cmd_args.part, add_sources=(data.uttid_source,))
+        stream = data.get_stream(cmd_args.part, batches=False, shuffle=False,
+                                 add_sources=(data.uttid_source,))
         it = stream.get_epoch_iterator()
         decode_only = None
         if cmd_args.decode_only is not None:
@@ -1174,12 +1181,17 @@ def main(cmd_args):
                 os.mkdir(alignments_path)
             print_to = open(os.path.join(cmd_args.report, "report.txt"), 'w')
 
+        decoded_file = None
+        if cmd_args.decoded_save:
+            decoded_file = open(cmd_args.decoded_save, 'w')
+
+
         total_errors = .0
         total_length = .0
         for number, data in enumerate(it):
             if decode_only and number not in decode_only:
                 continue
-            print("Utterance", number, file=print_to)
+            print("Utterance {} ({})".format(number, data[2]), file=print_to)
 
             outputs, search_costs = recognizer.beam_search(data[0], normalize_by_length=cmd_args.beam_search_normalize)
             recognized = dataset.decode(
@@ -1204,6 +1216,9 @@ def main(cmd_args):
                 show_alignment(weights_recognized, recognized, bos_symbol=True)
                 pyplot.savefig(os.path.join(
                     alignments_path, "{}.recognized.png".format(number)))
+
+            if decoded_file is not None:
+                print("{} {}".format(data[2], ' '.join(recognized)), file=decoded_file)
 
             print("Beam search cost:", search_costs[0], file=print_to)
             print("Recognizer:", ''.join([' ' if chr_=='<spc>' else chr_ for chr_ in recognized]), file=print_to)

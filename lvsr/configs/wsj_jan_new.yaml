@@ -11,6 +11,8 @@ data:
     add_eos: True
     prepend_eos: False
 
+    uttid_source: uttids
+
     sort_k_batches: null
     batch_size: 10
 
