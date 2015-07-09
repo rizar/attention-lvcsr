@@ -22,7 +22,7 @@ fi
 #
 
 #extract the character table used by the net
-kaldi2fuel.py $DATASET read-symbols characters $DIR/net-chars.txt
+kaldi2fuel.py $DATASET read_symbols characters $DIR/net-chars.txt
 
 
 # OpenFST needs 0 to refer to the special <eps> symbol, prepend and renumber!!

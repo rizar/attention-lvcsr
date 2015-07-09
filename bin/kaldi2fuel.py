@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import sys
-import os
 
 import numpy
 import h5py
@@ -35,6 +34,13 @@ def get_parser(datasets = {}):
     parser_add_raw_text.add_argument("sourcename")
     parser_add_raw_text.set_defaults(func=add_raw_text, transform=None, applymap=None)
 
+    parser_readdata = subparsers.add_parser('read_raw_text', help="read data from the hdf5 as text")
+    parser_readdata.add_argument("sourcename")
+    parser_readdata.add_argument("wxfilename")
+    parser_readdata.add_argument("--subset", default=None,
+                                 help="Which subset to read, by default read all data")
+    parser_readdata.set_defaults(func=read_raw_text)
+
     parser_add_text = subparsers.add_parser('add_text', help="add raw text to the hdf5 file from a Kaldi text file")
     parser_add_text.add_argument("--applymap", default=None, required=True,
                                 help="path to file which converts data into numeric values. If a transform function is given, the data is first transformtd, then mapped")
@@ -42,6 +48,12 @@ def get_parser(datasets = {}):
     parser_add_text.add_argument("sourcename")
     parser_add_text.set_defaults(func=add_text, transform=None, applymap=None)
 
+    parser_readdata = subparsers.add_parser('read_text', help="read data from the hdf5 and convert to text")
+    parser_readdata.add_argument("sourcename")
+    parser_readdata.add_argument("wxfilename")
+    parser_readdata.add_argument("--subset", default=None,
+                                 help="Which subset to read, by default read all data")
+    parser_readdata.set_defaults(func=read_text)
 
     parser_readdata = subparsers.add_parser('read', help="read data from the hdf5 into a kaldi archive")
     parser_readdata.add_argument("type")
@@ -53,7 +65,7 @@ def get_parser(datasets = {}):
                                 help="string whose eval()uation should produce a lambda function to porcess elements")
     parser_readdata.set_defaults(func=read_data)
 
-    parser_read_symbols = subparsers.add_parser('read-symbols', help="read a symbol table")
+    parser_read_symbols = subparsers.add_parser('read_symbols', help="read a symbol table")
     parser_read_symbols.add_argument('sourcename')
     parser_read_symbols.add_argument('outfilename', default='-',
                                      help="file to which write the extracted symbol table")
@@ -262,6 +274,60 @@ def read_symbols(args):
     value_map.sort(order=('val',))
     numpy.savetxt(out_file, value_map, fmt="%s %d")
 
+def get_indices(h5file, subset=None):
+    if subset is None:
+        return range(h5file['uttids'].shape[0])
+    else:
+        return h5file[subset + '_indices']
+
+def read_raw_text(args):
+    try:
+        out_file = sys.stdout
+        if args.wxfilename != '-':
+            out_file=open(args.wxfilename, 'w')
+
+        h5file = None
+        h5file = h5py.File(args.h5file, 'r')
+
+        indices = get_indices(h5file, args.subset)
+        uttids = h5file['uttids']
+        data = h5file[args.sourcename]
+        for idx in indices:
+            out_file.write("{} {}\n".format(uttids[idx], data[idx]))
+
+    finally:
+        if out_file != sys.stdout:
+            out_file.close()
+        if h5file is not None:
+            h5file.close()
+
+def read_text(args):
+    try:
+        out_file = sys.stdout
+        if args.wxfilename != '-':
+            out_file=open(args.wxfilename, 'w')
+
+        h5file = None
+        h5file = h5py.File(args.h5file, 'r')
+
+        indices = get_indices(h5file, args.subset)
+        uttids = h5file['uttids']
+        data = h5file[args.sourcename]
+        value_map = lambda x: x
+        if 'value_map' in data.attrs:
+            _map = dict((v,k) for k,v in data.attrs['value_map'])
+            value_map = lambda x: _map[x]
+
+        for idx in indices:
+            chars = data[idx]
+            chars = [value_map(c) for c in chars]
+            out_file.write("{} {}\n".format(uttids[idx], ' '.join(chars)))
+
+    finally:
+        if out_file != sys.stdout:
+            out_file.close()
+        if h5file is not None:
+            h5file.close()
 
 if __name__=="__main__":
     logging.basicConfig(level=logging.INFO)
