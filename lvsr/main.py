@@ -1196,7 +1196,9 @@ def main(cmd_args):
             outputs, search_costs = recognizer.beam_search(data[0], normalize_by_length=cmd_args.beam_search_normalize)
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
+            recognized_text = dataset.pretty_print(outputs[0])
             groundtruth = dataset.decode(data[1])
+            groundtruth_text = dataset.pretty_print(data[1])
             costs_recognized, weights_recognized = (
                 recognizer.analyze(data[0], outputs[0])[:2])
             costs_groundtruth, weights_groundtruth = (
@@ -1221,11 +1223,11 @@ def main(cmd_args):
                 print("{} {}".format(data[2], ' '.join(recognized)), file=decoded_file)
 
             print("Beam search cost:", search_costs[0], file=print_to)
-            print("Recognizer:", ''.join([' ' if chr_=='<spc>' else chr_ for chr_ in recognized]), file=print_to)
+            print("Recognized:", recognized_text, file=print_to)
             print("Recognized cost:", costs_recognized.sum(), file=print_to)
             print("Recognized weight std:", weight_std_recognized, file=print_to)
             print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
-            print("Groundtruth:", ''.join([' ' if chr_=='<spc>' else chr_ for chr_ in groundtruth]), file=print_to)
+            print("Groundtruth:", groundtruth_text, file=print_to)
             print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
             print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
