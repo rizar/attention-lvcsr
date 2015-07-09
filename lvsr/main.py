@@ -1188,6 +1188,17 @@ def main(cmd_args):
 
         total_errors = .0
         total_length = .0
+        total_wer_errors = .0
+        total_word_length = 0.
+        with open(config['vocabulary']) as f:
+            vocabulary = dict(line.split() for line in f.readlines())
+
+        def to_words(chars):
+            words = chars.split()
+            words = [vocabulary[word] if word in vocabulary
+                     else vocabulary['<UNK>'] for word in words]
+            return words
+
         for number, data in enumerate(it):
             if decode_only and number not in decode_only:
                 continue
@@ -1211,6 +1222,11 @@ def main(cmd_args):
             total_errors += len(groundtruth) * error
             total_length += len(groundtruth)
 
+            wer_error = min(1, wer(to_words(groundtruth_text),
+                                   to_words(recognized_text)))
+            total_wer_errors += len(groundtruth) * wer_error
+            total_word_length += len(groundtruth)
+
             if cmd_args.report:
                 show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
                 pyplot.savefig(os.path.join(
@@ -1233,5 +1249,7 @@ def main(cmd_args):
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
             print("CER:", error, file=print_to)
             print("Average CER:", total_errors / total_length, file=print_to)
+            print("WER:", wer_error, file=print_to)
+            print("Average WER:", total_wer_errors / total_word_length, file=print_to)
 
             # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
