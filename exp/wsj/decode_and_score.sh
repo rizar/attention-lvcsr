@@ -35,8 +35,8 @@ mkdir -p $dir
 set -x
 $LVSR/lvsr/run.py --params=true \
 	$beam_search_opts \
-	--decoded-save=$dir/$part-decoded.out search $model `dirname $model`/*.yaml \
 	--part $part \
+	--decoded-save=$dir/$part-decoded.out search $model `dirname $model`/*.yaml \
 	net.lm.type_ "'fst'" $lm_opts > $dir/beam_search.log 2>&1
 
 #we cannot use stdout pipe, because of some pydot parser error getting printed to the stdout :(
