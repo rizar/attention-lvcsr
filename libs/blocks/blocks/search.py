@@ -237,7 +237,8 @@ class BeamSearch(object):
         return numpy.unravel_index(args, matrix.shape), flatten[args]
 
     def search(self, input_values, eol_symbol, max_length,
-               ignore_first_eol=False, as_arrays=False):
+               ignore_first_eol=False, as_arrays=False,
+               normalize_by_length=False):
         """Performs beam search.
 
         If the beam search was not compiled, it also compiles it.
@@ -334,7 +335,10 @@ class BeamSearch(object):
             all_outputs = numpy.take(all_outputs, unfinished, axis=1)
             all_costs = numpy.take(all_costs, unfinished, axis=1)
 
-        done = sorted(done, key=lambda x: x[1][-1])
+        if normalize_by_length:
+            done = sorted(done, key=lambda x: x[1][-1]/len(x[1]))
+        else:
+            done = sorted(done, key=lambda x: x[1][-1])
 
         max_len = max((seq[0].shape[0] for seq in done))
         all_outputs = numpy.zeros((max_len, len(done)))

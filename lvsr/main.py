@@ -657,13 +657,14 @@ class SpeechRecognizer(Initializable):
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
-    def beam_search(self, recording):
+    def beam_search(self, recording, normalize_by_length=False):
         if not hasattr(self, '_beam_search'):
             self.init_beam_search(self.beam_size)
         input_ = recording[:,numpy.newaxis,:]
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
-            ignore_first_eol=self.data_prepend_eos)
+            ignore_first_eol=self.data_prepend_eos,
+            normalize_by_length=normalize_by_length)
         return outputs, search_costs
 
     def __getstate__(self):
@@ -1180,7 +1181,7 @@ def main(cmd_args):
                 continue
             print("Utterance", number, file=print_to)
 
-            outputs, search_costs = recognizer.beam_search(data[0])
+            outputs, search_costs = recognizer.beam_search(data[0], normalize_by_length=cmd_args.beam_search_normalize)
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             groundtruth = dataset.decode(data[1])
