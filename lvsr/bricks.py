@@ -41,7 +41,8 @@ class RecurrentWithFork(Initializable):
 class FSTTransition(BaseRecurrent, Initializable):
     def __init__(self, fst, remap_table, no_transition_cost,
                  allow_spelling_unknowns,
-                 start_new_word_state, space_idx=None,
+                 start_new_word_state, space_idx,
+                 all_weights_to_zeros,
                  **kwargs):
         """Wrap FST in a recurrent brick.
 
@@ -59,6 +60,8 @@ class FSTTransition(BaseRecurrent, Initializable):
             "Main looping state" of the FST which we enter after following backoff links
         space_idx : int
             id of the space character in network coding
+        all_weights_to_zero : bool
+            Ignore all weights as if they all were zeros.
 
 
         """
@@ -69,7 +72,7 @@ class FSTTransition(BaseRecurrent, Initializable):
                                           space_idx=space_idx,
                                           allow_spelling_unknowns=allow_spelling_unknowns)
         self.probability_computer = FSTProbabilitiesOp(
-            fst, remap_table, no_transition_cost)
+            fst, remap_table, no_transition_cost, all_weights_to_zeros)
 
         self.out_dim = len(remap_table)
 

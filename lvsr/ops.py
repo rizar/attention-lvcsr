@@ -104,6 +104,8 @@ class FSTProbabilitiesOp(Op):
     no_transition_cost : float
         Cost of going to the start state when no arc for an input
         symbol is available.
+    all_weights_to_zero : bool
+        Ignore all weights as if they all were zeros.
 
     Notes
     -----
@@ -112,10 +114,11 @@ class FSTProbabilitiesOp(Op):
     """
     __props__ = ()
 
-    def __init__(self, fst, remap_table, no_transition_cost):
+    def __init__(self, fst, remap_table, no_transition_cost, all_weights_to_zeros):
         self.fst = fst
         self.remap_table = remap_table
         self.no_transition_cost = no_transition_cost
+        self.all_weights_to_zeros = all_weights_to_zeros
 
     def perform(self, node, inputs, output_storage):
         states, = inputs
@@ -130,7 +133,10 @@ class FSTProbabilitiesOp(Op):
                             * self.no_transition_cost)
                 for nn_character, fst_character in self.remap_table.items():
                     if fst_character in arcs:
-                        logprobs[nn_character] = arcs[fst_character].weight
+                        logprobs[nn_character] = (
+                            arcs[fst_character].weight
+                            if not self.all_weights_to_zeros
+                            else 0)
             all_logprobs.append(logprobs)
 
         output_storage[0][0] = numpy.array(all_logprobs)

@@ -692,7 +692,7 @@ class SpeechRecognizer(Initializable):
 class LanguageModel(SequenceGenerator):
 
     def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12,
-                 allow_spelling_unknowns=False, **kwargs):
+                 allow_spelling_unknowns=False, all_weights_to_zeros=False, **kwargs):
         # TODO: num_labels should be possible to extract from the FST
         if type_ != 'fst':
             raise ValueError("Supports only FST's so far.")
@@ -712,7 +712,8 @@ class LanguageModel(SequenceGenerator):
         transition = FSTTransition(fst, remap_table, no_transition_cost,
                                    allow_spelling_unknowns=allow_spelling_unknowns,
                                    space_idx=nn_char_map['<spc>'],
-                                   start_new_word_state=start_new_word_state
+                                   start_new_word_state=start_new_word_state,
+                                   all_weights_to_zeros=all_weights_to_zeros,
                                    )
 
         # This SequenceGenerator will be used only in a very limited way.
