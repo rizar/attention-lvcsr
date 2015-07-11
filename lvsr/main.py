@@ -536,9 +536,9 @@ class SpeechRecognizer(Initializable):
         language_model = None
         if lm:
             lm_weight = lm.pop('weight', 0.0)
-            normalize_am_weights = lm.pop('normalize_am_weights', False)
+            normalize_am_weights = lm.pop('normalize_am_weights', True)
             normalize_lm_weights = lm.pop('normalize_lm_weights', False)
-            normalize_tot_weights = lm.pop('normalize_tot_weights', True)
+            normalize_tot_weights = lm.pop('normalize_tot_weights', False)
             am_beta = lm.pop('am_beta', 1.0)
             if normalize_am_weights + normalize_lm_weights + normalize_tot_weights < 1:
                 logger.warn("Beam search is prone to fail with no log-prob normalization")
