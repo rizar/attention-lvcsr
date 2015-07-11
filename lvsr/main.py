@@ -729,7 +729,7 @@ class LanguageModel(SequenceGenerator):
             fork=Fork(output_names=[name for name in transition.apply.sequences
                                     if name != 'mask'],
                       prototype=Identity()),
-            readout=dummy_readout)
+            readout=dummy_readout, **kwargs)
 
 
 class PhonemeErrorRate(MonitoredQuantity):
