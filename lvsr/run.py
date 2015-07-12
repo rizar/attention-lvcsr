@@ -58,8 +58,9 @@ if __name__ == "__main__":
         "--beam-size", default=10, type=int,
         help="Beam size")
     parser.add_argument(
-        "--beam-search-normalize", default=False, action="store_true",
-        help="Normalize beam search costs by decoded length")
+        "--char-discount", default=0.0, type=float,
+        help="A discount given by beam search for every additional character"
+        " added to a candidate.")
     parser.add_argument(
         "--old-labels", default=False, action="store_true",
         help="Expect old labels when decoding.")
