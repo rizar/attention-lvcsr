@@ -292,6 +292,9 @@ class BeamSearch(object):
         done = []
 
         for i in range(max_length):
+            if len(states.values()[0].flatten()) == 0:
+                break
+
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
             if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
