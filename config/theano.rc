@@ -1,0 +1,9 @@
+[global]
+compiledir_format = lvsr_compiledir_%(platform)s-%(processor)s-%(python_version)s-%(python_bitwidth)s
+
+[lib]
+cnmem=0.9
+
+[experimental]
+unpickle_gpu_on_cpu=True
+unpickle_shared_gpu_on_cpu=True
