@@ -1,5 +1,6 @@
 import numpy
 import theano
+import warnings
 from numpy.testing import assert_allclose
 from theano import tensor
 from theano.sandbox.rng_mrg import MRG_RandomStreams
@@ -9,7 +10,7 @@ from blocks.bricks.cost import SquaredError
 from blocks.filter import VariableFilter
 from blocks.graph import apply_noise, collect_parameters, ComputationGraph
 from blocks.initialization import Constant
-from blocks.roles import COLLECTED, PARAMETER
+from blocks.roles import add_role, COLLECTED, PARAMETER, AUXILIARY
 from tests.bricks.test_bricks import TestBrick
 
 
@@ -103,6 +104,30 @@ def test_replace_multiple_inputs():
     assert_allclose(cg.outputs[1].eval({x: 1.0}), 1.5)
 
 
+def test_replace_variable_not_in_graph():
+    # Test if warning appears when variable is not in graph
+    with warnings.catch_warnings(record=True) as w:
+        x = tensor.scalar()
+        y = x + 1
+        z = tensor.scalar()
+        cg = ComputationGraph([y])
+        cg.replace([(y, 2 * y), (z, 2 * z)])
+        assert len(w) == 1
+        assert "not a part of" in str(w[-1].message)
+
+
+def test_replace_variable_is_auxiliary():
+    # Test if warning appears when variable is an AUXILIARY variable
+    with warnings.catch_warnings(record=True) as w:
+        x = tensor.scalar()
+        y = x + 1
+        add_role(y, AUXILIARY)
+        cg = ComputationGraph([y])
+        cg.replace([(y, 2 * y)])
+        assert len(w) == 1
+        assert "auxiliary" in str(w[-1].message)
+
+
 def test_apply_noise():
     x = tensor.scalar()
     y = tensor.scalar()
@@ -138,10 +163,10 @@ def test_collect():
     for i, W in enumerate([W1, W2]):
         W.set_value(numpy.ones_like(W.get_value()) * (i + 1))
     new_cg = collect_parameters(cg, cg.shared_variables)
-    collected_params, = new_cg.shared_variables
-    assert numpy.all(collected_params.get_value()[:784 * 100] == 1.)
-    assert numpy.all(collected_params.get_value()[784 * 100:] == 2.)
-    assert collected_params.ndim == 1
+    collected_parameters, = new_cg.shared_variables
+    assert numpy.all(collected_parameters.get_value()[:784 * 100] == 1.)
+    assert numpy.all(collected_parameters.get_value()[784 * 100:] == 2.)
+    assert collected_parameters.ndim == 1
     W1, W2 = VariableFilter(roles=[COLLECTED])(new_cg.variables)
     assert W1.eval().shape == (784, 100)
     assert numpy.all(W1.eval() == 1.)

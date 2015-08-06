@@ -247,7 +247,7 @@ class BaseSequenceGenerator(Initializable):
 
         # Add auxiliary variable for per sequence element cost
         application_call.add_auxiliary_variable(
-            (costs.sum() / mask.sum()) if mask is not None else costs.sum(),
+            (costs.sum() / mask.sum()) if mask is not None else costs.mean(),
             name='per_sequence_element')
         return cost
 
@@ -258,7 +258,8 @@ class BaseSequenceGenerator(Initializable):
 
         # Prepare input for the iterative part
         states = dict_subset(kwargs, self._state_names, must_have=False)
-        contexts = dict_subset(kwargs, self._context_names)
+        # masks in context are optional (e.g. `attended_mask`)
+        contexts = dict_subset(kwargs, self._context_names, must_have=False)
         feedback = self.readout.feedback(outputs)
         inputs = self.fork.apply(feedback, as_dict=True)
 
@@ -336,7 +337,8 @@ class BaseSequenceGenerator(Initializable):
 
         """
         states = dict_subset(kwargs, self._state_names)
-        contexts = dict_subset(kwargs, self._context_names)
+        # masks in context are optional (e.g. `attended_mask`)
+        contexts = dict_subset(kwargs, self._context_names, must_have=False)
         glimpses = dict_subset(kwargs, self._glimpse_names)
         lm_states = dict_subset(kwargs, self._lm_state_names)
         next_glimpses = self.transition.take_glimpses(

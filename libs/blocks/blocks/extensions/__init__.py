@@ -8,7 +8,7 @@ from six import add_metaclass
 from toolz import first
 import re
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 def callback(func):
