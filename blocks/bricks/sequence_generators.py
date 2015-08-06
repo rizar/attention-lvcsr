@@ -176,7 +176,9 @@ class BaseSequenceGenerator(Initializable):
 
     @property
     def _lm_state_names(self):
-        return ['lm_' + name for name in self.language_model._state_names]
+        return (['lm_' + name for name in self.language_model._state_names]
+                if self.language_model
+                else [])
 
     def _push_allocation_config(self):
         # Configure readout. That involves `get_dim` requests
@@ -245,7 +247,7 @@ class BaseSequenceGenerator(Initializable):
 
         # Add auxiliary variable for per sequence element cost
         application_call.add_auxiliary_variable(
-            (costs.sum() / mask.sum()) if mask is not None else costs.sum(),
+            (costs.sum() / mask.sum()) if mask is not None else costs.mean(),
             name='per_sequence_element')
         return cost
 
@@ -256,7 +258,8 @@ class BaseSequenceGenerator(Initializable):
 
         # Prepare input for the iterative part
         states = dict_subset(kwargs, self._state_names, must_have=False)
-        contexts = dict_subset(kwargs, self._context_names)
+        # masks in context are optional (e.g. `attended_mask`)
+        contexts = dict_subset(kwargs, self._context_names, must_have=False)
         feedback = self.readout.feedback(outputs)
         inputs = self.fork.apply(feedback, as_dict=True)
 
@@ -313,16 +316,19 @@ class BaseSequenceGenerator(Initializable):
         :meth:`cost` : Scalar cost.
 
         """
-        return self.evaluate(outputs, mask=mask)[0]
+        return self.evaluate(outputs, mask=mask, **kwargs)[0]
 
     @recurrent
-    def generate(self, outputs, **kwargs):
+    def generate(self, outputs, dont_generate_new_outputs=False, **kwargs):
         """A sequence generation step.
 
         Parameters
         ----------
         outputs : :class:`~tensor.TensorVariable`
             The outputs from the previous step.
+        dont_generate_new_outputs : bool, optional
+            If ``True``, the previous outputs are used instead
+            of generated ones. It is a temporary hack for ASRU.
 
         Notes
         -----
@@ -331,24 +337,19 @@ class BaseSequenceGenerator(Initializable):
 
         """
         states = dict_subset(kwargs, self._state_names)
-        contexts = dict_subset(kwargs, self._context_names)
+        # masks in context are optional (e.g. `attended_mask`)
+        contexts = dict_subset(kwargs, self._context_names, must_have=False)
         glimpses = dict_subset(kwargs, self._glimpse_names)
-        lm_states = {}
-        if self.language_model:
-            lm_states = OrderedDict([(name[3:], state) for name, state in dict_subset(
-                kwargs, self._lm_state_names).items()])
-            lm_states = OrderedDict([('lm_' + name, state) for name, state
-                         in self.language_model.generate(
-                            outputs, as_dict=True, iterate=False,
-                            **lm_states).items()
-                         if 'lm_' + name in self._lm_state_names])
+        lm_states = dict_subset(kwargs, self._lm_state_names)
         next_glimpses = self.transition.take_glimpses(
             as_dict=True,
-            **dict_union(lm_states, states, glimpses, contexts))
+            **dict_union(states, glimpses, contexts))
         next_readouts = self.readout.readout(
             feedback=self.readout.feedback(outputs),
             **dict_union(states, next_glimpses, contexts, lm_states))
-        next_outputs = self.readout.emit(next_readouts)
+        next_outputs = (self.readout.emit(next_readouts)
+            if not dont_generate_new_outputs
+            else outputs)
         next_costs = self.readout.cost(next_readouts, next_outputs)
         next_feedback = self.readout.feedback(next_outputs)
         next_inputs = (self.fork.apply(next_feedback, as_dict=True)
@@ -356,8 +357,16 @@ class BaseSequenceGenerator(Initializable):
         next_states = self.transition.compute_states(
             as_list=True,
             **dict_union(next_inputs, states, next_glimpses, contexts))
+        next_lm_states = {}
+        if self.language_model:
+            unmangled_lm_states = {name[3:]: lm_states[name]
+                                   for name in lm_states}
+            next_lm_states = dict(zip(
+                self._lm_state_names, self.language_model.generate(
+                next_outputs, dont_generate_new_outputs=True, iterate=False,
+                **unmangled_lm_states)))
         return (next_states + [next_outputs] +
-                list(next_glimpses.values()) + list(lm_states.values()) +
+                list(next_glimpses.values()) + list(next_lm_states.values()) +
                 [next_costs])
 
     @generate.delegate

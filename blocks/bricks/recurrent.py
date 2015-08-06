@@ -18,7 +18,7 @@ from blocks.utils import (pack, shared_floatx_nans, shared_floatx_zeros,
                           dict_union, dict_subset, is_shared_variable)
 from blocks.bricks.parallel import Fork
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 unknown_scan_input = """
 
@@ -285,7 +285,7 @@ class SimpleRecurrent(BaseRecurrent, Initializable):
 
     @property
     def W(self):
-        return self.params[0]
+        return self.parameters[0]
 
     def get_dim(self, name):
         if name == 'mask':
@@ -296,11 +296,12 @@ class SimpleRecurrent(BaseRecurrent, Initializable):
         return super(SimpleRecurrent, self).get_dim(name)
 
     def _allocate(self):
-        self.params.append(shared_floatx_nans((self.dim, self.dim), name="W"))
-        add_role(self.params[0], WEIGHT)
-        self.params.append(shared_floatx_zeros((self.dim,),
-                                               name="initial_state"))
-        add_role(self.params[1], INITIAL_STATE)
+        self.parameters.append(shared_floatx_nans((self.dim, self.dim),
+                                                  name="W"))
+        add_role(self.parameters[0], WEIGHT)
+        self.parameters.append(shared_floatx_zeros((self.dim,),
+                                                   name="initial_state"))
+        add_role(self.parameters[1], INITIAL_STATE)
 
     def _initialize(self):
         self.weights_init.initialize(self.W, self.rng)
@@ -331,7 +332,7 @@ class SimpleRecurrent(BaseRecurrent, Initializable):
 
     @application(outputs=apply.states)
     def initial_states(self, batch_size, *args, **kwargs):
-        return tensor.repeat(self.params[1][None, :], batch_size, 0)
+        return tensor.repeat(self.parameters[1][None, :], batch_size, 0)
 
 
 class LSTM(BaseRecurrent, Initializable):
@@ -411,12 +412,12 @@ class LSTM(BaseRecurrent, Initializable):
         add_role(self.initial_state_, INITIAL_STATE)
         add_role(self.initial_cells, INITIAL_STATE)
 
-        self.params = [
+        self.parameters = [
             self.W_state, self.W_cell_to_in, self.W_cell_to_forget,
             self.W_cell_to_out, self.initial_state_, self.initial_cells]
 
     def _initialize(self):
-        for weights in self.params[:4]:
+        for weights in self.parameters[:4]:
             self.weights_init.initialize(weights, self.rng)
 
     @recurrent(sequences=['inputs', 'mask'], states=['states', 'cells'],
@@ -525,11 +526,11 @@ class GatedRecurrent(BaseRecurrent, Initializable):
 
     @property
     def state_to_state(self):
-        return self.params[0]
+        return self.parameters[0]
 
     @property
     def state_to_gates(self):
-        return self.params[1]
+        return self.parameters[1]
 
     @property
     def initial_states_(self):
@@ -660,6 +661,8 @@ class Bidirectional(Initializable):
     def apply_delegate(self):
         return self.children[0].apply
 
+RECURRENTSTACK_SEPARATOR = '#'
+
 
 class RecurrentStack(BaseRecurrent, Initializable):
     u"""Stack of recurrent networks.
@@ -681,9 +684,9 @@ class RecurrentStack(BaseRecurrent, Initializable):
     In order to avoid conflict, the names of the arguments appearing in
     the `states` and `outputs` attributes of the apply method of each
     layers are renamed. The names of the bottom layer are used as-is and
-    a suffix of the form '_<n>' is added to the names from other layers,
-    where '<n>' is the number of the layer starting from 1
-    (for first layer above bottom.)
+    a suffix of the form '#<n>' is added to the names from other layers,
+    where '<n>' is the number of the layer starting from 1, used for first
+    layer above bottom.
 
     The `contexts` of all layers are merged into a single list of unique
     names, and no suffix is added. Different layers with the same context
@@ -750,7 +753,6 @@ class RecurrentStack(BaseRecurrent, Initializable):
         only the `sequences` of the bottom layer appear in the `sequences`
         of the apply of this class. In this case the default fork
         used internally between layers has a bias (see fork_prototype.)
-
         An external code can inspect the `sequences` attribute of the
         apply method of this class to decide which arguments it need
         (and in what order.) With `skip_connections` you can control
@@ -773,32 +775,22 @@ class RecurrentStack(BaseRecurrent, Initializable):
     """
     def suffix(self, name, level):
         if name == "mask":
-            mangled_name = "mask"
-        elif level == 0:
-            mangled_name = name
-        else:
-            mangled_name = name + '_' + str(level)
-        if (mangled_name in self.property_to_level_map and
-            self.property_to_level_map[mangled_name] != (name, level)):
-            logger.warning("The RecurrentStack is non-consistently mangling a name: %s", name)
-        self.property_to_level_map[mangled_name] = (name, level)
-        return mangled_name
+            return "mask"
+        if level == 0:
+            return name
+        return name + RECURRENTSTACK_SEPARATOR + str(level)
 
-    def suffixes(self, names, level):
-        return [self.suffix(name, level)
+    @staticmethod
+    def suffixes(names, level):
+        return [RecurrentStack.suffix(name, level)
                 for name in names if name != "mask"]
 
     def split_suffix(self, name):
-        unmangled = self.property_to_level_map.get(name)
-        if unmangled is not None:
-            return unmangled
-        logger.warning("The RecurrentStack is unmangling a name it didn't mangle: %s", name)
-        # Try this fragile magic
         # Target name with suffix to the correct layer
-        name_level = name.split('_')
-        if len(name_level) == 2:
-            name, level = name_level
-            level = int(level)
+        name_level = name.split(RECURRENTSTACK_SEPARATOR)
+        if len(name_level) == 2 and name_level[-1].isdigit():
+            name = RECURRENTSTACK_SEPARATOR.join(name_level[:-1])
+            level = int(name_level[-1])
         else:
             # It must be from bottom layer
             level = 0
@@ -812,7 +804,7 @@ class RecurrentStack(BaseRecurrent, Initializable):
         self.skip_connections = skip_connections
 
         for level, transition in enumerate(transitions):
-            transition.name += '_' + str(level)
+            transition.name += RECURRENTSTACK_SEPARATOR + str(level)
         self.transitions = transitions
 
         if fork_prototype is None:
@@ -826,8 +818,6 @@ class RecurrentStack(BaseRecurrent, Initializable):
                       for level in range(1, depth)]
 
         self.children = self.transitions + self.forks
-
-        self.property_to_level_map = {'mask':('mask',0)}
 
         # Programmatically set the apply parameters.
         # parameters of base level are exposed as is
@@ -874,6 +864,8 @@ class RecurrentStack(BaseRecurrent, Initializable):
             setattr(self.low_memory_apply, property_,
                     getattr(self.apply, property_))
 
+        self.initial_states.outputs = self.apply.states
+
     def normal_inputs(self, level):
         return [name for name in self.transitions[level].apply.sequences
                 if name != 'mask']
@@ -903,24 +895,11 @@ class RecurrentStack(BaseRecurrent, Initializable):
         `@recurrent` method should have `iterate=False` (or unset) to
         indicate that the iteration over all steps is done externally.
 
-        Parameters
-        ----------
-        See docstring of the class for arguments appearing in
-        self.apply.sequences, self.apply.states, self.apply.contexts
-        All arguments values are of type :class:`~tensor.TensorVariable`.
-
-        In addition the `iterate`, `reverse`, `return_initial_states` or
-        any other argument defined in `recurrent_apply` wrapper.
-
-        Returns
-        -------
-        The outputs of all transitions as defined in `self.apply.outputs`
-        All return values are of type :class:`~tensor.TensorVariable`.
-
         """
         nargs = len(args)
-        assert nargs <= len(self.apply.sequences)
-        kwargs.update(zip(self.apply.sequences[:nargs], args))
+        args_names = self.apply.sequences + self.apply.contexts
+        assert nargs <= len(args_names)
+        kwargs.update(zip(args_names[:nargs], args))
 
         if kwargs.get("reverse", False):
             raise NotImplementedError
@@ -988,18 +967,26 @@ class RecurrentStack(BaseRecurrent, Initializable):
         low_memory : bool
             Use the slow, but also memory efficient, implementation of
             this code.
-
-        See docstring of the class for arguments appearing in
-        self.apply.sequences, self.apply.states, self.apply.contexts
-        All arguments values are of type :class:`~tensor.TensorVariable`.
-
-        In addition the `iterate`, `reverse`, `return_initial_states` or
-        any other argument defined in `recurrent_apply` wrapper.
+        *args : :class:`~tensor.TensorVariable`, optional
+            Positional argumentes in the order in which they appear in
+            `self.apply.sequences` followed by `self.apply.contexts`.
+        **kwargs : :class:`~tensor.TensorVariable`
+            Named argument defined in `self.apply.sequences`,
+            `self.apply.states` or `self.apply.contexts`
 
         Returns
         -------
-        The outputs of all transitions as defined in `self.apply.outputs`
-        All return values are of type :class:`~tensor.TensorVariable`.
+        outputs : (list of) :class:`~tensor.TensorVariable`
+            The outputs of all transitions as defined in
+            `self.apply.outputs`
+
+        See Also
+        --------
+        See docstring of this class for arguments appearing in the lists
+        `self.apply.sequences`, `self.apply.states`, `self.apply.contexts`.
+        See :func:`~blocks.brick.recurrent.recurrent` : for all other
+        parameters such as `iterate` and `return_initial_states` however
+        `reverse` is currently not implemented.
 
         """
         if kwargs.pop('low_memory', False):
@@ -1021,10 +1008,8 @@ class RecurrentStack(BaseRecurrent, Initializable):
 
     @application
     def initial_states(self, batch_size, *args, **kwargs):
-        result = {}
-        for level, transition in enumerate(self.transitions):
-            initial_states = transition.initial_states(
-                batch_size, as_dict=True, *args, **kwargs)
-            result.update({self.suffix(name, level): initial_states[name]
-                           for name in initial_states})
-        return [result[name] for name in self.apply.states]
+        results = []
+        for transition in self.transitions:
+            results += transition.initial_states(batch_size, *args,
+                                                 as_list=True, **kwargs)
+        return results

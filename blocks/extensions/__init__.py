@@ -6,8 +6,9 @@ from abc import ABCMeta, abstractmethod
 import progressbar
 from six import add_metaclass
 from toolz import first
+import re
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 def callback(func):
@@ -374,9 +375,49 @@ class FinishAfter(SimpleExtension):
         self.main_loop.log.current_row['training_finish_requested'] = True
 
 
+class PrintingFilterUnderscored(object):
+    def __call__(self, attr):
+        return attr.startswith('_')
+
+class PrintingFilterList(object):
+    def __init__(self,*args, **kwargs):
+        """
+        Filters out a given set of names or regexpes
+
+        Parameters
+        ----------
+        \*args : list of srt
+            Strings (or regexpes) to filter
+        filter_standard_names: bool, default True
+            If true, a standard list of names will be filtered
+        filter_underscored: bool, default True
+            If true, names beginning with an underscore will be filtered
+
+        """
+        huge_re_parts = []
+        filter_standard_names = kwargs.pop('filter_standard_names', True)
+        filter_underscored = kwargs.pop('filter_underscored', True)
+        super(PrintingFilterList, self).__init__(**kwargs)
+        if filter_standard_names:
+            huge_re_parts += ['batch_interrupt_received',
+                              'epoch_interrupt_received',
+                              'epoch_started',
+                              'received_first_batch',
+                              'resumed_from',
+                              'training_started']
+        if filter_underscored:
+            huge_re_parts.append('_.*')
+        huge_re_parts += args
+        huge_re = '(:?' + '|'.join(['(:?{})'.format(p) for p in huge_re_parts]) + ')'
+        self.regexp = re.compile(huge_re)
+
+    def __call__(self, attrs):
+        return self.regexp.match(attrs)
+
 class Printing(SimpleExtension):
     """Prints log messages to the screen."""
-    def __init__(self, **kwargs):
+
+    def __init__(self, attribute_filter=None, **kwargs):
         kwargs.setdefault("before_first_epoch", True)
         kwargs.setdefault("on_resumption", True)
         kwargs.setdefault("after_training", True)
@@ -384,9 +425,14 @@ class Printing(SimpleExtension):
         kwargs.setdefault("on_interrupt", True)
         super(Printing, self).__init__(**kwargs)
 
+        if attribute_filter is None:
+            attribute_filter = PrintingFilterUnderscored()
+
+        self._attribute_filter = attribute_filter
+
     def _print_attributes(self, attribute_tuples):
         for attr, value in sorted(attribute_tuples.items(), key=first):
-            if not attr.startswith("_"):
+            if not self._attribute_filter(attr):
                 print("\t", "{}:".format(attr), value)
 
     def do(self, which_callback, *args):

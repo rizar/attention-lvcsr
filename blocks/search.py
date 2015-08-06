@@ -10,6 +10,7 @@ from blocks.bricks.sequence_generators import BaseSequenceGenerator
 from blocks.filter import VariableFilter, get_application_call, get_brick
 from blocks.graph import ComputationGraph
 from blocks.roles import INPUT, OUTPUT
+from blocks.utils import unpack
 
 
 class BeamSearch(object):
@@ -30,8 +31,6 @@ class BeamSearch(object):
 
     Parameters
     ----------
-    beam_size : int
-        The beam size.
     samples : :class:`~theano.Variable`
         An output of a sampling computation graph built by
         :meth:`~blocks.brick.SequenceGenerator.generate`, the one
@@ -51,12 +50,10 @@ class BeamSearch(object):
     to work).
 
     """
-    def __init__(self, beam_size, samples):
-        self.beam_size = beam_size
-
+    def __init__(self, samples):
         # Extracting information from the sampling computation graph
-        cg = ComputationGraph(samples)
-        self.inputs = cg.inputs
+        self.cg = ComputationGraph(samples)
+        self.inputs = self.cg.inputs
         self.generator = get_brick(samples)
         if not isinstance(self.generator, BaseSequenceGenerator):
             raise ValueError
@@ -97,7 +94,7 @@ class BeamSearch(object):
     def _compile_initial_state_computer(self):
         # TODO: should be now extractable from the computation graph
         initial_states = self.generator.initial_states(
-                self.beam_size, as_dict=True,
+                1, as_dict=True,
                 **dict(equizip(self.context_names, self.contexts)))
         self.initial_state_computer = function(
             self.contexts, initial_states, on_unused_input='ignore')
@@ -111,30 +108,32 @@ class BeamSearch(object):
             applications=[self.generator.readout.emit], roles=[OUTPUT])(
                 self.inner_cg.variables)
         self.next_state_computer = function(
-            self.contexts + self.input_states + next_outputs, next_states)
+            self.contexts + self.input_states + next_outputs, next_states,
+            # This is temporarily required because `lm_logprobs` is a weird
+            # state which is not used to compute next state, but used to
+            # compute the next output.
+            on_unused_input='ignore')
 
     def _compile_logprobs_computer(self):
         # This filtering should return identical variables
         # (in terms of computations) variables, and we do not care
         # which to use.
-        probs = VariableFilter(
+        logprobs = -VariableFilter(
             applications=[self.generator.readout.emitter.probs],
-            roles=[OUTPUT])(self.inner_cg)[0]
-        logprobs = -tensor.log(probs)
+            roles=[INPUT])(self.inner_cg)[0]
         self.logprobs_computer = function(
             self.contexts + self.input_states, logprobs,
             on_unused_input='ignore')
 
     def compile(self):
         """Compile all Theano functions used."""
-        self._compile_context_computer()
-        self._compile_initial_state_computer()
+        self._compile_initial_state_and_context_computer()
         self._compile_next_state_computer()
         self._compile_logprobs_computer()
         self.compiled = True
 
-    def compute_contexts(self, inputs):
-        """Computes contexts from inputs.
+    def compute_initial_states_and_contexts(self, inputs):
+        """Computes initial states and contexts from inputs.
 
         Parameters
         ----------
@@ -143,29 +142,18 @@ class BeamSearch(object):
 
         Returns
         -------
-        A {name: :class:`numpy.ndarray`} dictionary of contexts ordered
-        like `self.context_names`.
-
-        """
-        contexts = self.context_computer(*[inputs[var]
-                                           for var in self.inputs])
-        return OrderedDict(equizip(self.context_names, contexts))
-
-    def compute_initial_states(self, contexts):
-        """Computes initial states.
-
-        Parameters
-        ----------
-        contexts : dict
-            A {name: :class:`numpy.ndarray`} dictionary of contexts.
-
-        Returns
-        -------
-        A {name: :class:`numpy.ndarray`} dictionary of states ordered like
+        A tuple containing a {name: :class:`numpy.ndarray`} dictionary of
+        contexts ordered like `self.context_names` and a
+        {name: :class:`numpy.ndarray`} dictionary of states ordered like
         `self.state_names`.
 
         """
-        return self.initial_state_computer(*list(contexts.values()))
+        outputs = self.initial_state_and_context_computer(
+            *[inputs[var] for var in self.inputs])
+        contexts = OrderedDict((n, outputs.pop(n)) for n in self.context_names)
+        beam_size = outputs.pop('beam_size')
+        initial_states = outputs
+        return contexts, initial_states, beam_size
 
     def compute_logprobs(self, contexts, states):
         """Compute log probabilities of all possible outputs.
@@ -210,7 +198,7 @@ class BeamSearch(object):
         return OrderedDict(equizip(self.state_names, next_values))
 
     @staticmethod
-    def _smallest(matrix, k, only_first_row=False):
+    def _smallest(matrix, k):
         """Find k smallest elements of a matrix.
 
         Parameters
@@ -219,24 +207,23 @@ class BeamSearch(object):
             The matrix.
         k : int
             The number of smallest elements required.
-        only_first_row : bool, optional
-            Consider only elements of the first row.
 
         Returns
         -------
         Tuple of ((row numbers, column numbers), values).
 
         """
-        if only_first_row:
-            flatten = matrix[:1, :].flatten()
+        flatten = matrix.flatten()
+        if flatten.shape[0] > k:
+            args = numpy.argpartition(flatten, k)[:k]
         else:
-            flatten = matrix.flatten()
-        args = numpy.argpartition(flatten, k)[:k]
+            args = numpy.arange(flatten.shape[0])
         args = args[numpy.argsort(flatten[args])]
         return numpy.unravel_index(args, matrix.shape), flatten[args]
 
     def search(self, input_values, eol_symbol, max_length,
-               ignore_first_eol=False, as_arrays=False):
+               ignore_first_eol=False, as_arrays=False,
+               char_discount=0):
         """Performs beam search.
 
         If the beam search was not compiled, it also compiles it.
@@ -279,50 +266,73 @@ class BeamSearch(object):
             self.compile()
 
         contexts = self.compute_contexts(input_values)
+        large_contexts = OrderedDict(contexts)
         states = self.compute_initial_states(contexts)
 
         # This array will store all generated outputs, including those from
         # previous step and those from already finished sequences.
         all_outputs = states['outputs'][None, :]
-        all_masks = numpy.ones_like(all_outputs, dtype=config.floatX)
         all_costs = numpy.zeros_like(all_outputs, dtype=config.floatX)
 
+        done = []
+
         for i in range(max_length):
-            if all_masks[-1].sum() == 0:
+            if len(states.values()[0].flatten()) == 0:
                 break
 
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
-            logprobs = self.compute_logprobs(contexts, states)
-            next_costs = (all_costs[-1, :, None] +
-                          logprobs * all_masks[-1, :, None])
-            (finished,) = numpy.where(all_masks[-1] == 0)
-            next_costs[finished, :eol_symbol] = numpy.inf
-            next_costs[finished, eol_symbol + 1:] = numpy.inf
+            if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
+                for name, ctx in contexts.items():
+                    large_contexts[name] = numpy.take(ctx, [0]*states.values()[0].shape[0], axis=1)
+            logprobs = self.compute_logprobs(large_contexts, states)
+            assert numpy.isfinite(logprobs).all()
+            next_costs = (all_costs[-1, :, None] + logprobs)
 
-            # The `i == 0` is required because at the first step the beam
-            # size is effectively only 1.
             (indexes, outputs), chosen_costs = self._smallest(
-                next_costs, self.beam_size, only_first_row=i == 0)
+                next_costs, self.beam_size)
 
             # Rearrange everything
             for name in states:
-                states[name] = states[name][indexes]
-            all_outputs = all_outputs[:, indexes]
-            all_masks = all_masks[:, indexes]
-            all_costs = all_costs[:, indexes]
+                states[name] = numpy.take(states[name], indexes, axis=0)
+            all_outputs = numpy.take(all_outputs, indexes, axis=1)
+            all_costs = numpy.take(all_costs, indexes, axis=1)
 
             # Record chosen output and compute new states
-            states.update(self.compute_next_states(contexts, states, outputs))
+            if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
+                for name, ctx in contexts.items():
+                    large_contexts[name] = numpy.take(ctx, [0]*states.values()[0].shape[0], axis=1)
+            states = self.compute_next_states(large_contexts, states, outputs)
+
             all_outputs = numpy.vstack([all_outputs, outputs[None, :]])
             all_costs = numpy.vstack([all_costs, chosen_costs[None, :]])
+
             mask = outputs != eol_symbol
             if ignore_first_eol and i == 0:
                 mask[:] = 1
-            all_masks = numpy.vstack([all_masks, mask[None, :]])
 
+            for idx in numpy.where(mask==0)[0]:
+                done.append((all_outputs[:, idx], all_costs[:, idx]))
+
+            unfinished = numpy.where(mask==1)[0]
+            for name in states:
+                states[name] = numpy.take(states[name], unfinished, axis=0)
+            all_outputs = numpy.take(all_outputs, unfinished, axis=1)
+            all_costs = numpy.take(all_costs, unfinished, axis=1)
+
+        done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
+
+        max_len = max((seq[0].shape[0] for seq in done))
+        all_outputs = numpy.zeros((max_len, len(done)))
+        all_masks = numpy.zeros((max_len, len(done)))
+        all_costs = numpy.zeros((max_len, len(done)))
+        for i, (seq, cost) in enumerate(done):
+            all_outputs[:len(seq), i] = seq
+            all_masks[:len(seq), i] = 1
+            all_costs[:len(cost), i] = cost
+            all_costs[len(cost):, i] = cost[-1]
         all_outputs = all_outputs[1:]
-        all_masks = all_masks[:-1]
+        all_masks = all_masks[1:]
         all_costs = all_costs[1:] - all_costs[:-1]
         result = all_outputs, all_masks, all_costs
         if as_arrays:
