@@ -534,7 +534,7 @@ class GatedRecurrent(BaseRecurrent, Initializable):
 
     @property
     def initial_states_(self):
-        return self.params[2]
+        return self.parameters[2]
 
     def get_dim(self, name):
         if name == 'mask':
@@ -546,17 +546,17 @@ class GatedRecurrent(BaseRecurrent, Initializable):
         return super(GatedRecurrent, self).get_dim(name)
 
     def _allocate(self):
-        self.params.append(shared_floatx_nans((self.dim, self.dim),
+        self.parameters.append(shared_floatx_nans((self.dim, self.dim),
                            name='state_to_state'))
-        add_role(self.params[-1], WEIGHT)
+        add_role(self.parameters[-1], WEIGHT)
 
-        self.params.append(shared_floatx_nans((self.dim, 2 * self.dim),
+        self.parameters.append(shared_floatx_nans((self.dim, 2 * self.dim),
                            name='state_to_gates'))
-        add_role(self.params[-1], WEIGHT)
+        add_role(self.parameters[-1], WEIGHT)
 
-        self.params.append(shared_floatx_nans((self.dim,),
+        self.parameters.append(shared_floatx_nans((self.dim,),
                            name="initial_state"))
-        add_role(self.params[-1], INITIAL_STATE)
+        add_role(self.parameters[-1], INITIAL_STATE)
 
 
     def _initialize(self):
@@ -572,7 +572,7 @@ class GatedRecurrent(BaseRecurrent, Initializable):
             self.rng, (self.dim, self.dim))
         self.state_to_gates.set_value(
             numpy.hstack([state_to_update, state_to_reset]))
-        self.initial_states_init.initialize(self.params.initial_state, self.rng)
+        self.initial_states_init.initialize(self.parameters.initial_state, self.rng)
 
     @recurrent(sequences=['mask', 'inputs', 'gate_inputs'],
                states=['states'], outputs=['states'], contexts=[])
@@ -616,7 +616,7 @@ class GatedRecurrent(BaseRecurrent, Initializable):
 
     @application(outputs=apply.states)
     def initial_states(self, batch_size, *args, **kwargs):
-        return [tensor.repeat(self.params.initial_state[None, :], batch_size, 0)]
+        return [tensor.repeat(self.parameters.initial_state[None, :], batch_size, 0)]
 
 
 class Bidirectional(Initializable):
