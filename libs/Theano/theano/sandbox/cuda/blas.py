@@ -7,7 +7,7 @@ _logger = logging.getLogger(__name__)
 import theano
 from theano import Apply
 from theano import tensor
-from theano.compat.six import StringIO
+from six.moves import StringIO, reduce
 from theano.sandbox.cuda.type import CudaNdarrayType
 from theano.sandbox.cuda import GpuOp
 from theano.sandbox.cuda.basic_ops import (as_cuda_ndarray_variable,
@@ -137,13 +137,9 @@ class BatchedDotOp(GpuOp):
                 host_z[i] = host_z[i - 1] + z_stride;
             }
 
-            err1 = cudaMalloc((void **)&gpu_x, ptr_array_size);
+            gpu_x = (float **) device_malloc(ptr_array_size);
 
-            if (err1 != cudaSuccess)
-            {
-                CLEANUP();
-                PyErr_Format(PyExc_RuntimeError,
-                             "%%s", "cudaMalloc failure");
+            if (gpu_x == NULL){
                 %(fail)s;
             }
 
@@ -195,7 +191,7 @@ class BatchedDotOp(GpuOp):
             do                                          \
             {                                           \
                 if (host_x) free (host_x);              \
-                if (gpu_x) cudaFree(gpu_x);             \
+                if (gpu_x) device_free(gpu_x);          \
             } while (0)
         """
 
@@ -212,6 +208,9 @@ class BatchedDotOp(GpuOp):
             assert elem.dtype.find('float') != -1
 
         return rval
+
+    def c_code_cache_version(self):
+        return (1,)
 
 batched_dot = BatchedDotOp()
 
@@ -727,7 +726,7 @@ class BaseGpuCorrMM(GpuOp):
                 'do not use pad for BaseGpuCorrMM; please set padding in '
                 'border_mode parameter, see the docstring for more details')
             if border_mode != "valid":
-                raise ValueError("border_mode must be 'valid'")
+                raise ValueError("border_mode must be 'valid' if pad is given")
             border_mode = pad
         if isinstance(border_mode, int):
             border_mode = (border_mode, border_mode)
@@ -996,20 +995,21 @@ class BaseGpuCorrMM(GpuOp):
 class GpuCorrMM(BaseGpuCorrMM):
     """GPU correlation implementation using Matrix Multiplication.
 
-    :param border_mode: currently supports "valid" only; "full" can be
-        simulated by setting `pad="full"` (at the cost of performance), or
-        by using `GpuCorrMM_gradInputs`
+    :param border_mode: the width of a border of implicit zeros to pad the
+        input with. Must be a tuple with 2 elements giving the numbers of rows
+        and columns to pad on each side, or a single integer to pad the same
+        on all sides, or a string shortcut setting the padding at runtime:
+        ``'valid'`` for ``(0, 0)`` (valid convolution, no padding), ``'full'``
+        for ``(kernel_rows - 1, kernel_columns - 1)`` (full convolution),
+        ``'half'`` for ``(kernel_rows // 2, kernel_columns // 2)`` (same
+        convolution for odd-sized kernels). Note that the two widths are each
+        applied twice, once per side (left and right, top and bottom).
     :param subsample: the subsample operation applied to each output image.
         Should be a tuple with 2 elements.
         `(sv, sh)` is equivalent to `GpuCorrMM(...)(...)[:,:,::sv, ::sh]`,
         but faster.
         Set to `(1, 1)` to disable subsampling.
-    :param pad: the width of a border of implicit zeros to pad the input
-        image with. Should be a tuple with 2 elements giving the numbers of
-        rows and columns to pad on each side, or "half" to set the padding
-        to `(kernel_rows // 2, kernel_columns // 2)`, or "full" to set the
-        padding to `(kernel_rows - 1, kernel_columns - 1)` at runtime.
-        Set to `(0, 0)` to disable padding.
+    :param pad: deprecated alias for `border_mode`.
 
     :note: Currently, the Op requires the inputs, filters and outputs to be
         C-contiguous. Use :func:`gpu_contiguous
@@ -1804,6 +1804,12 @@ class GpuConv(GpuOp):
             self.max_threads_dim0 = None
         if not hasattr(self, "direction_hint"):
             self.direction_hint = None
+        if not hasattr(self, "nkern"):
+            self.nkern = None
+        if not hasattr(self, "bsize"):
+            self.bsize = None
+        if not hasattr(self, "fft_opt"):
+            self.fft_opt = True
 
     def __hash__(self):
         # don't use hash(self.version) as hash(-1)==-2 and
@@ -1891,7 +1897,7 @@ class GpuConv(GpuOp):
 
     def c_code_cache_version(self):
         # raise this whenever modifying any of the support_code_files
-        return (0, 22)
+        return (0, 23)
 
     def c_support_code_apply(self, node, nodename):
         # REMEMBER TO RAISE c_code_cache_version when changing any of

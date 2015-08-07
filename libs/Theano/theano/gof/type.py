@@ -1,5 +1,6 @@
 """WRITEME Defines the `Type` class."""
 from theano.compat import PY3
+from six import string_types
 
 from theano.gof import utils
 from theano.gof.utils import MethodNotDefined, object2
@@ -281,11 +282,7 @@ class PureType(object):
                 'Cannot convert Type %(othertype)s '
                 '(of Variable %(other)s) into Type %(self)s. '
                 'You can try to manually convert %(other)s into a %(self)s.'
-                % dict(
-                    othertype=other.type,
-                    other=other,
-                    self=self)
-                )
+                % dict(othertype=other.type, other=other, self=self))
         return other
 
     def is_valid_value(self, a):
@@ -540,10 +537,10 @@ class CDataType(Type):
                          function must have a `void` return and take a
                          single pointer argument.
         """
-        assert isinstance(ctype, basestring)
+        assert isinstance(ctype, string_types)
         self.ctype = ctype
         if freefunc is not None:
-            assert isinstance(freefunc, basestring)
+            assert isinstance(freefunc, string_types)
         self.freefunc = freefunc
 
     def __eq__(self, other):
@@ -633,7 +630,7 @@ if (py_%(name)s == NULL) { %(freefunc)s(%(name)s); }
         return ""
 
     def c_code_cache_version(self):
-        return (2,)
+        return (2, self.ctype, self.freefunc)
 
     def __str__(self):
         return "%s{%s}" % (self.__class__.__name__, self.ctype)

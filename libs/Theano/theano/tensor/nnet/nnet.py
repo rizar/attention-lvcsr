@@ -11,9 +11,11 @@
 """
 import logging
 import numpy
+from six.moves import xrange
 
 import theano
 from theano import gof
+from theano import scalar
 from theano.tensor import basic as tensor
 from theano.tensor import subtensor
 from theano.tensor import elemwise
@@ -26,11 +28,11 @@ from theano.gradient import DisconnectedType
 from theano.gradient import grad_not_implemented
 from theano.tensor.type import values_eq_approx_remove_nan
 
-
 ############
 #
 # TENSOR OPS
 #
+
 
 class SoftmaxWithBias(gof.Op):
     """
@@ -43,21 +45,9 @@ class SoftmaxWithBias(gof.Op):
     This L{Op}'s output is softmax(x+b).
     softmax(x[i]) is the i'th distribution over len(x[i]) options.
     """
-
     nin = 2
     nout = 1
-
-    def __init__(self, **kwargs):
-        gof.Op.__init__(self, **kwargs)
-
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
+    __props__ = ()
 
     def make_node(self, x, b):
         x = tensor.as_tensor_variable(x)
@@ -69,7 +59,7 @@ class SoftmaxWithBias(gof.Op):
                 or x.type.dtype not in tensor.float_dtypes:
             raise ValueError('b must be 1-d tensor of floats')
 
-        sm = x.type.make_variable()
+        sm = x.type()
         return Apply(self, [x, b], [sm])
 
     def perform(self, node, input_storage, output_storage):
@@ -77,12 +67,17 @@ class SoftmaxWithBias(gof.Op):
         if b.shape[0] != x.shape[1]:
             raise ValueError('b must have same number of columns as x')
 
-        sm = numpy.zeros_like(x)
-        for i in xrange(sm.shape[0]):
-            row = x[i] + b
-            sm[i] = numpy.exp(row - numpy.max(row))
-            sm[i] *= 1.0 / numpy.sum(sm[i])
-        output_storage[0][0] = sm
+        # sm = numpy.zeros_like(x)
+        # for i in xrange(sm.shape[0]):
+            # row = x[i] + b
+            # sm[i] = numpy.exp(row - numpy.max(row))
+            # sm[i] *= 1.0 / numpy.sum(sm[i])
+        # output_storage[0][0] = sm
+
+        x_plus_b = x + b[None, :]
+        e_x = numpy.exp(x_plus_b - x_plus_b.max(axis=1)[:, None])
+        e_x *= 1.0 / e_x.sum(axis=1)[:, None]
+        output_storage[0][0] = e_x
 
     def grad(self, inp, grads):
         x, b = inp
@@ -278,7 +273,6 @@ class SoftmaxGrad(gof.Op):
     """Gradient wrt x of the Softmax Op"""
     nin = 2
     nout = 1
-
     __props__ = ()
 
     def make_node(self, dy, sm):
@@ -292,7 +286,7 @@ class SoftmaxGrad(gof.Op):
             dy = tensor.shape_padleft(dy, n_ones=1)
         if sm.ndim == 1:
             sm = tensor.shape_padleft(sm, n_ones=1)
-        return Apply(self, [dy, sm], [sm.type.make_variable()])
+        return Apply(self, [dy, sm], [sm.type()])
 
     def perform(self, node, input_storage, output_storage):
         dy, sm = input_storage
@@ -303,8 +297,17 @@ class SoftmaxGrad(gof.Op):
             dx[i] = dy_times_sm_i - sum(dy_times_sm_i) * sm[i]
         output_storage[0][0] = dx
 
-    def grad(self, *args):
-        raise NotImplementedError()
+    def grad(self, inp, grads):
+        dy, sm = inp
+        g, = grads
+
+        tmp = g + tensor.neg(tensor.sum(g * sm, axis=1).dimshuffle((0, 'x')))
+        g_dy = tmp * sm
+
+        tmp2 = tensor.sum(dy * sm, axis=1).dimshuffle((0, 'x'))
+        g_sm = tmp * dy - g * tmp2
+
+        return g_dy, g_sm
 
     def infer_shape(self, node, shape):
         return [shape[1]]
@@ -413,7 +416,7 @@ class Softmax(gof.Op):
     def grad(self, inp, grads):
         x, = inp
         g_sm, = grads
-        sm = softmax(x)
+        sm = softmax_op(x)
         return [softmax_grad(g_sm, sm)]
 
     def R_op(self, inputs, eval_points):
@@ -567,15 +570,23 @@ class Softmax(gof.Op):
     def c_code_cache_version():
         return (3,)
 
-softmax = Softmax()
+softmax_op = Softmax()
+
+
+def softmax_graph(c):
+    return tensor.exp(c) / tensor.exp(c).sum(axis=-1, keepdims=True)
+
+
+def softmax(c):
+    return softmax_op(c)
 
 
 @opt.register_specialize('fast_compile_gpu')
-@gof.local_optimizer([softmax])
+@gof.local_optimizer([softmax_op])
 def local_softmax_with_bias(node):
     """Try to turn softmax(sum_of_stuff) -> softmax_w_bias(matrix, bias)
     """
-    if node.op == softmax:
+    if node.op == softmax_op:
         x, = node.inputs
         if x.owner and x.owner.op == tensor.add:
             vectors = []
@@ -586,15 +597,15 @@ def local_softmax_with_bias(node):
                     # tensor.DimShuffle) since specialization comes
                     # relatively late in optimization, we don't want to
                     # put in extra DimShuffles un-necessarily.
-                    if (x_in.owner and isinstance(x_in.owner.op,
-                                                 tensor.DimShuffle)
-                 and list(x_in.owner.inputs[0].type.broadcastable) == [False]):
+                    if (x_in.owner and
+                            isinstance(x_in.owner.op, tensor.DimShuffle) and
+                            list(x_in.owner.inputs[0].type.broadcastable) == [False]):
                         # cut out the DimShuffle that was broadcasting a vector
                         vectors.append(x_in.owner.inputs[0])
                     else:
                         # insert an extra DimShuffle to correct the old one
                         vectors.append(tensor.
-                            DimShuffle((True, False), (1,))(x_in))
+                                       DimShuffle((True, False), (1,))(x_in))
                 else:
                     non_vectors.append(x_in)
 
@@ -637,7 +648,7 @@ def softmax_simplifier(numerators, denominators):
         if not numerator.type.dtype.startswith('float'):
             continue
 
-        if not numerator.type.broadcastable == (False, False):
+        if numerator.ndim != 2:
             continue
         if numerator.owner and numerator.owner.op == tensor.exp:
             x = numerator.owner.inputs[0]
@@ -651,7 +662,7 @@ def softmax_simplifier(numerators, denominators):
                                                 tensor.DimShuffle):
                 if denominator.owner.op.new_order == (0, 'x'):
                     z = denominator.owner.inputs[0]
-                          # thing getting dimshuffled
+                    # thing getting dimshuffled
                     if z.owner and isinstance(z.owner.op, tensor.Sum):
                         # print 'ASDF', denominator.owner.op.new_order
                         # print z.owner.op.axis
@@ -663,10 +674,10 @@ def softmax_simplifier(numerators, denominators):
         if matching_denom:
             numerators.remove(numerator)
             denominators.remove(matching_denom)
-            numerators.append(softmax(x))
+            numerators.append(softmax_op(x))
+
     return numerators, denominators
-opt.local_mul_canonizer.add_simplifier(softmax_simplifier,
-     'softmax_simplifier')
+opt.local_mul_canonizer.add_simplifier(softmax_simplifier, 'softmax_simplifier')
 
 if 0:
     @opt.register_specialize
@@ -686,11 +697,11 @@ if 0:
             # First, prod_term
             for add_in in add_inputs:
                 if (add_in.owner and
-                    add_in.owner.op == tensor.mul and
-                    prod_term is None):
+                        add_in.owner.op == tensor.mul and
+                        prod_term is None):
                     mul_inputs = add_in.owner.inputs
                     if (len(mul_inputs) == 2 and
-                        all([mul_in.ndim == 2 for mul_in in mul_inputs])):
+                            all([mul_in.ndim == 2 for mul_in in mul_inputs])):
                         prod_term = add_in
                     else:
                         other_terms.append(add_in)
@@ -716,16 +727,16 @@ if 0:
                         maybe_ds = None
                         for i, mul2_in in enumerate(mul2_inputs):
                             if mul2_in.owner and isinstance(mul2_in.owner.op,
-                                                        elemwise.DimShuffle):
+                                                            elemwise.DimShuffle):
                                 maybe_ds = mul2_in
                                 maybe_sm = mul2_inputs[1 - i]  # The other one
                         if (maybe_ds is None or
-                            maybe_ds.ndim != 2 or
-                            maybe_sm.ndim != 2):
+                                maybe_ds.ndim != 2 or
+                                maybe_sm.ndim != 2):
                             rest.append(add_in)
                             # print 'maybe_ds =', maybe_ds
                             # if maybe_ds:
-                            #    print 'maybe_ds.ndim =', maybe_ds.ndim, ', maybe_sm.ndim =', maybe_sm.ndim
+                            # print 'maybe_ds.ndim =', maybe_ds.ndim, ', maybe_sm.ndim =', maybe_sm.ndim
                             continue
 
                         if maybe_sm is mul_inputs[0]:
@@ -747,8 +758,8 @@ if 0:
                             sum_input = ds_input.owner.inputs[0]
 
                         if ((ds_order != (0, 'x')) or
-                            (axis != (1,)) or
-                            (sum_input is not prod_term)):
+                                (axis != (1,)) or
+                                (sum_input is not prod_term)):
                             rest.append(add_in)
                             # print 'ds_order =', ds_order
                             # print 'axis =', axis
@@ -807,18 +818,10 @@ class CrossentropySoftmaxArgmax1HotWithBias(gof.Op):
     """
     nin = 3
     nout = 3
+    __props__ = ()
 
     def __init__(self, **kwargs):
         gof.Op.__init__(self, **kwargs)
-
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
 
     def make_node(self, x, b, y_idx):
         x = tensor.as_tensor_variable(x)
@@ -836,10 +839,10 @@ class CrossentropySoftmaxArgmax1HotWithBias(gof.Op):
 
 #       TODO: Is this correct? It used to be y, not y_idx
         nll = tensor.TensorType(x.type.dtype,
-                y_idx.type.broadcastable).make_variable()
+                                y_idx.type.broadcastable).make_variable()
 #        nll = TensorType(x.dtype, y.broadcastable)
-        sm = x.type.make_variable()
-        am = y_idx.type.make_variable()
+        sm = x.type()
+        am = y_idx.type()
         return Apply(self, [x, b, y_idx], [nll, sm, am])
 
     def perform(self, node, input_storage, output_storage):
@@ -866,15 +869,14 @@ class CrossentropySoftmaxArgmax1HotWithBias(gof.Op):
         if any(y_idx < 0):
             raise ValueError("y_i value out of bounds")
         sm = numpy.zeros_like(x)  # softmax
-        nll = numpy.zeros(x.shape[0], dtype=node.outputs[0].type.
-            dtype)  # nll(y | softmax(x))
+        nll = numpy.zeros(x.shape[0], dtype=node.outputs[0].type.dtype)  # nll(y | softmax(x))
         am = numpy.zeros_like(y_idx)
         for i in xrange(sm.shape[0]):
             # add the bias vector to the i'th row of x
             row = x[i] + b
 
             # get the maximum value of i'th row for numerically safe
-            #softmax / nll
+            # softmax / nll
             am[i] = numpy.argmax(row)
             m = row[am[i]]
 
@@ -956,7 +958,7 @@ class CrossentropySoftmaxArgmax1HotWithBias(gof.Op):
 
         # TODO: use this to accept float32 and int32: node.inputs[0].type.dtype_specs()[1]
         (init_decl, begin_row_loop, inside_row_loop, end_row_loop) = \
-                SoftmaxWithBias.c_code_template(dtype)
+            SoftmaxWithBias.c_code_template(dtype)
         return (init_decl,
                 """
         if (PyArray_NDIM(%(y_idx)s) != 1)
@@ -1037,33 +1039,24 @@ class CrossentropySoftmaxArgmax1HotWithBias(gof.Op):
 class CrossentropySoftmax1HotWithBiasDx(gof.Op):
     nin = 3
     nout = 1
+    __props__ = ()
+
     """Gradient wrt x of the CrossentropySoftmaxArgmax1HotWithBias Op"""
-    def __init__(self, **kwargs):
-        gof.Op.__init__(self, **kwargs)
-
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
 
     def make_node(self, dy, sm, y_idx, **kwargs):
         dy = tensor.as_tensor_variable(dy)
         sm = tensor.as_tensor_variable(sm)
         y_idx = tensor.as_tensor_variable(y_idx)
         if (dy.type.ndim > 1 or
-            dy.type.dtype not in tensor.float_dtypes):
+                dy.type.dtype not in tensor.float_dtypes):
             raise ValueError('dy must be {0,1}-d tensor of floats', dy.type)
         if (sm.type.ndim != 2 or
-            sm.type.dtype not in tensor.float_dtypes):
+                sm.type.dtype not in tensor.float_dtypes):
             raise ValueError('sm must be 2-d tensor of floats', sm.type)
         if (y_idx.type.ndim != 1 or
-            y_idx.type.dtype not in tensor.discrete_dtypes):
+                y_idx.type.dtype not in tensor.discrete_dtypes):
             raise ValueError('y_idx must be 1-d tensor of [u]ints', y_idx.type)
-        return Apply(self, [dy, sm, y_idx], [sm.type.make_variable()])
+        return Apply(self, [dy, sm, y_idx], [sm.type()])
 
     def perform(self, node, input_storage, output_storage):
         dy, sm, y_idx = input_storage
@@ -1091,9 +1084,8 @@ class CrossentropySoftmax1HotWithBiasDx(gof.Op):
         # typically we should not need the gradient w.r.t. dy).
         y_idx_range = tensor.arange(y_idx.shape[0])
         g_dy = tensor.sum(
-                g_dx * subtensor.AdvancedIncSubtensor()(
-                    sm, tensor.fill(dy, -1), y_idx_range, y_idx),
-                axis=1)
+            g_dx * subtensor.AdvancedIncSubtensor()(
+                sm, tensor.fill(dy, -1), y_idx_range, y_idx), axis=1)
         g_sm = dy.dimshuffle(0, 'x') * g_dx
         g_y_idx = grad_not_implemented(self, 2, y_idx)
         return [g_dy, g_sm, g_y_idx]
@@ -1235,8 +1227,7 @@ def crossentropy_softmax_max_and_argmax_1hot_with_bias(x, b, y_idx, **kwargs):
     unnecessary? e.g. CrossentropySoftmaxArgmax1HotWithBias should return
     the appropriate information (i.e. the max probability)?
     """
-    (xent, softmax) = crossentropy_softmax_1hot_with_bias(x, b, y_idx,
-         **kwargs)
+    (xent, softmax) = crossentropy_softmax_1hot_with_bias(x, b, y_idx, **kwargs)
     (max_pr, argmax) = tensor.max_and_argmax(softmax, axis=-1)
     return (xent, softmax, max_pr, argmax)
 
@@ -1249,14 +1240,7 @@ def crossentropy_softmax_max_and_argmax_1hot(x, y_idx, **kwargs):
 
 class CrossentropyCategorical1HotGrad(gof.Op):
 
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
+    __props__ = ()
 
     def make_node(self, g_y, coding_dist, true_one_of_n):
         return Apply(self, [g_y, coding_dist, true_one_of_n],
@@ -1267,8 +1251,8 @@ class CrossentropyCategorical1HotGrad(gof.Op):
         g_coding_strg, = out
         g_coding = numpy.zeros_like(coding_dist)
         for i in xrange(len(g_y)):
-            g_coding[i, true_one_of_n[i]] = -g_y[i] / coding_dist[i,
-                                                        true_one_of_n[i]]
+            g_coding[i, true_one_of_n[i]] = (-g_y[i] /
+                                             coding_dist[i, true_one_of_n[i]])
         g_coding_strg[0] = g_coding
 
     def infer_shape(self, node, in_shapes):
@@ -1292,15 +1276,7 @@ class CrossentropyCategorical1Hot(gof.Op):
            away in favour of one with a C implementation.
 
     """
-
-    def __eq__(self, other):
-        return type(self) == type(other)
-
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
+    __props__ = ()
 
     def make_node(self, coding_dist, true_one_of_n):
         """
@@ -1321,8 +1297,8 @@ class CrossentropyCategorical1Hot(gof.Op):
                                                    tensor.lvector))
 
         return Apply(self, [_coding_dist, _true_one_of_n],
-                [tensor.Tensor(dtype=_coding_dist.dtype,
-                               broadcastable=[False])()])
+                     [tensor.Tensor(dtype=_coding_dist.dtype,
+                      broadcastable=[False])()])
 
     def perform(self, node, inp, out):
         coding, one_of_n = inp
@@ -1370,10 +1346,11 @@ def crossentropy_to_crossentropy_with_softmax_with_bias(fgraph):
                 sm, one_of_n = node.inputs
                 if sm.owner and sm.owner.op == softmax_with_bias:
                     x, b = sm.owner.inputs
-                    new_nll, new_sm, new_am = crossentropy_softmax_argmax_1hot_with_bias(x, b,
-                            one_of_n)
-                    fgraph.replace_all_validate([(nll, new_nll), (sm, new_sm)],
-                reason="crossentropy_to_crossentropy_with_softmax_with_bias")
+                    new_nll, new_sm, new_am = crossentropy_softmax_argmax_1hot_with_bias(
+                        x, b, one_of_n)
+                    fgraph.replace_all_validate(
+                        [(nll, new_nll), (sm, new_sm)],
+                        reason="crossentropy_to_crossentropy_with_softmax_with_bias")
                     return True
 
         return False
@@ -1403,19 +1380,21 @@ def crossentropy_to_crossentropy_with_softmax(fgraph):
             if node.op == crossentropy_categorical_1hot:
                 nll, = node.outputs
                 sm, one_of_n = node.inputs
-                if sm.owner and sm.owner.op == softmax:
+                if sm.owner and sm.owner.op == softmax_op:
                     x, = sm.owner.inputs
-                    new_nll, new_sm, new_am = crossentropy_softmax_argmax_1hot_with_bias(x,
-                            tensor.zeros_like(x[0]), one_of_n)
-                    fgraph.replace_all_validate([(nll, new_nll), (sm, new_sm)],
-                            reason="crossentropy_to_crossentropy_with_softmax")
+                    new_nll, new_sm, new_am = crossentropy_softmax_argmax_1hot_with_bias(
+                        x, tensor.zeros_like(x[0]), one_of_n)
+                    fgraph.replace_all_validate(
+                        [(nll, new_nll), (sm, new_sm)],
+                        reason="crossentropy_to_crossentropy_with_softmax")
                     return True
                 if sm.owner and sm.owner.op == softmax_with_bias:
                     x, b = sm.owner.inputs
                     new_nll, new_sm, new_am = crossentropy_softmax_argmax_1hot_with_bias(x, b,
-                            one_of_n)
-                    fgraph.replace_all_validate([(nll, new_nll), (sm, new_sm)],
-                            reason="crossentropy_to_crossentropy_with_softmax")
+                                                                                         one_of_n)
+                    fgraph.replace_all_validate(
+                        [(nll, new_nll), (sm, new_sm)],
+                        reason="crossentropy_to_crossentropy_with_softmax")
                     return True
 
         return False
@@ -1437,10 +1416,10 @@ def local_softmax_grad_to_crossentropy_with_softmax_grad(node):
     if node.op == softmax_grad:
         g_coding_dist, coding_dist = node.inputs
         if (g_coding_dist.owner and
-            g_coding_dist.owner.op == crossentropy_categorical_1hot_grad):
+                g_coding_dist.owner.op == crossentropy_categorical_1hot_grad):
             g_nll, coding_dist, true_one_of_n = g_coding_dist.owner.inputs
-            dx = crossentropy_softmax_1hot_with_bias_dx(g_nll,
-                 coding_dist, true_one_of_n)
+            dx = crossentropy_softmax_1hot_with_bias_dx(g_nll, coding_dist,
+                                                        true_one_of_n)
             return [dx]
 
 
@@ -1449,23 +1428,24 @@ def local_softmax_grad_to_crossentropy_with_softmax_grad(node):
 def local_argmax_pushdown(node):
     if node.op == tensor._max_and_argmax and node.inputs[0].owner and \
             len(node.outputs[0].clients) > 0 and node.inputs[0].owner.op in \
-            (softmax, softplus, tensor.exp, tensor.log, tensor.tanh, sigmoid,
+            (softmax_op, softplus, tensor.exp, tensor.log, tensor.tanh, sigmoid,
              softmax_with_bias):
         if theano.config.warn.argmax_pushdown_bug:
-            logging.getLogger('theano.tensor.nnet.nnet').warn("WARNING: there "
-                    "was a bug in Theano fixed on May 27th, 2010 in this case."
-                    " I.E. when we take the max of a softplus, softmax, exp, "
-                    "log, tanh, sigmoid, softmax_with_bias op, we were doing "
-                    "the max of the parent of the input. To remove this "
-                    "warning set the Theano flags 'warn.argmax_pushdown_bug' "
-                    "to False")
+            logging.getLogger('theano.tensor.nnet.nnet').warn(
+                "WARNING: there "
+                "was a bug in Theano fixed on May 27th, 2010 in this case."
+                " I.E. when we take the max of a softplus, softmax, exp, "
+                "log, tanh, sigmoid, softmax_with_bias op, we were doing "
+                "the max of the parent of the input. To remove this "
+                "warning set the Theano flags 'warn.argmax_pushdown_bug' "
+                "to False")
 
     if (node.op == tensor._max_and_argmax and
-        node.inputs[0].owner and len(node.outputs[0].clients) == 0):
+            node.inputs[0].owner and len(node.outputs[0].clients) == 0):
         x_max, x_argmax = node.outputs
         x, axis = node.inputs
         # TODO: Make a list/set of monotonic ops...
-        if x.owner and x.owner.op in (softmax, softplus, tensor.exp,
+        if x.owner and x.owner.op in (softmax_op, softplus, tensor.exp,
                                       tensor.log, tensor.tanh, sigmoid):
             pre_x, = x.owner.inputs
             return tensor._max_and_argmax(pre_x, axis)
@@ -1553,7 +1533,7 @@ def local_advanced_indexing_crossentropy_onehot(node):
             except Exception:
                 pass
 
-    if sm is not None and sm.owner and sm.owner.op in (softmax,
+    if sm is not None and sm.owner and sm.owner.op in (softmax_op,
                                                        softmax_with_bias):
         sm_w_bias = local_softmax_with_bias.transform(sm.owner)
         if sm_w_bias:
@@ -1583,7 +1563,7 @@ def local_advanced_indexing_crossentropy_onehot_grad(node):
     except Exception:
         return
 
-    if (sm is not None) and sm.owner and (sm.owner.op in (softmax,
+    if (sm is not None) and sm.owner and (sm.owner.op in (softmax_op,
                                                           softmax_with_bias)):
         sm_w_bias = local_softmax_with_bias.transform(sm.owner)
         if sm_w_bias:
@@ -1681,15 +1661,15 @@ def local_advanced_indexing_crossentropy_onehot_grad(node):
             if isinstance(denom.owner.op, subtensor.AdvancedSubtensor):
                 # Base case
                 adv_subtensor = denom
-                #out_grad /= 1.
+                # out_grad /= 1.
             elif denom.owner.op == tensor.mul:
                 # Try to find the AdvancedSubtensor node mentionned above,
                 # and the output gradient
                 for i, input in enumerate(denom.owner.inputs):
                     if input.owner and isinstance(input.owner.op,
                                                   subtensor.AdvancedSubtensor):
-                        other_inputs = [in_ for (j,
-                             in_) in enumerate(denom.owner.inputs) if j != i]
+                        other_inputs = [in_ for (j, in_) in
+                                        enumerate(denom.owner.inputs) if j != i]
                         if len(other_inputs) == 1:
                             rest = other_inputs[0]
                         else:
@@ -1855,8 +1835,8 @@ def local_useless_crossentropy_softmax_1hot_with_bias_dx_alloc(node):
             # `CrossentropySoftmax1HotWithBiasDx`) we do not need to
             # check it at runtime.
             if (dz_broad[0] and
-                not same_shape(sm, dy, dim_x=0, dim_y=0) and
-                shape_of[dy][0] != 1):
+                    not same_shape(sm, dy, dim_x=0, dim_y=0) and
+                    shape_of[dy][0] != 1):
                 # If `dz` is broadcastable, we need to check whether the shapes
                 # of `dy` and `sm` are the same or whether the shape of `dy` is
                 # equal to 1.
@@ -1918,27 +1898,22 @@ def categorical_crossentropy(coding_dist, true_dist):
 
     """
     if true_dist.ndim == coding_dist.ndim:
-        return -tensor.sum(true_dist * tensor.log(coding_dist), axis=coding_dist.ndim-1)
+        return -tensor.sum(true_dist * tensor.log(coding_dist),
+                           axis=coding_dist.ndim - 1)
     elif true_dist.ndim == coding_dist.ndim - 1:
         return crossentropy_categorical_1hot(coding_dist, true_dist)
     else:
         raise TypeError('rank mismatch between coding and true distributions')
 
 
-from theano import scalar
-
-
 class Prepend_scalar_constant_to_each_row(gof.Op):
+
+    __props__ = ()
+
     def __init__(self, val=0):
         if isinstance(val, float):
             val = scalar.constant(val)
         self.val = val
-
-    def __eq__(self, other):
-        return (type(self) == type(other)) and (self.val == other.val)
-
-    def __hash__(self):
-        return tensor.hashtype(self) ^ hash(self.val.data)
 
     def __str__(self):
         return '%s{%s}' % (self.__class__.__name__, self.val)
@@ -1986,14 +1961,8 @@ class Prepend_scalar_constant_to_each_row(gof.Op):
 
 
 class Prepend_scalar_to_each_row(gof.Op):
-    def __eq__(self, other):
-        return (type(self) == type(other))
 
-    def __hash__(self):
-        return tensor.hashtype(self)
-
-    def __str__(self):
-        return self.__class__.__name__
+    __props__ = ()
 
     def make_node(self, val, mat):
         # check type of input
@@ -2053,11 +2022,46 @@ def make_out_pattern(X):
     return out_var
 
 
-local_log_softmax = gof.PatternSub(in_pattern=(tensor.log, (softmax, 'x')),
+local_log_softmax = gof.PatternSub(in_pattern=(tensor.log, (softmax_op, 'x')),
                                    out_pattern=(make_out_pattern, 'x'),
                                    allow_multiple_clients=True)
 
 # don't do register_stabilize, this is to make local_log_softmax run
 # only after another more specific optimization that stabilizes cross entropy
-#opt.register_stabilize(local_log_softmax, name = 'local_log_softmax')
+# opt.register_stabilize(local_log_softmax, name = 'local_log_softmax')
 opt.register_specialize(local_log_softmax, 'fast_compile_gpu', name='local_log_softmax')
+
+
+def relu(x, alpha=0):
+    """
+    Compute the element-wise rectified linear activation function.
+
+    :type x: symbolic tensor
+    :param x: Tensor to compute the activation function for.
+
+    :type alpha: scalar or tensor, optional
+    :param alpha: Slope for negative input, usually between 0 and 1. The
+        default value of 0 will lead to the standard rectifier, 1 will lead to
+        a linear activation function, and any value in between will give a
+        leaky rectifier. A shared variable (broadcastable against `x`) will
+        result in a parameterized rectifier with learnable slope(s).
+
+    :rtype: symbolic tensor
+    :return: element-wise rectifier applied to `x`
+
+    .. note:: This is numerically equivalent to
+        ``T.switch(x > 0, x, alpha * x)``
+        (or ``T.maximum(x, alpha * x)`` for ``alpha < 1``), but uses a faster
+        formulation or an optimized Op, so we encourage to use this function.
+
+    """
+    # This is probably the fastest implementation for GPUs. Both the forward
+    # pass and the gradient get compiled into a single GpuElemwise call.
+    # TODO: Check if it's optimal for CPU as well; add an "if" clause if not.
+    # TODO: Check if there's a faster way for the gradient; create an Op if so.
+    if alpha == 0:
+        return 0.5 * (x + abs(x))
+    else:
+        f1 = 0.5 * (1 + alpha)
+        f2 = 0.5 * (1 - alpha)
+        return f1 * x + f2 * abs(x)

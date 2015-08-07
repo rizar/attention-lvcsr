@@ -1,10 +1,12 @@
 from __future__ import print_function
+from functools import partial
 import sys
 import time
+import inspect
 
 import theano
 from theano import config
-from theano.compat import partial, OrderedDict
+from theano.compat import OrderedDict
 from theano.gof import graph
 
 
@@ -199,7 +201,27 @@ class Validator(Feature):
 
     def validate_(self, fgraph):
         t0 = time.time()
-        ret = fgraph.execute_callbacks('validate')
+        try:
+            ret = fgraph.execute_callbacks('validate')
+        except Exception as e:
+            cf = inspect.currentframe()
+            uf = cf.f_back
+            uf_info = inspect.getframeinfo(uf)
+
+            # If the caller is replace_all_validate, just raise the
+            # exception. replace_all_validate will print out the
+            # verbose output.
+            # Or it has to be done here before raise.
+            if uf_info.function == 'replace_all_validate':
+                raise
+            else:
+                verbose = uf.f_locals.get('verbose', False)
+                if verbose:
+                    r = uf.f_locals.get('r', "")
+                    reason = uf_info.function
+                    print("validate failed on node %s.\n Reason: %s, %s" %
+                          (r, reason, e))
+                raise
         t1 = time.time()
         if fgraph.profile:
             fgraph.profile.validate_time += t1 - t0
@@ -271,6 +293,8 @@ class ReplaceValidate(History, Validator):
             fgraph.validate()
         except Exception as e:
             fgraph.revert(chk)
+            if verbose:
+                print("validate failed on node %s.\n Reason: %s, %s" % (r, reason, e))
             raise
         if verbose:
             print(reason, r, new_r)
@@ -412,7 +436,7 @@ class NoOutputFromInplace(Feature):
             node = out.owner
             op = node.op
             out_idx = node.outputs.index(out)
-            if hasattr(op, 'destroy_map') and out_idx in op.destroy_map.keys():
+            if hasattr(op, 'destroy_map') and out_idx in op.destroy_map:
                 raise theano.gof.InconsistencyError(
                     "A function graph Feature has requested (probably for ",
                     "efficiency reasons for scan) that outputs of the graph",

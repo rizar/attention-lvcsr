@@ -4,12 +4,12 @@ import logging
 import sys
 
 import numpy
+from six import iteritems
+from six.moves import StringIO, xrange
 
 import theano
-
 from theano import gof, Type, Apply
 from theano import tensor, scalar, config
-from theano.compat.six import StringIO
 from theano.gradient import grad_undefined
 from theano.scalar import Scalar
 
@@ -228,7 +228,7 @@ class GpuElemwise(GpuOp):
                 self.sync == other.sync)
 
     def _rehash(self):
-        items = self.inplace_pattern.items()
+        items = list(self.inplace_pattern.items())
         items.sort()
         tuple_items = [k for k, v in items]
         for k, v in items:
@@ -248,7 +248,7 @@ class GpuElemwise(GpuOp):
 
     def __str__(self):
         if self.inplace_pattern:
-            items = self.inplace_pattern.items()
+            items = list(self.inplace_pattern.items())
             items.sort()
             # We need to print the scalar_op, not only the its class name
             # to have the full definition of composite op.
@@ -275,7 +275,7 @@ class GpuElemwise(GpuOp):
                 # TODO: use LComplete instead
                 args.append(GpuDimShuffle(
                     input.type.broadcastable,
-                    ['x'] * difference + range(length)
+                    ['x'] * difference + list(range(length))
                     )(input))
         _inputs = args
 
@@ -813,8 +813,8 @@ class GpuCAReduce(GpuOp):
         ndim = len(self.reduce_mask)
         nd_out = ndim - sum(self.reduce_mask)
         shapes_format = "shape=(%s)" % ",".join(["%d"] * node.inputs[0].ndim)
-        shapes_data = ",".join(["CudaNdarray_HOST_DIMS(%s)[%d]" % (x, i)
-                                for i in range(node.inputs[0].ndim)])
+        shapes_data = ",".join("CudaNdarray_HOST_DIMS(%s)[%d]" % (x, i)
+                               for i in xrange(node.inputs[0].ndim))
 
         print("""
             if (verbose)
@@ -2437,6 +2437,106 @@ class GpuReshape(tensor.Reshape, GpuOp):
 
         out[0] = x.reshape(tuple(shp))
 
+    def c_code_cache_version(self):
+        return (2,)
+
+    def c_code(self, node, name, inputs, outputs, sub):
+        x, shape = inputs
+        output, = outputs
+        new_ndim = self.ndim
+        sdtype = node.inputs[1].type.dtype_specs()[1]
+        fail = sub['fail']
+        return """
+        PyObject *new_shape = PyTuple_New(%(new_ndim)s);
+        size_t total = 1;
+        int compute_axis = -1;
+
+        assert (PyArray_NDIM(%(shape)s) == 1);
+        if (PyArray_DIM(%(shape)s, 0) != %(new_ndim)s)
+        {
+            Py_XDECREF(new_shape);
+            PyErr_Format(PyExc_ValueError,
+                         "GpuReshape: given shape is of incorrect "
+                         "length (%%d should be %%d).",
+                         PyArray_DIM(%(shape)s, 0), %(new_ndim)s);
+            %(fail)s;
+        }
+
+        for (size_t i = 0; i < %(new_ndim)s; ++i)
+        {
+            long dimension = ((%(sdtype)s*)(
+                    PyArray_BYTES(%(shape)s) +
+                    i * PyArray_STRIDES(%(shape)s)[0]))[0];
+            if (dimension == -1)
+            {
+                if (compute_axis != -1)
+                {
+                    Py_XDECREF(new_shape);
+                    PyErr_Format(PyExc_ValueError,
+                                 "GpuReshape: only one -1 is accepted "
+                                 "in the new shape, but got two at "
+                                 "indices %%d and %%zu.",
+                                 compute_axis, i);
+                    %(fail)s;
+                }
+                compute_axis = i;
+            }
+            else
+            {
+                total *= dimension;
+                PyObject *py_dimension = PyInt_FromLong(dimension);
+                PyTuple_SetItem(new_shape, i, py_dimension);
+            }
+        }
+
+        if (compute_axis != -1)
+        {
+            long dimension = CudaNdarray_SIZE(%(x)s) / total;
+            total *= dimension;
+            PyObject *py_dimension = PyInt_FromLong(dimension);
+            PyTuple_SetItem(new_shape, compute_axis, py_dimension);
+        }
+
+        if (total != CudaNdarray_SIZE(%(x)s))
+        {
+            const int *shape_from_py = CudaNdarray_HOST_DIMS(%(x)s);
+
+            char shape_from[128];
+            size_t offset = 0;
+            for (size_t i = 0; i < %(x)s->nd; ++i)
+            {
+                int ws = snprintf(shape_from + offset, 128 - offset,
+                        " %%d,", shape_from_py[i]);
+                offset += ws;
+                if ( ws < 0 || offset >= 128 )
+                    break;
+            }
+
+            shape_from[0]='(';
+            if(offset < 128)
+                shape_from[offset>0 ? offset-1 : 1] = ')';
+            else
+                for(size_t i=124; i<127; ++i)
+                    shape_from[i] = '.';
+
+            PyObject *shape_to_py = PyObject_Str(new_shape);
+            const char *shape_to = PyString_AsString(shape_to_py);
+            Py_XDECREF(new_shape);
+            PyErr_Format(PyExc_ValueError,
+                         "GpuReshape: cannot reshape input of shape "
+                         "%%s to shape %%s.", shape_from, shape_to);
+            %(fail)s;
+        }
+
+        Py_XDECREF(%(output)s);
+        %(output)s = (CudaNdarray*) CudaNdarray_Reshape(%(x)s, new_shape);
+        Py_XDECREF(new_shape);
+        if (%(output)s == NULL)
+        {
+            %(fail)s;
+        }
+        """ % locals()
+
 
 class GpuSubtensor(GpuOp, tensor.Subtensor):
     """
@@ -2878,7 +2978,7 @@ class GpuAdvancedIncSubtensor1_dev20(GpuAdvancedIncSubtensor1):
         return Apply(self, [x_, y_, ilist_], [x_.type()])
 
     def c_code_cache_version(self):
-        return (3,)
+        return (6,)
 
     def c_code(self, node, name, inputs, outputs, sub):
         active_device_no = theano.sandbox.cuda.active_device_number()
@@ -2927,15 +3027,23 @@ class GpuAdvancedIncSubtensor1_dev20(GpuAdvancedIncSubtensor1):
                                           int stridesY1,
                                           float *Y ,
                                           long *d_indices_arr,
-                                          int num)
+                                          int num,
+                                          int* err)
         {
              for (int i = (blockIdx.x); i < num; i += gridDim.x)
              {
                   for(int j = (threadIdx.x); j < numColsX;j += blockDim.x)
                   {
                       int x_row = d_indices_arr[i];
+                      if(x_row < 0)
+                          x_row += numRowsX;
                       int y_row = i;
-                      atomicAdd(&X[(x_row * stridesX0) + (j * stridesX1)], Y[(y_row * stridesY0) + (j * stridesY1)]);
+                      if(x_row < numRowsX && x_row >= 0){
+                        atomicAdd(&X[(x_row * stridesX0) + (j * stridesX1)],
+                                  Y[(y_row * stridesY0) + (j * stridesY1)]);
+                      } else {
+                        *err = 1;
+                      }
                   }
              }
              return;
@@ -2943,64 +3051,78 @@ class GpuAdvancedIncSubtensor1_dev20(GpuAdvancedIncSubtensor1):
 
         int CudaNdarray_vector_add_fast(CudaNdarray* py_self,
             CudaNdarray* py_other, PyArrayObject *indices_arr)
-	{
-     		const int *shapeX = CudaNdarray_HOST_DIMS(py_self);
-     		const int *shapeY = CudaNdarray_HOST_DIMS(py_other);
-     		const int *strX   = CudaNdarray_HOST_STRIDES(py_self);
-     		const int *strY   = CudaNdarray_HOST_STRIDES(py_other);
-     		unsigned int size = (unsigned int)PyArray_SIZE(indices_arr);
-                if(size == 0){
-                    return 0;
-                }
-     		unsigned int numcolsX = shapeX[1];
-     		unsigned int num_threads_per_block = std::min(numcolsX, (unsigned int)NUM_VECTOR_OP_THREADS_PER_BLOCK);
-     		unsigned int num_blocks = std::min(size ,(unsigned int)NUM_VECTOR_OP_BLOCKS);
+        {
+            if(init_err_var()!= 0) return -1;
 
-     		dim3 n_blocks(num_blocks);
-     		dim3 n_threads(num_threads_per_block);
-     		long *d_indices_arr = NULL;
-     		PyArrayObject *cpu_indices_arr = PyArray_GETCONTIGUOUS(indices_arr);
-     		d_indices_arr = (long*)device_malloc(PyArray_NBYTES(cpu_indices_arr));
-
-                if(!d_indices_arr)
-                    return -1;
-
-     		cudaError_t err = cudaMemcpy(d_indices_arr,
-                                             PyArray_DATA(cpu_indices_arr),
-                                             PyArray_NBYTES(cpu_indices_arr),
-                                             cudaMemcpyHostToDevice);
-                if(err != cudaSuccess){
-                    PyErr_Format(
-                        PyExc_RuntimeError,
-                        "GpuAdvancedIncSubtensor1_dev20: cudaMemcpy returned an error: %%s",
-                        cudaGetErrorString(err));
-                    return -1;
-                }
-
-     		k_vector_add_fast<<<n_blocks, n_threads>>>(shapeX[0],
-                                                           shapeX[1],
-                                                           strX[0],
-                                                           strX[1],
-                                                           CudaNdarray_DEV_DATA(py_self),
-                                                           shapeY[0],
-                                                           shapeY[1],
-                                                           strY[0],
-                                                           strY[1],
-                                                           CudaNdarray_DEV_DATA(py_other),
-                                                           d_indices_arr,
-                                                           PyArray_SIZE(indices_arr)
-                                                          );
-                device_free(d_indices_arr);
-                Py_XDECREF(cpu_indices_arr);
-                err = cudaGetLastError();
-                if(err != cudaSuccess){
-                    PyErr_Format(
-                        PyExc_RuntimeError,
-                        "GpuAdvancedIncSubtensor1_dev20: cuda error: %%s",
-                        cudaGetErrorString(err));
-                    return -1;
-                }
+            const int *shapeX = CudaNdarray_HOST_DIMS(py_self);
+            const int *shapeY = CudaNdarray_HOST_DIMS(py_other);
+            const int *strX   = CudaNdarray_HOST_STRIDES(py_self);
+            const int *strY   = CudaNdarray_HOST_STRIDES(py_other);
+            unsigned int size = (unsigned int)PyArray_SIZE(indices_arr);
+            if(size == 0){
                 return 0;
+            }
+            unsigned int numcolsX = shapeX[1];
+            unsigned int num_threads_per_block = std::min(
+                numcolsX, (unsigned int)NUM_VECTOR_OP_THREADS_PER_BLOCK);
+            unsigned int num_blocks = std::min(
+                size, (unsigned int)NUM_VECTOR_OP_BLOCKS);
+
+            dim3 n_blocks(num_blocks);
+            dim3 n_threads(num_threads_per_block);
+            long *d_indices_arr = NULL;
+            PyArrayObject *cpu_indices_arr = PyArray_GETCONTIGUOUS(
+                indices_arr);
+            d_indices_arr = (long*)device_malloc(
+                PyArray_NBYTES(cpu_indices_arr));
+
+            if(!d_indices_arr)
+                return -1;
+
+            cudaError_t err = cudaMemcpy(d_indices_arr,
+                                         PyArray_DATA(cpu_indices_arr),
+                                         PyArray_NBYTES(cpu_indices_arr),
+                                         cudaMemcpyHostToDevice);
+            if(err != cudaSuccess){
+                PyErr_Format(
+                    PyExc_RuntimeError,
+                    "GpuAdvancedIncSubtensor1_dev20:"
+                    " cudaMemcpy returned an error: %%s",
+                    cudaGetErrorString(err));
+                return -1;
+            }
+
+            k_vector_add_fast<<<n_blocks, n_threads>>>(
+                shapeX[0],
+                shapeX[1],
+                strX[0],
+                strX[1],
+                CudaNdarray_DEV_DATA(py_self),
+                shapeY[0],
+                shapeY[1],
+                strY[0],
+                strY[1],
+                CudaNdarray_DEV_DATA(py_other),
+                d_indices_arr,
+                PyArray_SIZE(indices_arr),
+                err_var
+            );
+            int index_err = check_err_var();
+
+            device_free(d_indices_arr);
+            Py_XDECREF(cpu_indices_arr);
+
+            if(index_err != 0) return -1;
+
+            err = cudaGetLastError();
+            if(err != cudaSuccess){
+                PyErr_Format(
+                    PyExc_RuntimeError,
+                    "GpuAdvancedIncSubtensor1_dev20: cuda error: %%s",
+                    cudaGetErrorString(err));
+                return -1;
+            }
+            return 0;
         }
 
         """ % locals()
@@ -3209,7 +3331,7 @@ class GpuJoin(tensor.Join, GpuOp):
 
         def construct_slices(curlen):
             slices = [slice(None, None, None) for i in \
-                            range(len(template_shape))]
+                            xrange(len(template_shape))]
             slices[axis] = slice(curpos, curpos + curlen, None)
             return tuple(slices)
 
@@ -3417,6 +3539,9 @@ class GpuAllocEmpty(GpuOp):
     def make_node(self, *shape):
         shape, output = self.validate_shape(shape)
         output.tag.values_eq_approx = tensor.type.values_eq_approx_always_true
+        # The outut can contain nan/inf.  output.type is a new
+        # instance, so we can do this only for that variable.
+        output.type.filter_checks_isfinite = False
         return Apply(self, shape, [output])
 
     def perform(self, node, inputs, out_):
@@ -3827,7 +3952,7 @@ def profile_printer(fct_name, compile_time, fct_call_time, fct_call,
         cpu = 0
         gpu = 0
         trans = 0
-        for (_, node), t in apply_time.items():
+        for (_, node), t in iteritems(apply_time):
             if isinstance(node.op.__class__.__name__,
                           (HostFromGpu, GpuFromHost)):
                 trans += t
@@ -3843,7 +3968,7 @@ def profile_printer(fct_name, compile_time, fct_call_time, fct_call,
         print()
         print("    Theano function input that are float64")
         print("    <fct name> <input name> <input type> <str input>")
-        for fct in fct_call.keys():
+        for fct in fct_call:
             for i in fct.input_storage:
                 if hasattr(i.type, 'dtype') and i.type.dtype == 'float64':
                     print('        ', fct.name, i.name, i.type, i)
@@ -3852,7 +3977,7 @@ def profile_printer(fct_name, compile_time, fct_call_time, fct_call,
         print("    List of apply that don't have float64 as input but have float64 in outputs")
         print("    (Useful to know if we forgot some cast when using floatX=float32 or gpu code)")
         print('    <Apply> <Apply position> <fct name> <inputs type> <outputs type>')
-        for fct in fct_call.keys():
+        for fct in fct_call:
             for idx, node in enumerate(fct.maker.fgraph.toposort()):
                 if (any(hasattr(i, 'dtype') and i.dtype == 'float64'
                         for i in node.outputs) and

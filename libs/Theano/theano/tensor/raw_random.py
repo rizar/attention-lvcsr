@@ -1,6 +1,6 @@
 """Define random number Type (`RandomStateType`) and Op (`RandomFunction`)."""
 from __future__ import print_function
-__docformat__ = "restructuredtext en"
+
 import sys
 from copy import copy
 
@@ -8,10 +8,14 @@ import numpy
 
 # local imports
 import theano
+from six.moves import reduce, xrange
 from theano import tensor
 from theano.tensor import opt
 from theano import gof
+from six import string_types
 from theano.compile import optdb
+
+__docformat__ = "restructuredtext en"
 
 
 class RandomStateType(gof.Type):
@@ -83,13 +87,13 @@ class RandomStateType(gof.Type):
 
 # Register RandomStateType's C code for ViewOp.
 theano.compile.register_view_op_c_code(
-        RandomStateType,
-        """
-        Py_XDECREF(%(oname)s);
-        %(oname)s = %(iname)s;
-        Py_XINCREF(%(oname)s);
-        """,
-        1)
+    RandomStateType,
+    """
+    Py_XDECREF(%(oname)s);
+    %(oname)s = %(iname)s;
+    Py_XINCREF(%(oname)s);
+    """,
+    1)
 
 random_state_type = RandomStateType()
 
@@ -98,6 +102,7 @@ class RandomFunction(gof.Op):
     """Op that draws random numbers from a numpy.random.RandomState object
 
     """
+    __props__ = ("fn", "outtype", "inplace", "ndim_added")
 
     def __init__(self, fn, outtype, inplace=False, ndim_added=0):
         """
@@ -125,25 +130,13 @@ class RandomFunction(gof.Op):
         """
         self.__setstate__([fn, outtype, inplace, ndim_added])
 
-    def __eq__(self, other):
-        return type(self) == type(other) \
-            and self.fn == other.fn\
-            and self.outtype == other.outtype\
-            and self.inplace == other.inplace\
-            and self.ndim_added == other.ndim_added
-
-    def __hash__(self):
-        return hash(type(self)) ^ hash(self.fn) \
-                ^ hash(self.outtype)  \
-                ^ hash(self.inplace) ^ hash(self.ndim_added)
-
     def __getstate__(self):
         return self.state
 
     def __setstate__(self, state):
         self.state = state
         fn, outtype, inplace, ndim_added = state
-        if isinstance(fn, basestring):
+        if isinstance(fn, string_types):
             self.fn = getattr(numpy.random.RandomState, fn)
         else:
             self.fn = fn
@@ -201,7 +194,7 @@ class RandomFunction(gof.Op):
 
         # convert args to TensorType instances
         # and append enough None's to match the length of self.args
-        args = map(tensor.as_tensor_variable, args)
+        args = list(map(tensor.as_tensor_variable, args))
 
         return gof.Apply(self,
                          [r, shape] + args,
@@ -231,7 +224,6 @@ class RandomFunction(gof.Op):
         # copy of r if self.inplace is False
         r, shape, args = inputs[0], inputs[1], inputs[2:]
         assert type(r) == numpy.random.RandomState, (type(r), r)
-        r_orig = r
 
         # If shape == [], that means no shape is enforced, and numpy is
         # trusted to draw the appropriate number of samples, numpy uses
@@ -243,16 +235,16 @@ class RandomFunction(gof.Op):
             shape = tuple(shape)
 
         if (shape is not None and
-            self.outtype.ndim != len(shape) + self.ndim_added):
+                self.outtype.ndim != len(shape) + self.ndim_added):
             raise ValueError('Shape mismatch: self.outtype.ndim (%i) !='
                              ' len(shape) (%i) + self.ndim_added (%i)'
-                            % (self.outtype.ndim, len(shape), self.ndim_added))
+                             % (self.outtype.ndim, len(shape), self.ndim_added))
         if not self.inplace:
             r = copy(r)
         rout[0] = r
         rval = self.fn(r, *(args + [shape]))
-        if not isinstance(rval, numpy.ndarray) \
-               or str(rval.dtype) != node.outputs[1].type.dtype:
+        if (not isinstance(rval, numpy.ndarray) or
+                str(rval.dtype) != node.outputs[1].type.dtype):
             rval = theano._asarray(rval, dtype=node.outputs[1].type.dtype)
 
         # When shape is None, numpy has a tendency to unexpectedly
@@ -286,7 +278,7 @@ class RandomFunction(gof.Op):
 
     def grad(self, inputs, outputs):
         return [theano.gradient.grad_undefined(self, k, inp,
-                        'No gradient defined through raw random numbers op')
+                'No gradient defined through raw random numbers op')
                 for k, inp in enumerate(inputs)]
 
     def R_op(self, inputs, eval_points):
@@ -323,8 +315,8 @@ def _infer_ndim_bcast(ndim, shape, *args):
         else:
             if shape_ndim != ndim:
                 raise ValueError('ndim should be equal to len(shape), but\n',
-                            'ndim = %s, len(shape) = %s, shape = %s'
-                            % (ndim, shape_ndim, shape))
+                                 'ndim = %s, len(shape) = %s, shape = %s'
+                                 % (ndim, shape_ndim, shape))
 
         bcast = []
         pre_v_shape = []
@@ -351,7 +343,8 @@ def _infer_ndim_bcast(ndim, shape, *args):
                                 break
                     else:
                         if n_a_i == 0:
-                            raise ValueError(('Auto-shape of -1 must overlap'
+                            raise ValueError((
+                                'Auto-shape of -1 must overlap'
                                 'with the shape of one of the broadcastable'
                                 'inputs'))
                         else:
@@ -371,7 +364,7 @@ def _infer_ndim_bcast(ndim, shape, *args):
         # but we need to know ndim
         if not args:
             raise TypeError(('_infer_ndim_bcast cannot infer shape without'
-                ' either shape or args'))
+                             ' either shape or args'))
         template = reduce(lambda a, b: a + b, args)
         v_shape = template.shape
         bcast = template.broadcastable
@@ -416,7 +409,7 @@ def _generate_broadcasting_indices(out_shape, *shapes):
         # Temporary list to generate the indices
         _ret_indices = [[] for shape in all_shapes]
 
-        out_range = range(out_shape[dim])
+        out_range = list(range(out_shape[dim]))
 
         # Verify the shapes are compatible along that dimension
         # and generate the appropriate range: out_range, or [0, ..., 0]
@@ -461,7 +454,7 @@ def uniform(random_state, size=None, low=0.0, high=1.0, ndim=None, dtype=None):
         dtype = tensor.scal.upcast(theano.config.floatX, low.dtype, high.dtype)
     ndim, size, bcast = _infer_ndim_bcast(ndim, size, low, high)
     op = RandomFunction('uniform',
-            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+                        tensor.TensorType(dtype=dtype, broadcastable=bcast))
     return op(random_state, size, low, high)
 
 
@@ -485,7 +478,7 @@ def normal(random_state, size=None, avg=0.0, std=1.0, ndim=None, dtype=None):
         dtype = tensor.scal.upcast(theano.config.floatX, avg.dtype, std.dtype)
     ndim, size, bcast = _infer_ndim_bcast(ndim, size, avg, std)
     op = RandomFunction('normal',
-            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+                        tensor.TensorType(dtype=dtype, broadcastable=bcast))
     return op(random_state, size, avg, std)
 
 
@@ -515,7 +508,8 @@ def binomial(random_state, size=None, n=1, p=0.5, ndim=None,
         #          p=numpy.asarray([.1, .2, .3], dtype='float64'))
         n = tensor.cast(n, 'int32')
     op = RandomFunction('binomial',
-            tensor.TensorType(dtype=dtype, broadcastable=(False,) * ndim))
+                        tensor.TensorType(dtype=dtype,
+                                          broadcastable=(False,) * ndim))
     return op(random_state, size, n, p)
 
 
@@ -581,7 +575,7 @@ def random_integers(random_state, size=None, low=0, high=1, ndim=None,
     high = tensor.as_tensor_variable(high)
     ndim, size, bcast = _infer_ndim_bcast(ndim, size, low, high)
     op = RandomFunction(random_integers_helper,
-            tensor.TensorType(dtype=dtype, broadcastable=bcast))
+                        tensor.TensorType(dtype=dtype, broadcastable=bcast))
     return op(random_state, size, low, high)
 
 
@@ -717,8 +711,9 @@ def permutation(random_state, size=None, n=1, ndim=None, dtype='int64'):
         ndim, size, bcast = _infer_ndim_bcast(ndim, size)
     # print "NDIM", ndim, size
     op = RandomFunction(permutation_helper,
-            tensor.TensorType(dtype=dtype, broadcastable=bcast + (False,)),
-            ndim_added=1)
+                        tensor.TensorType(dtype=dtype,
+                                          broadcastable=bcast + (False,)),
+                        ndim_added=1)
     return op(random_state, size, n)
 
 
@@ -736,14 +731,11 @@ def multinomial_helper(random_state, n, pvals, size):
         ndim = len(size)
     else:
         ndim = max(n.ndim, pvals.ndim - 1)
-    out_ndim = ndim + 1
 
     # broadcast n to ndim dimensions and pvals to ndim+1
     if n.ndim > ndim:
-        raise ValueError(
-            'n.ndim (%i) should not be larger than len(size) (%i)'
-            % (n.ndim, ndim),
-                n, size)
+        raise ValueError('n.ndim (%i) should not be larger than len(size) (%i)'
+                         % (n.ndim, ndim), n, size)
     if n.ndim < ndim:
         n = n.reshape((1,) * (ndim - n.ndim) + n.shape)
 
@@ -786,7 +778,7 @@ def multinomial_helper(random_state, n, pvals, size):
             # because mtrand.pyx has a ValueError that will trigger if
             # sum(pvals[:-1]) > 1.0
             pvi = pvi * (1.0 - 5e-5)
-            #pvi = pvi * .9
+            # pvi = pvi * .9
             pisum = numpy.sum(pvi)
         elif pvi[-1] < 5e-5:  # will this even work?
             pvi = pvi * (1.0 - 5e-5)
@@ -857,8 +849,9 @@ def multinomial(random_state, size=None, n=1, pvals=[0.5, 0.5],
     ndim, size, bcast = _infer_ndim_bcast(ndim, size, n, tmp)
     bcast = bcast + (pvals.type.broadcastable[-1],)
     op = RandomFunction(multinomial_helper,
-            tensor.TensorType(dtype=dtype, broadcastable=bcast),
-            ndim_added=1)
+                        tensor.TensorType(dtype=dtype,
+                                          broadcastable=bcast),
+                        ndim_added=1)
     return op(random_state, size, n, pvals)
 
 
@@ -866,8 +859,11 @@ def multinomial(random_state, size=None, n=1, pvals=[0.5, 0.5],
 def random_make_inplace(node):
     op = node.op
     if isinstance(op, RandomFunction) and not op.inplace:
-        new_op = RandomFunction(op.fn, op.outtype, inplace=True,
-                                ndim_added=op.ndim_added)
+        # Read op_fn from op.state, not from op.fn, since op.fn
+        # may not be picklable.
+        op_fn, op_outtype, op_inplace, op_ndim_added = op.__getstate__()
+        new_op = RandomFunction(op_fn, op_outtype, inplace=True,
+                                ndim_added=op_ndim_added)
         return new_op.make_node(*node.inputs).outputs
     return False
 
