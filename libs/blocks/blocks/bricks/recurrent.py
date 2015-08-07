@@ -661,7 +661,7 @@ class Bidirectional(Initializable):
     def apply_delegate(self):
         return self.children[0].apply
 
-RECURRENTSTACK_SEPARATOR = '#'
+RECURRENTSTACK_SEPARATOR = '_'
 
 
 class RecurrentStack(BaseRecurrent, Initializable):
@@ -775,26 +775,29 @@ class RecurrentStack(BaseRecurrent, Initializable):
     """
     def suffix(self, name, level):
         if name == "mask":
-            return "mask"
-        if level == 0:
-            return name
-        return name + RECURRENTSTACK_SEPARATOR + str(level)
+            mangled_name = "mask"
+        elif level == 0:
+            mangled_name = name
+        else:
+            mangled_name = name + RECURRENTSTACK_SEPARATOR + str(level)
+        if (mangled_name in self.property_to_level_map and
+                self.property_to_level_map[mangled_name] != (name, level)):
+            logger.warning("The RecurrentStack is non-consistently "
+                           "mangling a name: %s", name)
+        self.property_to_level_map[mangled_name] = (name, level)
+        return mangled_name
 
-    @staticmethod
-    def suffixes(names, level):
-        return [RecurrentStack.suffix(name, level)
+    def suffixes(self, names, level):
+        return [self.suffix(name, level)
                 for name in names if name != "mask"]
 
     def split_suffix(self, name):
-        # Target name with suffix to the correct layer
-        name_level = name.split(RECURRENTSTACK_SEPARATOR)
-        if len(name_level) == 2 and name_level[-1].isdigit():
-            name = RECURRENTSTACK_SEPARATOR.join(name_level[:-1])
-            level = int(name_level[-1])
+        unmangled = self.property_to_level_map.get(name)
+        if unmangled is not None:
+            return unmangled
         else:
-            # It must be from bottom layer
-            level = 0
-        return name, level
+            raise Exception("The RecurrentStack is unmangling a name it "
+                            "didn't mangle: {}".format(name))
 
     def __init__(self, transitions, fork_prototype=None, states_name="states",
                  skip_connections=False, **kwargs):
@@ -818,6 +821,8 @@ class RecurrentStack(BaseRecurrent, Initializable):
                       for level in range(1, depth)]
 
         self.children = self.transitions + self.forks
+
+        self.property_to_level_map = {'mask': ('mask', 0)}
 
         # Programmatically set the apply parameters.
         # parameters of base level are exposed as is
