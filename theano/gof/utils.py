@@ -3,7 +3,11 @@ import linecache
 import traceback
 import sys
 
+import numpy
+from six import iteritems
+
 from theano import config
+from theano.compat import OrderedDict, PY3
 
 
 def simple_extract_stack(f=None, limit=None):
@@ -90,7 +94,10 @@ def add_tag_trace(thing, user_line=1):
     # The order is from the oldest to the newest
     if len(tr) > user_line:
         tr = tr[-user_line:]
-    thing.tag.trace = tr
+    if tr:
+        thing.tag.trace = [tr]
+    else:
+        thing.tag.trace = tr
     return thing
 
 
@@ -142,7 +149,7 @@ class scratchpad:
 
     def info(self):
         print("<theano.gof.utils.scratchpad instance at %i>" % id(self))
-        for k, v in self.__dict__.items():
+        for k, v in iteritems(self.__dict__):
             print("  %s: %s" % (k, v))
 
 
@@ -249,14 +256,14 @@ def toposort(prereqs_d):
 
 #     all1 = set(prereqs_d.keys())
 #     all2 = set()
-#     for x, y in prereqs_d.items():
+#     for x, y in iteritems(prereqs_d):
 #         all2.update(y)
 #     print all1.difference(all2)
 
     seq = []
     done = set()
     postreqs_d = {}
-    for x, prereqs in prereqs_d.items():
+    for x, prereqs in iteritems(prereqs_d):
         for prereq in prereqs:
             postreqs_d.setdefault(prereq, set()).add(x)
     next = set([k for k in prereqs_d if not prereqs_d[k]])
@@ -284,6 +291,11 @@ class Keyword:
         self.nonzero = nonzero
 
     def __nonzero__(self):
+        # Python 2.x
+        return self.__bool__()
+
+    def __bool__(self):
+        # Python 3.x
         return self.nonzero
 
     def __str__(self):
@@ -306,7 +318,7 @@ FALL_THROUGH = Keyword("FALL_THROUGH")
 
 def comm_guard(type1, type2):
     def wrap(f):
-        old_f = f.func_globals[f.__name__]
+        old_f = f.__globals__[f.__name__]
 
         def new_f(arg1, arg2, *rest):
             if ((type1 is ANY_TYPE or isinstance(arg1, type1)) and
@@ -345,7 +357,7 @@ def comm_guard(type1, type2):
 
 def type_guard(type1):
     def wrap(f):
-        old_f = f.func_globals[f.__name__]
+        old_f = f.__globals__[f.__name__]
 
         def new_f(arg1, *rest):
             if (type1 is ANY_TYPE or isinstance(arg1, type1)):
@@ -403,7 +415,7 @@ def give_variables_names(variables):
     """ Gives unique names to an iterable of variables. Modifies input.
 
     This function is idempotent."""
-    names = map(lambda var: var.name, variables)
+    names = [var.name for var in variables]
     h = hist(names)
 
     def bad_var(var):
@@ -412,7 +424,7 @@ def give_variables_names(variables):
     for i, var in enumerate(filter(bad_var, variables)):
         var.name = (var.name or "") + "_%d" % i
 
-    if not unique(map(str, variables)):
+    if not unique([str(v) for v in variables]):
         raise ValueError("Not all variables have unique names. Maybe you've "
                          "named some of the variables identically")
     return variables
@@ -427,4 +439,62 @@ def remove(predicate, coll):
     >>> remove(even, [1, 2, 3, 4])
     [1, 3]
     """
-    return filter(lambda x: not predicate(x), coll)
+    return [x for x in coll if not predicate(x)]
+
+
+if PY3:
+    import hashlib
+
+    def hash_from_code(msg):
+        # hashlib.md5() requires an object that supports buffer interface,
+        # but Python 3 (unicode) strings don't.
+        if isinstance(msg, str):
+            msg = msg.encode()
+        # Python 3 does not like module names that start with
+        # a digit.
+        return 'm' + hashlib.md5(msg).hexdigest()
+
+else:
+    import hashlib
+
+    def hash_from_code(msg):
+        try:
+            return hashlib.md5(msg).hexdigest()
+        except TypeError:
+            assert isinstance(msg, numpy.ndarray)
+            return hashlib.md5(numpy.getbuffer(msg)).hexdigest()
+
+
+def hash_from_file(file_path):
+    """Return the MD5 hash of a file."""
+    return hash_from_code(open(file_path, 'rb').read())
+
+
+def hash_from_dict(d):
+    """Work around the fact that dict are not hashable in python
+
+    This request that all object have a sorted order that depend only
+    on the key of the object. We support only integer/float/string keys.
+
+    Also, we transform values that are list into tuple as list are not
+    hashable.
+
+    :note: special case for OrderedDict, it use the order of the dict,
+        so the key don't need to be sortable.
+
+    """
+    if isinstance(d, OrderedDict):
+        items = list(iteritems(d))
+    else:
+        items = list(d.items())
+        items.sort()
+    first_part = [k for k, v in items]
+    second_part = []
+    for k, v in items:
+        assert isinstance(k, (str, int, float))
+        if isinstance(v, (tuple, list)):
+            second_part += [tuple(v)]
+        else:
+            second_part += [v]
+    tuple_items = tuple(first_part + second_part + [d.__class__])
+    return hash(tuple_items)

@@ -6,7 +6,7 @@ import unittest
 from nose.plugins.skip import SkipTest
 
 import theano
-from theano.compat.six import PY3
+from theano.compat import PY3
 from theano.gof import CachedConstantError, FunctionGraph
 from theano import tensor as tt
 
@@ -28,7 +28,7 @@ class TFunctionGraph(unittest.TestCase):
         func = theano.gof.FunctionGraph([v], [v + 1])
 
         s = pickle.dumps(func)
-        func2 = pickle.loads(s)
+        pickle.loads(s)
 
     def test_node_outputs_not_used(self):
         """In the past, we where removing some not used variable from

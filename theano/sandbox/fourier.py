@@ -1,17 +1,22 @@
 """Provides Ops for FFT and DCT.
 
 """
-
-from theano.gof import Op, Apply, generic
-from theano import tensor
-
-import numpy.fft
 import numpy
+import numpy.fft
+
+from six.moves import xrange
+
+from theano import tensor
+from theano.gof import Op, Apply, generic
 
 
 class GradTodo(Op):
+
+    __props__ = ()
+
     def make_node(self, x):
         return Apply(self, [x], [x.type()])
+
     def perform(self, node, inputs, outputs):
         raise NotImplementedError('TODO')
 grad_todo = GradTodo()
@@ -38,20 +43,11 @@ class FFT(Op):
 
     half = False
     """Only return the first half (positive-valued) of the frequency components"""
+    __props__ = ("half", "inverse")
 
     def __init__(self, half=False, inverse=False):
         self.half = half
         self.inverse = inverse
-
-    def __eq__(self, other):
-        return type(self) == type(other) and (self.half == other.half) and (self.inverse ==
-                other.inverse)
-
-    def __hash__(self):
-        return hash(type(self)) ^ hash(self.half) ^ 9828743 ^ (self.inverse)
-
-    def __ne__(self, other):
-        return not(self == other)
 
     def make_node(self, frames, n, axis):
         """ compute an n-point fft of frames along given axis """
@@ -76,21 +72,22 @@ class FFT(Op):
         else:
             fft_fn = numpy.fft.fft
 
-        fft =  fft_fn(frames, int(n), int(axis))
+        fft = fft_fn(frames, int(n), int(axis))
         if self.half:
             M, N = fft.shape
             if axis == 0:
                 if (M % 2):
                     raise ValueError('halfFFT on odd-length vectors is undefined')
-                spectrogram[0] = fft[0:M/2, :]
+                spectrogram[0] = fft[0:M / 2, :]
             elif axis == 1:
                 if (N % 2):
                     raise ValueError('halfFFT on odd-length vectors is undefined')
-                spectrogram[0] = fft[:, 0:N/2]
+                spectrogram[0] = fft[:, 0:N / 2]
             else:
                 raise NotImplementedError()
         else:
             spectrogram[0] = fft
+
     def grad(self, inp, out):
         frames, n, axis = inp
         g_spectrogram, g_buf = out
@@ -111,9 +108,9 @@ def dct_matrix(rows, cols, unitary=True):
     """
     rval = numpy.zeros((rows, cols))
     col_range = numpy.arange(cols)
-    scale = numpy.sqrt(2.0/cols)
+    scale = numpy.sqrt(2.0 / cols)
     for i in xrange(rows):
-        rval[i] = numpy.cos(i * (col_range*2+1)/(2.0 * cols) * numpy.pi) * scale
+        rval[i] = numpy.cos(i * (col_range * 2 + 1) / (2.0 * cols) * numpy.pi) * scale
 
     if unitary:
         rval[0] *= numpy.sqrt(0.5)

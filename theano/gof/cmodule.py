@@ -1,8 +1,10 @@
 """Generate and compile C modules for Python,
 """
+
 from __future__ import print_function
+
 import atexit
-import cPickle
+import six.moves.cPickle as pickle
 import logging
 import os
 import re
@@ -15,20 +17,14 @@ import time
 import platform
 import distutils.sysconfig
 
-importlib = None
-try:
-    import importlib
-except ImportError:
-    pass
-
 import numpy.distutils  # TODO: TensorType should handle this
 
 import theano
 from theano.compat import PY3, decode, decode_iter
-from theano.compat.six import b, BytesIO, StringIO
+from six import b, BytesIO, StringIO, string_types, iteritems
 from theano.gof.utils import flatten
 from theano.configparser import config
-from theano.gof.cc import hash_from_code
+from theano.gof.utils import hash_from_code
 from theano.misc.windows import (subprocess_Popen,
                                  output_subprocess_Popen)
 
@@ -38,10 +34,17 @@ from theano.gof.compiledir import gcc_version_str, local_bitwidth
 
 from theano.configparser import AddConfigVar, BoolParam
 
-AddConfigVar('cmodule.mac_framework_link',
-        "If set to True, breaks certain MacOS installations with the infamous "
-        "Bus Error",
-        BoolParam(False))
+importlib = None
+try:
+    import importlib
+except ImportError:
+    pass
+
+AddConfigVar(
+    'cmodule.mac_framework_link',
+    "If set to True, breaks certain MacOS installations with the infamous "
+    "Bus Error",
+    BoolParam(False))
 
 AddConfigVar('cmodule.warn_no_version',
              "If True, will print a warning when compiling one or more Op "
@@ -131,15 +134,16 @@ class ExtFunction(object):
         It goes into the DynamicModule's method table.
         """
         return '\t{"%s", %s, %s, "%s"}' % (
-                self.name, self.name, self.method, self.doc)
+            self.name, self.name, self.method, self.doc)
 
 
 class DynamicModule(object):
     def __init__(self, name=None):
-        assert name is None, ("The 'name' parameter of DynamicModule"
-                " cannot be specified anymore. Instead, 'code_hash'"
-                " will be automatically computed and can be used as"
-                " the module's name.")
+        assert name is None, (
+            "The 'name' parameter of DynamicModule"
+            " cannot be specified anymore. Instead, 'code_hash'"
+            " will be automatically computed and can be used as"
+            " the module's name.")
         # While the module is not finalized, we can call add_...
         # when it is finalized, a hash is computed and used instead of
         # the placeholder, and as module name.
@@ -171,18 +175,18 @@ static struct PyModuleDef moduledef = {{
 }};
 """.format(name=self.hash_placeholder), file=stream)
             print(("PyMODINIT_FUNC PyInit_%s(void) {" %
-                              self.hash_placeholder), file=stream)
+                  self.hash_placeholder), file=stream)
             for block in self.init_blocks:
                 print('  ', block, file=stream)
             print("    PyObject *m = PyModule_Create(&moduledef);", file=stream)
             print("    return m;", file=stream)
         else:
             print(("PyMODINIT_FUNC init%s(void){" %
-                              self.hash_placeholder), file=stream)
+                  self.hash_placeholder), file=stream)
             for block in self.init_blocks:
                 print('  ', block, file=stream)
             print('  ', ('(void) Py_InitModule("%s", MyMethods);'
-                                    % self.hash_placeholder), file=stream)
+                  % self.hash_placeholder), file=stream)
         print("}", file=stream)
 
     def add_include(self, str):
@@ -351,9 +355,9 @@ def is_same_entry(entry_1, entry_2):
     if os.path.realpath(entry_1) == os.path.realpath(entry_2):
         return True
     if (os.path.basename(entry_1) == os.path.basename(entry_2) and
-        (os.path.basename(os.path.dirname(entry_1)) ==
-         os.path.basename(os.path.dirname(entry_2))) and
-        os.path.basename(os.path.dirname(entry_1)).startswith('tmp')):
+            (os.path.basename(os.path.dirname(entry_1)) ==
+             os.path.basename(os.path.dirname(entry_2))) and
+            os.path.basename(os.path.dirname(entry_1)).startswith('tmp')):
         return True
     return False
 
@@ -376,7 +380,7 @@ def get_module_hash(src_code, key):
     to_hash = [l.strip() for l in src_code.split('\n')]
     # Get the version part of the key (ignore if unversioned).
     if key[0]:
-        to_hash += map(str, key[0])
+        to_hash += list(map(str, key[0]))
     c_link_key = key[1]
     # Currently, in order to catch potential bugs early, we are very
     # convervative about the structure of the key and raise an exception
@@ -396,7 +400,7 @@ def get_module_hash(src_code, key):
             # This should be the C++ compilation command line parameters or the
             # libraries to link against.
             to_hash += list(key_element)
-        elif isinstance(key_element, basestring):
+        elif isinstance(key_element, string_types):
             if key_element.startswith('md5:'):
                 # This is the md5 hash of the config options. We can stop
                 # here.
@@ -429,8 +433,8 @@ def get_safe_part(key):
     # Find the md5 hash part.
     c_link_key = key[1]
     for key_element in c_link_key[1:]:
-        if (isinstance(key_element, basestring)
-                and key_element.startswith('md5:')):
+        if (isinstance(key_element, string_types) and
+                key_element.startswith('md5:')):
             md5 = key_element[4:]
             break
 
@@ -481,8 +485,8 @@ class KeyData(object):
         # Note that writing in binary mode is important under Windows.
         try:
             with open(self.key_pkl, 'wb') as f:
-                cPickle.dump(self, f, protocol=cPickle.HIGHEST_PROTOCOL)
-        except cPickle.PicklingError:
+                pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+        except pickle.PicklingError:
             _logger.warning("Cache leak due to unpickle-able key data %s",
                             self.keys)
             os.remove(self.key_pkl)
@@ -510,7 +514,7 @@ class KeyData(object):
             del entry_from_key[key]
         if do_manual_check:
             to_del = []
-            for key, key_entry in entry_from_key.iteritems():
+            for key, key_entry in iteritems(entry_from_key):
                 if key_entry == entry:
                     to_del.append(key)
             for key in to_del:
@@ -721,7 +725,7 @@ class ModuleCache(object):
 
                     try:
                         with open(key_pkl, 'rb') as f:
-                            key_data = cPickle.load(f)
+                            key_data = pickle.load(f)
                     except EOFError:
                         # Happened once... not sure why (would be worth
                         # investigating if it ever happens again).
@@ -761,9 +765,9 @@ class ModuleCache(object):
                         # simpler to implement).
                         rmtree(root, ignore_nocleanup=True,
                                msg=(
-                                'invalid cache entry format -- this '
-                                'should not happen unless your cache '
-                                'was really old'),
+                                   'invalid cache entry format -- this '
+                                   'should not happen unless your cache '
+                                   'was really old'),
                                level=logging.WARN)
                         continue
 
@@ -869,7 +873,7 @@ class ModuleCache(object):
         del root, files, subdirs
 
         # Remove entries that are not in the filesystem.
-        items_copy = list(self.module_hash_to_key_data.iteritems())
+        items_copy = list(self.module_hash_to_key_data.items())
         for module_hash, key_data in items_copy:
             entry = key_data.get_entry()
             try:
@@ -957,14 +961,14 @@ class ModuleCache(object):
                 try:
                     key_data.add_key(key, save_pkl=bool(key[0]))
                     key_broken = False
-                except cPickle.PicklingError:
+                except pickle.PicklingError:
                     key_data.remove_key(key)
                     key_broken = True
                 # We need the lock while we check in case of parallel
                 # process that could be changing the file at the same
                 # time.
                 if (key[0] and not key_broken and
-                    self.check_for_broken_eq):
+                        self.check_for_broken_eq):
                     self.check_key(key, key_data.key_pkl)
             self._update_mappings(key, key_data, module.__file__, check_in_keys=not key_broken)
             return module
@@ -1011,7 +1015,7 @@ class ModuleCache(object):
         if key[0]:
             try:
                 key_data.save_pkl()
-            except cPickle.PicklingError:
+            except pickle.PicklingError:
                 key_broken = True
                 key_data.remove_key(key)
                 key_data.save_pkl()
@@ -1129,7 +1133,7 @@ class ModuleCache(object):
         for i in range(3):
             try:
                 with open(key_pkl, 'rb') as f:
-                    key_data = cPickle.load(f)
+                    key_data = pickle.load(f)
                 break
             except EOFError:
                 # This file is probably getting written/updated at the
@@ -1138,7 +1142,7 @@ class ModuleCache(object):
                 if i == 2:
                     with compilelock.lock_ctx():
                         with open(key_pkl, 'rb') as f:
-                            key_data = cPickle.load(f)
+                            key_data = pickle.load(f)
                 time.sleep(2)
 
         found = sum(key == other_key for other_key in key_data.keys)
@@ -1149,15 +1153,14 @@ class ModuleCache(object):
                 # This is to make debugging in pdb easier, by providing
                 # the offending keys in the local context.
                 # key_data_keys = list(key_data.keys)
-                ## import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
                 pass
         elif found > 1:
             msg = 'Multiple equal keys found in unpickled KeyData file'
         if msg:
             raise AssertionError(
-                    "%s. Verify the __eq__ and __hash__ functions of your "
-                    "Ops. The file is: %s. The key is: %s" %
-                    (msg, key_pkl, key))
+                "%s. Verify the __eq__ and __hash__ functions of your "
+                "Ops. The file is: %s. The key is: %s" % (msg, key_pkl, key))
         # Also verify that there exists no other loaded key that would be equal
         # to this key. In order to speed things up, we only compare to keys
         # with the same version part and config md5, since we can assume this
@@ -1195,10 +1198,10 @@ class ModuleCache(object):
         if age_thresh_del < self.age_thresh_use:
             if age_thresh_del > 0:
                 _logger.warning("Clearing modules that were not deemed "
-                        "too old to use: age_thresh_del=%d, "
-                        "self.age_thresh_use=%d",
-                        age_thresh_del,
-                        self.age_thresh_use)
+                                "too old to use: age_thresh_del=%d, "
+                                "self.age_thresh_use=%d",
+                                age_thresh_del,
+                                self.age_thresh_use)
             else:
                 _logger.info("Clearing all modules.")
             age_thresh_use = age_thresh_del
@@ -1210,8 +1213,8 @@ class ModuleCache(object):
             # processes and get all module that are too old to use
             # (not loaded in self.entry_from_key).
             too_old_to_use = self.refresh(
-                    age_thresh_use=age_thresh_use,
-                    delete_if_problem=delete_if_problem)
+                age_thresh_use=age_thresh_use,
+                delete_if_problem=delete_if_problem)
 
             for entry in too_old_to_use:
                 # TODO: we are assuming that modules that haven't been
@@ -1242,8 +1245,8 @@ class ModuleCache(object):
         """
         with compilelock.lock_ctx():
             self.clear_old(
-                    age_thresh_del=-1.0,
-                    delete_if_problem=delete_if_problem)
+                age_thresh_del=-1.0,
+                delete_if_problem=delete_if_problem)
             self.clear_unversioned(min_age=unversioned_min_age)
             if clear_base_files:
                 self.clear_base_files()
@@ -1291,7 +1294,7 @@ class ModuleCache(object):
             min_age = self.age_thresh_del_unversioned
 
         with compilelock.lock_ctx():
-            all_key_datas = self.module_hash_to_key_data.values()
+            all_key_datas = list(self.module_hash_to_key_data.values())
             for key_data in all_key_datas:
                 if not key_data.keys:
                     # May happen for broken versioned keys.
@@ -1333,7 +1336,7 @@ class ModuleCache(object):
                 if filename.startswith('tmp'):
                     try:
                         open(os.path.join(self.dirname, filename, 'key.pkl')
-                                ).close()
+                             ).close()
                         has_key = True
                     except IOError:
                         has_key = False
@@ -1420,8 +1423,8 @@ def get_module_cache(dirname, init_args=None):
                         'was created prior to this call')
     if _module_cache.dirname != dirname:
         _logger.warning("Returning module cache instance with different "
-                "dirname (%s) than you requested (%s)",
-                _module_cache.dirname, dirname)
+                        "dirname (%s) than you requested (%s)",
+                        _module_cache.dirname, dirname)
     return _module_cache
 
 
@@ -1685,7 +1688,7 @@ class GCC_compiler(Compiler):
                     break
 
         if ('g++' not in theano.config.cxx and
-            'clang++' not in theano.config.cxx):
+                'clang++' not in theano.config.cxx):
             _logger.warn(
                 "OPTIMIZATION WARNING: your Theano flag `cxx` seems not to be"
                 " the g++ compiler. So we disable the compiler optimization"
@@ -1719,9 +1722,9 @@ class GCC_compiler(Compiler):
                     selected_lines = []
                     for line in lines:
                         if ("COLLECT_GCC_OPTIONS=" in line or
-                            "CFLAGS=" in line or
-                            "CXXFLAGS=" in line or
-                            "-march=native" in line):
+                                "CFLAGS=" in line or
+                                "CXXFLAGS=" in line or
+                                "-march=native" in line):
                             continue
                         elif "-march=" in line:
                             selected_lines.append(line.strip())
@@ -1805,9 +1808,9 @@ class GCC_compiler(Compiler):
                     for line in default_lines:
                         if line.startswith(part[0]):
                             part2 = [p for p in join_options(line.split())
-                                     if (not 'march' in p and
-                                         not 'mtune' in p and
-                                         not 'target-cpu' in p)]
+                                     if ('march' not in p and
+                                         'mtune' not in p and
+                                         'target-cpu' not in p)]
                             new_flags = [p for p in part if p not in part2]
                             # Replace '-target-cpu value', which is an option
                             # of clang, with '-march=value', for g++
@@ -2021,14 +2024,13 @@ class GCC_compiler(Compiler):
         cmd.append(cppfilename)
         cmd.extend(['-L%s' % ldir for ldir in lib_dirs])
         cmd.extend(['-l%s' % l for l in libs])
-        #print >> sys.stderr, 'COMPILING W CMD', cmd
+        # print >> sys.stderr, 'COMPILING W CMD', cmd
         _logger.debug('Running cmd: %s', ' '.join(cmd))
 
         def print_command_line_error():
             # Print command line when a problem occurred.
-            print((
-                    "Problem occurred during compilation with the "
-                    "command line below:"), file=sys.stderr)
+            print(("Problem occurred during compilation with the "
+                   "command line below:"), file=sys.stderr)
             print(' '.join(cmd), file=sys.stderr)
 
         try:

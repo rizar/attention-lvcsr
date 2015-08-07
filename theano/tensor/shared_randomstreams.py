@@ -1,14 +1,16 @@
 """Define RandomStreams, providing random number variables for Theano
 graphs.
 """
-__docformat__ = "restructuredtext en"
 
 import copy
+
 import numpy
 
 from theano.compile.sharedvalue import (SharedVariable, shared_constructor,
                                         shared)
 from theano.tensor import raw_random
+
+__docformat__ = "restructuredtext en"
 
 
 class RandomStateSharedVariable(SharedVariable):
@@ -24,11 +26,11 @@ def randomstate_constructor(value, name=None, strict=False,
     if not borrow:
         value = copy.deepcopy(value)
     return RandomStateSharedVariable(
-            type=raw_random.random_state_type,
-            value=value,
-            name=name,
-            strict=strict,
-            allow_downcast=allow_downcast)
+        type=raw_random.random_state_type,
+        value=value,
+        name=name,
+        strict=strict,
+        allow_downcast=allow_downcast)
 
 
 class RandomStreams(raw_random.RandomStreamsBase):
@@ -77,7 +79,7 @@ class RandomStreams(raw_random.RandomStreamsBase):
         for old_r, new_r in self.state_updates:
             old_r_seed = seedgen.randint(2 ** 30)
             old_r.set_value(numpy.random.RandomState(int(old_r_seed)),
-                    borrow=True)
+                            borrow=True)
 
     def __getitem__(self, item):
         """Retrieve the numpy RandomState instance associated with a

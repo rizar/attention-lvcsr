@@ -15,6 +15,7 @@ from theano import scalar as scal
 from theano import config, tensor, gof
 import theano.ifelse
 
+from six.moves import reduce, xrange
 from theano.compile import optdb
 from theano.gof import (local_optimizer, EquilibriumDB, ProxyDB,
                         Optimizer, toolbox)
@@ -1015,8 +1016,9 @@ def local_gpu_advanced_incsubtensor1(node):
             return [gpu_op(as_cuda_ndarray_variable(x), as_cuda_ndarray_variable(y), *coords)]
 
     # Should not execute for GpuAdvancedIncSubtensor1
-    if node.op.__class__ is tensor.AdvancedIncSubtensor1 and \
-       node.inputs[0].dtype == "float32":
+    if (node.op.__class__ is tensor.AdvancedIncSubtensor1 and
+            node.inputs[0].dtype == "float32" and
+            node.inputs[1].dtype == "float32"):
         x, y = node.inputs[0:2]
         coords = node.inputs[2:]
         go_gpu = False
@@ -1769,7 +1771,9 @@ def local_gpu_downsample_factor_max_grad(node):
         node.op.ds == node.op.st):
         assert node.op.__props__ == ('ds', 'ignore_border', 'st', 'padding',
                                      'mode')
-        if node.op.padding != (0, 0) or node.op.mode != 'max':
+        if (node.op.padding != (0, 0) or
+            node.op.mode != 'max' or
+            node.op.st != node.op.ds):
             return
         x, z, gz = node.inputs
         if (x.owner and isinstance(x.owner.op, HostFromGpu)):
@@ -1784,8 +1788,10 @@ def local_gpu_downsample_factor_max_grad(node):
 @local_optimizer([downsample.DownsampleFactorMaxGradGrad])
 def local_gpu_downsample_factor_max_grad_grad(node):
     if isinstance(node.op, downsample.DownsampleFactorMaxGradGrad):
-        assert node.op.__props__ == ('ds', 'ignore_border', 'st')
-
+        assert node.op.__props__ == ('ds', 'ignore_border', 'st',
+                                     'padding', 'mode')
+        if node.op.padding != (0, 0) or node.op.mode != 'max':
+            return
         x, z, gx = node.inputs
         if (x.owner and isinstance(x.owner.op, HostFromGpu)):
             op = GpuDownsampleFactorMaxGradGrad(node.op.ds,
@@ -2283,8 +2289,8 @@ def gpuScanOptimization(node):
             scan_outs = [safe_to_gpu(x) for x in thescan.outputs]
             scan_outs = scan_utils.clone(
                 scan_outs,
-                replace=zip(thescan.inputs,
-                            [safe_to_cpu(x) for x in scan_ins]))
+                replace=list(zip(thescan.inputs,
+                                 (safe_to_cpu(x) for x in scan_ins))))
             # We need to construct the hash here, because scan
             # __init__ does not know about cuda ndarray and can not
             # handle graphs with inputs being Cuda Ndarrays
@@ -2329,8 +2335,8 @@ def gpuScanOptimization(node):
             scan_outs = [safe_to_gpu(x) for x in thescan.outputs]
             scan_outs = scan_utils.clone(
                 scan_outs,
-                replace=zip(thescan.inputs,
-                            [safe_to_cpu(x) for x in scan_ins]))
+                replace=list(zip(thescan.inputs,
+                                 (safe_to_cpu(x) for x in scan_ins))))
 
             # We need to construct the hash here, because scan
             # __init__ does not know about cuda ndarray and can not
