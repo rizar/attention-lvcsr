@@ -5,7 +5,9 @@ from blocks.bricks import (
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
-from blocks.bricks.sequence_generators import AbstractReadout, Readout, SoftmaxEmitter
+from blocks.bricks.sequence_generators import (
+    AbstractReadout, Readout, AbstractEmitter)
+from blocks.bricks.wrappers import WithExtraDims
 from blocks.utils import dict_union
 
 from lvsr.ops import FSTProbabilitiesOp, FSTTransitionOp
@@ -135,3 +137,53 @@ class ShallowFusionReadout(Readout):
         if self.normalize_tot_weights:
             x = self.softmax.log_probabilities(x, extra_ndim=x.ndim - 2)
         return x
+
+
+class SelectInEachRow(Brick):
+    @application(inputs=['matrix', 'indices'], outputs=['output_'])
+    def apply(self, matrix, indices):
+        return matrix[tensor.arange(matrix.shape[0]), indices]
+
+
+class SelectInEachSubtensor(SelectInEachRow):
+    decorators = [WithExtraDims()]
+
+
+class LMEmitter(AbstractEmitter):
+    """Emitter to use when language model is used.
+
+    Since with the language model all normalization is
+    done in ShallowFusionReadout, we need this no-op brick to
+    interface it with BeamSearch.
+
+    """
+    @lazy(allocation=['readout_dim'])
+    def __init__(self, readout_dim, **kwargs):
+        super(LMEmitter, self).__init__(**kwargs)
+        self.readout_dim = readout_dim
+        self.select = SelectInEachSubtensor()
+        self.children = [self.select]
+
+    @application
+    def emit(self, readouts):
+        # Non-sense, but the returned result should never be used.
+        return tensor.zeros_like(readouts[:, 0], dtype='int64')
+
+    @application
+    def cost(self, readouts, outputs):
+        return -self.select.apply(
+            readouts, outputs, extra_ndim=readouts.ndim - 2)
+
+    @application
+    def costs(self, readouts):
+        return -readouts
+
+    @application
+    def initial_outputs(self, batch_size):
+        # As long as we do not use the previous character, can be anything
+        return tensor.zeros((batch_size,), dtype='int64')
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return 0
+        return super(LMEmitter, self).get_dim(name)

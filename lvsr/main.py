@@ -69,7 +69,7 @@ from lvsr.attention import (
     SequenceContentAndConvAttention)
 from lvsr.bricks import (
     RecurrentWithFork, FSTTransition,
-    ShallowFusionReadout)
+    ShallowFusionReadout, LMEmitter)
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import (
@@ -509,11 +509,17 @@ class SpeechRecognizer(Initializable):
             feedback = LookupFeedback(num_phonemes + 1, dim_dec)
         else:
             feedback = OneOfNFeedback(num_phonemes + 1)
+        if lm:
+            # In case we use LM it is Readout that is responsible
+            # for normalization.
+            emitter = LMEmitter()
+        else:
+            emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
                 + [attention.take_glimpses.outputs[0]],
-            emitter=SoftmaxEmitter(initial_output=num_phonemes, name="emitter"),
+            emitter=emitter,
             feedback_brick=feedback,
             name="readout")
         if post_merge_dims:
@@ -1257,4 +1263,4 @@ def main(cmd_args):
             print("WER:", wer_error, file=print_to)
             print("Average WER:", total_wer_errors / total_word_length, file=print_to)
 
-            # assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
+            assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)

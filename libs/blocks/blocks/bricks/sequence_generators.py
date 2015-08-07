@@ -484,6 +484,15 @@ class AbstractReadout(Initializable):
         pass
 
     @abstractmethod
+    def costs(self, readouts):
+        """Cost matrix for all outputs.
+
+        For beam search.
+
+        """
+        pass
+
+    @abstractmethod
     def initial_outputs(self, batch_size):
         """Compute initial outputs for the generator's first step.
 
@@ -609,6 +618,10 @@ class Readout(AbstractReadout):
     @application
     def cost(self, readouts, outputs):
         return self.emitter.cost(readouts, outputs)
+
+    @application
+    def costs(self, readouts):
+        return self.emitter.costs(readouts)
 
     @application
     def initial_outputs(self, batch_size):
@@ -751,6 +764,11 @@ class SoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # different dimensions. Be careful!
         return self.softmax.categorical_cross_entropy(
             outputs, readouts, extra_ndim=readouts.ndim - 2)
+
+    @application
+    def costs(self, readouts):
+        return -self.softmax.log_probabilities(
+            readouts, extra_ndim=readouts.ndim - 2)
 
     @application
     def initial_outputs(self, batch_size):
