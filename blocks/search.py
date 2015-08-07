@@ -10,7 +10,6 @@ from blocks.bricks.sequence_generators import BaseSequenceGenerator
 from blocks.filter import VariableFilter, get_application_call, get_brick
 from blocks.graph import ComputationGraph
 from blocks.roles import INPUT, OUTPUT
-from blocks.utils import unpack
 
 
 class BeamSearch(object):
@@ -31,6 +30,8 @@ class BeamSearch(object):
 
     Parameters
     ----------
+    beam_size : int
+        The beam size.
     samples : :class:`~theano.Variable`
         An output of a sampling computation graph built by
         :meth:`~blocks.brick.SequenceGenerator.generate`, the one
@@ -50,10 +51,12 @@ class BeamSearch(object):
     to work).
 
     """
-    def __init__(self, samples):
+    def __init__(self, beam_size, samples):
+        self.beam_size = beam_size
+
         # Extracting information from the sampling computation graph
-        self.cg = ComputationGraph(samples)
-        self.inputs = self.cg.inputs
+        cg = ComputationGraph(samples)
+        self.inputs = cg.inputs
         self.generator = get_brick(samples)
         if not isinstance(self.generator, BaseSequenceGenerator):
             raise ValueError
@@ -127,13 +130,14 @@ class BeamSearch(object):
 
     def compile(self):
         """Compile all Theano functions used."""
-        self._compile_initial_state_and_context_computer()
+        self._compile_context_computer()
+        self._compile_initial_state_computer()
         self._compile_next_state_computer()
         self._compile_logprobs_computer()
         self.compiled = True
 
-    def compute_initial_states_and_contexts(self, inputs):
-        """Computes initial states and contexts from inputs.
+    def compute_contexts(self, inputs):
+        """Computes contexts from inputs.
 
         Parameters
         ----------
@@ -142,18 +146,29 @@ class BeamSearch(object):
 
         Returns
         -------
-        A tuple containing a {name: :class:`numpy.ndarray`} dictionary of
-        contexts ordered like `self.context_names` and a
-        {name: :class:`numpy.ndarray`} dictionary of states ordered like
+        A {name: :class:`numpy.ndarray`} dictionary of contexts ordered
+        like `self.context_names`.
+
+        """
+        contexts = self.context_computer(*[inputs[var]
+                                           for var in self.inputs])
+        return OrderedDict(equizip(self.context_names, contexts))
+
+    def compute_initial_states(self, contexts):
+        """Computes initial states.
+
+        Parameters
+        ----------
+        contexts : dict
+            A {name: :class:`numpy.ndarray`} dictionary of contexts.
+
+        Returns
+        -------
+        A {name: :class:`numpy.ndarray`} dictionary of states ordered like
         `self.state_names`.
 
         """
-        outputs = self.initial_state_and_context_computer(
-            *[inputs[var] for var in self.inputs])
-        contexts = OrderedDict((n, outputs.pop(n)) for n in self.context_names)
-        beam_size = outputs.pop('beam_size')
-        initial_states = outputs
-        return contexts, initial_states, beam_size
+        return self.initial_state_computer(*list(contexts.values()))
 
     def compute_logprobs(self, contexts, states):
         """Compute log probabilities of all possible outputs.
