@@ -26,14 +26,14 @@ class Conv1D(Initializable):
         super(Conv1D, self).__init__(**kwargs)
 
     def _allocate(self):
-        self.params = [shared_floatx_nans((self.num_filters, self.filter_length),
+        self.parameters = [shared_floatx_nans((self.num_filters, self.filter_length),
                                           name="filters")]
 
     def _initialize(self):
-        self.weights_init.initialize(self.params[0], self.rng)
+        self.weights_init.initialize(self.parameters[0], self.rng)
 
     def apply(self, input_):
-        return conv1d(input_, self.params[0], border_mode="full")
+        return conv1d(input_, self.parameters[0], border_mode="full")
 
 
 class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):

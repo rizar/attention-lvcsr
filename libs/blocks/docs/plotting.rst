@@ -3,7 +3,7 @@ Live plotting
 
 .. note::
 
-   The live plotting functionality is part of ``blocks-extras_``, which must be
+   The live plotting functionality is part of ``blocks-extras``, which must be
    separately installed.
 
 Plots often give a clearer image of your training progress than textual logs.
@@ -61,7 +61,7 @@ Now let's train with gradient descent and plot the results.
 >>> main_loop = MainLoop(
 ...     model=None, data_stream=data_stream,
 ...     algorithm=GradientDescent(cost=cost,
-...                               params=[a],
+...                               parameters=[a],
 ...                               step_rule=Scale(learning_rate=0.1)),
 ...     extensions=[FinishAfter(after_n_epochs=1),
 ...                 TrainingDataMonitoring([cost, a], after_batch=True),

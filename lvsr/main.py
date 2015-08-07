@@ -385,7 +385,7 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
 
 
 class SpeechModel(Model):
-    def set_param_values(self, param_values):
+    def set_parameter_values(self, param_values):
         filtered_param_values = {
             key: value for key, value in param_values.items()
             # Shared variables are now saved separately, thanks to the
@@ -398,7 +398,7 @@ class SpeechModel(Model):
             # model parameters.
             if not ('shared' in key
                     or 'None' in key)}
-        super(SpeechModel,self).set_param_values(filtered_param_values)
+        super(SpeechModel,self).set_parameter_values(filtered_param_values)
 
 
 class SpeechRecognizer(Initializable):
@@ -610,7 +610,7 @@ class SpeechRecognizer(Initializable):
     def load_params(self, path):
         generated = self.get_generate_graph()
         param_values = load_parameter_values(path)
-        SpeechModel(generated['outputs']).set_param_values(param_values)
+        SpeechModel(generated['outputs']).set_parameter_values(param_values)
 
     def get_generate_graph(self):
         result = self.generate(self.recordings)
@@ -864,7 +864,7 @@ def main(cmd_args):
         # Separate attention_params to be handled differently
         # when regularization is applied
         attention = recognizer.generator.transition.attention
-        attention_params = Selector(attention).get_params().values()
+        attention_params = Selector(attention).get_parameters().values()
 
         logger.info("Initialization schemes for all bricks.\n"
             "Works well only in my branch with __repr__ added to all them,\n"
@@ -972,7 +972,7 @@ def main(cmd_args):
         # because of some bug a parameter is not in the computation
         # graph.
         model = SpeechModel(regularized_cost)
-        params = model.get_params()
+        params = model.get_parameters()
         logger.info("Parameters:\n" +
                     pprint.pformat(
                         [(key, params[key].get_value().shape) for key

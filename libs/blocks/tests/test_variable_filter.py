@@ -18,11 +18,12 @@ def test_variable_filter():
     x = tensor.vector()
     h1 = brick1.apply(x)
     h2 = activation.apply(h1)
+    h2.name = "h2act"
     y = brick2.apply(h2)
     cg = ComputationGraph(y)
 
-    parameters = [brick1.W, brick1.b, brick2.params[0]]
-    bias = [brick1.b, brick2.params[0]]
+    parameters = [brick1.W, brick1.b, brick2.parameters[0]]
+    bias = [brick1.b, brick2.parameters[0]]
     brick1_bias = [brick1.b]
 
     # Testing filtering by role
@@ -57,6 +58,14 @@ def test_variable_filter():
     # Testing filtering by name regex
     name_filter_regex = VariableFilter(name_regex='W_no.?m')
     assert [cg.variables[2]] == name_filter_regex(cg.variables)
+
+    # Testing filtering by theano name
+    theano_name_filter = VariableFilter(theano_name='h2act')
+    assert [cg.variables[11]] == theano_name_filter(cg.variables)
+
+    # Testing filtering by theano name regex
+    theano_name_filter_regex = VariableFilter(theano_name_regex='h2a.?t')
+    assert [cg.variables[11]] == theano_name_filter_regex(cg.variables)
 
     # Testing filtering by application
     appli_filter = VariableFilter(applications=[brick1.apply])

@@ -12,7 +12,8 @@ from blocks.bricks.base import application
 from blocks.bricks import Tanh
 from blocks.bricks.recurrent import (
     recurrent, BaseRecurrent, GatedRecurrent,
-    SimpleRecurrent, Bidirectional, LSTM, RecurrentStack)
+    SimpleRecurrent, Bidirectional, LSTM,
+    RecurrentStack, RECURRENTSTACK_SEPARATOR)
 from blocks.initialization import Constant, IsotropicGaussian, Orthogonal
 from blocks.filter import get_application_call, VariableFilter
 from blocks.graph import ComputationGraph
@@ -266,7 +267,7 @@ class TestRecurrentStack(unittest.TestCase):
         kwargs = OrderedDict()
         for d in range(depth):
             if d > 0:
-                suffix = '_' + str(d)
+                suffix = RECURRENTSTACK_SEPARATOR + str(d)
             else:
                 suffix = ''
             if d == 0 or skip_connections:
@@ -348,7 +349,7 @@ class TestRecurrentStack(unittest.TestCase):
 
         for d in range(depth):
             if d > 0:
-                suffix = '_' + str(d)
+                suffix = RECURRENTSTACK_SEPARATOR + str(d)
             else:
                 suffix = ''
             if d == 0 or skip_connections:
@@ -400,6 +401,13 @@ class TestRecurrentStack(unittest.TestCase):
         for d in range(depth):
             assert_allclose(h_val[d][1:], res[d * 2], rtol=1e-4)
             assert_allclose(c_val[d][1:], res[d * 2 + 1], rtol=1e-4)
+
+        # Also test that initial state is a parameter
+        for h in results:
+            initial_states = VariableFilter(roles=[INITIAL_STATE])(
+                ComputationGraph(h))
+            assert all(is_shared_variable(initial_state)
+                       for initial_state in initial_states)
 
     def test_many_steps(self):
         self.do_many_steps(self.stack0)
@@ -495,10 +503,10 @@ class TestBidirectional(unittest.TestCase):
                                       activation=Tanh(), seed=1)
         self.bidir.allocate()
         self.simple.initialize()
-        self.bidir.children[0].params[0].set_value(
-            self.simple.params[0].get_value())
-        self.bidir.children[1].params[0].set_value(
-            self.simple.params[0].get_value())
+        self.bidir.children[0].parameters[0].set_value(
+            self.simple.parameters[0].get_value())
+        self.bidir.children[1].parameters[0].set_value(
+            self.simple.parameters[0].get_value())
         self.x_val = 0.1 * numpy.asarray(
             list(itertools.permutations(range(4))),
             dtype=theano.config.floatX)

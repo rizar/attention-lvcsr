@@ -17,6 +17,7 @@ from blocks.roles import (add_role, has_roles, AUXILIARY, PARAMETER, DROPOUT,
                           COLLECTED, COLLECTOR)
 from blocks.utils import (is_graph_input, is_shared_variable, dict_union,
                           shared_floatx_zeros, shared_like)
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -196,8 +197,6 @@ class ComputationGraph(object):
         # Due to theano specifics we have to make one replacement in time
         replacements = OrderedDict(replacements)
 
-        apply_nodes_sorted = theano.gof.graph.io_toposort(
-            self.inputs, self.outputs)
         outputs_cur = self.outputs
 
         # `replacements` with previous replacements applied. We have to track
@@ -205,18 +204,26 @@ class ComputationGraph(object):
         replacement_keys_cur = []
         replacement_vals_cur = []
         # Sort `replacements` in topological order
-        for node in apply_nodes_sorted:
-            for input_ in node.inputs:
-                if input_ in replacements:
-                    if input_ not in replacement_keys_cur:
-                        replacement_keys_cur.append(input_)
-                        replacement_vals_cur.append(replacements[input_])
+        # variables in self.variables are in topological order
+        remaining_replacements = replacements.copy()
+        for variable in self.variables:
+            if variable in replacements:
+                if has_roles(variable, [AUXILIARY]):
+                    warnings.warn(
+                        "replace method was asked to replace a variable ({}) "
+                        "that is an auxiliary variable.".format(variable))
+                replacement_keys_cur.append(variable)
+                # self.variables should not contain duplicates,
+                # otherwise pop() may fail.
+                replacement_vals_cur.append(
+                    remaining_replacements.pop(variable))
 
-        # Add outputs of the computation graph
-        for output in self.outputs:
-            if output in replacements:
-                replacement_keys_cur.append(output)
-                replacement_vals_cur.append(replacements[output])
+        # if remaining_replacements is not empty
+        if remaining_replacements:
+            warnings.warn(
+                "replace method was asked to replace a variable(s) ({}) "
+                "that is not a part of the computational "
+                "graph.".format(str(remaining_replacements.keys())))
 
         # Replace step-by-step in topological order
         while replacement_keys_cur:
@@ -430,7 +437,7 @@ def apply_noise(computation_graph, variables, level, seed=None):
     return computation_graph.replace(replace)
 
 
-def collect_parameters(computation_graph, params):
+def collect_parameters(computation_graph, parameters):
     """Replace parameters with a single shared variable.
 
     This can be useful if you need to calculate the full Hessian of a
@@ -440,16 +447,16 @@ def collect_parameters(computation_graph, params):
     >>> from blocks.utils import shared_floatx
     >>> W1 = shared_floatx(numpy.random.rand(10, 10))
     >>> W2 = shared_floatx(numpy.random.rand(10, 10))
-    >>> all_params = shared_floatx(numpy.concatenate(
+    >>> all_parameters = shared_floatx(numpy.concatenate(
     ...     [W1.get_value().flatten(), W2.get_value().flatten()]))
-    >>> W1 = all_params[:W1.size]
-    >>> W2 = all_params[W1.size:]
+    >>> W1 = all_parameters[:W1.size]
+    >>> W2 = all_parameters[W1.size:]
 
     Parameters
     ----------
     computation_graph : :class:`ComputationGraph` instance
         The managed Theano graph in which to collect parameters.
-    params : list of Theano shared variables
+    parameters : list of Theano shared variables
         The parameters whose values should be collected.
 
     Returns
@@ -480,7 +487,7 @@ def collect_parameters(computation_graph, params):
     the :const:`COLLECTOR` role.
 
     >>> new_cg.shared_variables
-    [collected_params]
+    [collected_parameters]
 
     The bricks' variables have been replaced with reshaped segments of this
     single shared variable. These replacements are given the
@@ -493,26 +500,26 @@ def collect_parameters(computation_graph, params):
     [Reshape{1}.0, Reshape{1}.0, Reshape{2}.0, Reshape{2}.0]
 
     """
-    param_values, param_sizes, param_shapes = [], [], []
-    for param in params:
-        param_values.append(param.get_value(borrow=True))
-        param_sizes.append(param_values[-1].size)
-        param_shapes.append(param_values[-1].shape)
+    parameter_values, parameter_sizes, parameter_shapes = [], [], []
+    for parameter in parameters:
+        parameter_values.append(parameter.get_value(borrow=True))
+        parameter_sizes.append(parameter_values[-1].size)
+        parameter_shapes.append(parameter_values[-1].shape)
 
-    new_params = shared_floatx_zeros(sum(param_sizes))
-    new_params.set_value(numpy.concatenate([value.flatten()
-                                            for value in param_values]))
-    new_params.name = 'collected_params'
-    add_role(new_params, COLLECTOR)
+    new_parameters = shared_floatx_zeros(sum(parameter_sizes))
+    new_parameters.set_value(numpy.concatenate([value.flatten()
+                             for value in parameter_values]))
+    new_parameters.name = 'collected_parameters'
+    add_role(new_parameters, COLLECTOR)
 
     replacements = {}
-    for param, shape, i, j in zip(params, param_shapes,
-                                  numpy.cumsum([0] + param_sizes[:-1]),
-                                  numpy.cumsum(param_sizes)):
-        new_param = new_params[i:j].reshape(shape)
-        new_param.replacement_of = param
-        add_role(new_param, COLLECTED)
-        replacements[param] = new_param
+    for parameter, shape, i, j in zip(parameters, parameter_shapes,
+                                      numpy.cumsum([0] + parameter_sizes[:-1]),
+                                      numpy.cumsum(parameter_sizes)):
+        new_parameter = new_parameters[i:j].reshape(shape)
+        new_parameter.replacement_of = parameter
+        add_role(new_parameter, COLLECTED)
+        replacements[parameter] = new_parameter
     return computation_graph.replace(replacements)
 
 
