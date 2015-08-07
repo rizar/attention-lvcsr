@@ -1,13 +1,12 @@
 from __future__ import print_function
 import copy
-from itertools import izip
-from StringIO import StringIO
-
+from theano.compat import izip
 import numpy
 
 import theano
 from theano import Apply, scalar, config
 from theano import scalar as scal
+from six.moves import StringIO, xrange
 from theano.gof.utils import MethodNotDefined
 from theano.scalar import Scalar
 from theano.tensor.elemwise import (Elemwise, DimShuffle, CAReduceDtype)
@@ -190,8 +189,8 @@ class GpuElemwise(HideC, Elemwise):
             pass
         for npy, ga in [("npy_uint8", "ga_ubyte"),
                         ("npy_uint16", "ga_ushort"),
-                        ("npy_uin32", "ga_uint"),
-                        ("npy_uin64", "ga_ulong"),
+                        ("npy_uint32", "ga_uint"),
+                        ("npy_uint64", "ga_ulong"),
                         ("npy_int8", "ga_byte"),
                         ("npy_int16", "ga_short"),
                         ("npy_int32", "ga_int"),

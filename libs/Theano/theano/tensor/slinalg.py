@@ -1,20 +1,8 @@
 import logging
-
-logger = logging.getLogger(__name__)
-import numpy
 import warnings
+from six.moves import xrange
 
-from theano.gof import Op, Apply
-
-from theano.tensor import as_tensor_variable, dot, DimShuffle, Dot
-from theano.tensor.blas import Dot22
-from theano import tensor
-import theano.tensor
-from theano.tensor.opt import (register_stabilize,
-        register_specialize, register_canonicalize)
-from theano.gof import local_optimizer
-from theano.gof.opt import Optimizer
-from theano.gradient import DisconnectedType
+import numpy
 
 try:
     import scipy.linalg
@@ -23,16 +11,22 @@ except ImportError:
     # some ops (e.g. Cholesky, Solve, A_Xinv_b) won't work
     imported_scipy = False
 
+from theano import tensor
+import theano.tensor
+from theano.tensor import as_tensor_variable
+from theano.gof import Op, Apply
+
+logger = logging.getLogger(__name__)
+
 MATRIX_STRUCTURES = (
-        'general',
-        'symmetric',
-        'lower_triangular',
-        'upper_triangular',
-        'hermitian',
-        'banded',
-        'diagonal',
-        'toeplitz',
-        )
+    'general',
+    'symmetric',
+    'lower_triangular',
+    'upper_triangular',
+    'hermitian',
+    'banded',
+    'diagonal',
+    'toeplitz')
 
 
 class Cholesky(Op):
@@ -123,7 +117,6 @@ class CholeskyGrad(Op):
                 F[k, k] /= (2 * L[k, k])
         else:
             F = numpy.triu(dz)
-            M = N - 1
             for k in xrange(N - 1, -1, -1):
                 for j in xrange(k + 1, N):
                     for i in xrange(j, N):
@@ -167,8 +160,8 @@ class Solve(Op):
         assert A.ndim == 2
         assert b.ndim in [1, 2]
         otype = tensor.tensor(
-                broadcastable=b.broadcastable,
-                dtype=(A * b).dtype)
+            broadcastable=b.broadcastable,
+            dtype=(A * b).dtype)
         return Apply(self, [A, b], [otype])
 
     def perform(self, node, inputs, output_storage):
@@ -182,7 +175,7 @@ class Solve(Op):
         else:
             rval = scipy.linalg.solve(A, b)
         output_storage[0][0] = rval
-        
+
     # computes shape of x where x = inv(A) * b
     def infer_shape(self, node, shapes):
         Ashape, Bshape = shapes
@@ -293,7 +286,7 @@ class EigvalshGrad(Op):
         (a, b, gw) = inputs
         w, v = scipy.linalg.eigh(a, b, lower=self.lower)
         gA = v.dot(numpy.diag(gw).dot(v.T))
-        gB = - v.dot(numpy.diag(gw*w).dot(v.T))
+        gB = - v.dot(numpy.diag(gw * w).dot(v.T))
 
         # See EighGrad comments for an explanation of these lines
         out1 = self.tri0(gA) + self.tri1(gA).T
@@ -331,20 +324,22 @@ def kron(a, b):
     o = tensor.outer(a, b)
     o = o.reshape(tensor.concatenate((a.shape, b.shape)),
                   a.ndim + b.ndim)
-    shf = o.dimshuffle(0, 2, 1, * range(3, o.ndim))
+    shf = o.dimshuffle(0, 2, 1, * list(range(3, o.ndim)))
     if shf.ndim == 3:
         shf = o.dimshuffle(1, 0, 2)
         o = shf.flatten()
     else:
         o = shf.reshape((o.shape[0] * o.shape[2],
                          o.shape[1] * o.shape[3]) +
-                        tuple([o.shape[i] for i in range(4, o.ndim)]))
+                        tuple(o.shape[i] for i in xrange(4, o.ndim)))
     return o
 
 
 class Expm(Op):
     """Compute the matrix exponential of a square array
     """
+
+    __props__ = ()
 
     def make_node(self, A):
         assert imported_scipy, (
@@ -372,6 +367,8 @@ class Expm(Op):
 class ExpmGrad(Op):
     """Gradient of the matrix exponential of a square array.
     """
+
+    __props__ = ()
 
     def make_node(self, A, gw):
         assert imported_scipy, (

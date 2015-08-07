@@ -7,26 +7,26 @@ from __future__ import print_function
 
 import copy
 import sys
-import copy_reg
 import gc
-from itertools import izip
 import logging
+import six.moves.copyreg as copyreg
+from itertools import chain, product as itertools_product
+from theano.compat import izip
 
 import numpy
 
 import theano
 from theano import gof
-from theano.compat import get_unbound_function, product as itertools_product
-from theano.compat.six import StringIO
-from theano.gof import (graph, utils, link,
-                        ops_with_inner_function)
+from theano.compat import get_unbound_function
+from six import string_types, iteritems, itervalues
+from six.moves import StringIO, xrange
+from theano.gof import (graph, utils, link, ops_with_inner_function)
 from theano.gof.link import raise_with_op
 from theano.configparser import (config, AddConfigVar, BoolParam, IntParam,
                                  StrParam)
 from theano.compile.function_module import (
     FunctionMaker, Function, infer_reuse_pattern,
-    SymbolicInputKit, SymbolicOutput, Supervisor, std_fgraph
-    )
+    SymbolicInputKit, SymbolicOutput, Supervisor, std_fgraph)
 from theano.compile.mode import Mode, register_mode
 from theano.compile.ops import OutputGuard
 
@@ -55,7 +55,7 @@ AddConfigVar('DebugMode.check_finite',
 AddConfigVar('DebugMode.check_strides',
              ("Check that Python- and C-produced ndarrays have same strides. "
               "On difference: (0) - ignore, (1) warn, or (2) raise error"),
-             IntParam(1, lambda i: i in (0, 1, 2)),
+             IntParam(0, lambda i: i in (0, 1, 2)),
              in_c_key=False)
 
 AddConfigVar('DebugMode.warn_input_not_reused',
@@ -67,7 +67,7 @@ AddConfigVar('DebugMode.warn_input_not_reused',
 
 
 def is_valid_check_preallocated_output_param(param):
-    if not isinstance(param, basestring):
+    if not isinstance(param, string_types):
         return False
     valid = ["initial", "previous", "c_contiguous", "f_contiguous",
              "strided", "wrong_size", "ALL", ""]
@@ -521,7 +521,8 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
                file=sys.stdout, print_destroy_map=False,
                print_view_map=False, order=None, ids='CHAR',
                stop_on_name=False, prefix_child=None,
-               scan_ops=None, profile=None):
+               scan_ops=None, profile=None,
+               scan_inner_to_outer_inputs=None):
     """Print the graph leading to `r` to given depth.
 
     :param r: Variable instance
@@ -544,6 +545,9 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
                          we don't print anything below it.
     :param scan_ops: Scan ops in the graph will be added inside this list
                      for later printing purposes.
+    :param scan_inner_to_outer_inputs: a dictionary mapping a scan ops
+    inner function inputs to the scan op inputs (outer inputs) for
+    printing purposes.
 
     """
     if depth == 0:
@@ -578,6 +582,7 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
         elif ids == "":
             id_str = ""
         done[obj] = id_str
+
         return id_str
 
     if hasattr(r.owner, 'op'):
@@ -678,16 +683,30 @@ def debugprint(r, prefix='', depth=-1, done=None, print_type=False,
                                       theano.scan_module.scan_op.Scan):
                             scan_ops.append(i)
 
-                    debugprint(i, new_prefix, depth=depth - 1, done=done,
-                               print_type=print_type, file=file, order=order,
-                               ids=ids, stop_on_name=stop_on_name,
-                               prefix_child=new_prefix_child,
-                               scan_ops=scan_ops, profile=profile)
-
+                    debugprint(
+                        i, new_prefix, depth=depth - 1, done=done,
+                        print_type=print_type, file=file, order=order,
+                        ids=ids, stop_on_name=stop_on_name,
+                        prefix_child=new_prefix_child, scan_ops=scan_ops,
+                        profile=profile,
+                        scan_inner_to_outer_inputs=scan_inner_to_outer_inputs)
     else:
-        # this is an input variable
-        id_str = get_id_str(r)
-        print('%s%s %s%s' % (prefix, r, id_str, type_str), file=file)
+        if scan_inner_to_outer_inputs is not None and\
+           r in scan_inner_to_outer_inputs:
+
+            id_str = get_id_str(r)
+            outer_r = scan_inner_to_outer_inputs[r]
+
+            if hasattr(outer_r.owner, 'op'):
+                outer_id_str = get_id_str(outer_r.owner)
+            else:
+                outer_id_str = get_id_str(outer_r)
+            print('%s%s %s%s -> %s' % (prefix, r, id_str, type_str,
+                                       outer_id_str), file=file)
+        else:
+            # this is an input variable
+            id_str = get_id_str(r)
+            print('%s%s %s%s' % (prefix, r, id_str, type_str), file=file)
 
     return file
 
@@ -743,7 +762,7 @@ def _optcheck_fgraph(input_specs, output_specs, accept_inplace=False):
     for feature in std_fgraph.features:
         fgraph.attach_feature(feature())
 
-    return fgraph, map(SymbolicOutput, updates), equivalence_tracker
+    return fgraph, list(map(SymbolicOutput, updates)), equivalence_tracker
 
 
 class DataDestroyed():
@@ -776,13 +795,13 @@ def _check_inputs(node, storage_map, r_vals, dr_vals, active_nodes,
     """
     destroyed_idx_list = []
     destroy_map = getattr(node.op, 'destroy_map', {})
-    for o_pos, i_pos_list in destroy_map.iteritems():
+    for o_pos, i_pos_list in iteritems(destroy_map):
         destroyed_idx_list.extend(i_pos_list)
     destroyed_res_list = [node.inputs[i] for i in destroyed_idx_list]
 
     actually_inplace_outputs = []
     dmap = getattr(node.op, 'destroy_map', {})
-    for oo, ii in dmap.iteritems():
+    for oo, ii in iteritems(dmap):
         var = node.outputs[oo]
         out_var = storage_map[var][0]
         in_var = storage_map[node.inputs[ii[0]]][0]
@@ -801,7 +820,7 @@ def _check_inputs(node, storage_map, r_vals, dr_vals, active_nodes,
                                 ii[0], str(node))
 
     vmap = getattr(node.op, 'view_map', {})
-    for oo, ii in vmap.iteritems():
+    for oo, ii in iteritems(vmap):
         var = node.outputs[oo]
         out_var = storage_map[var][0]
         in_var = storage_map[node.inputs[ii[0]]][0]
@@ -894,10 +913,10 @@ def _check_viewmap(node, storage_map):
         # TODO: make sure this is correct
         # According to OB, duplicate inputs are rejected on build graph time
         # if they cause problems. So if they are here it should be ok.
-        for key, val in good_alias.iteritems():
+        for key, val in iteritems(good_alias):
             bad_alias.pop(key, None)
         if bad_alias:
-            raise BadViewMap(node, oi, outstorage, bad_alias.values())
+            raise BadViewMap(node, oi, outstorage, list(bad_alias.values()))
 
         # if its not aliased to input, check output->output aliasing
         if not good_alias and _is_used_in_graph(onode):
@@ -1029,7 +1048,7 @@ def _find_bad_optimizations1(order, reasons, r_vals):
     # identify equivalence sets that are broken
     equivalence_sets_broken = {}  # id(set) -> Bool
     there_is_a_problem = False
-    for r, r_equiv in equivalence_sets.iteritems():
+    for r, r_equiv in iteritems(equivalence_sets):
         if id(r_equiv) not in equivalence_sets_broken:
             equivalence_sets_broken[id(r_equiv)] = False
             # loop over the variables in the set comparing them to be
@@ -1203,8 +1222,8 @@ def _get_preallocated_maps(node, thunk, prealloc_modes, def_val,
                     # When the CudaNdarray is built, the underlying memory
                     # is c-contiguous, so we transpose it before and after.
                     new_buf = CudaNdarray(new_buf.T)
-                    new_buf = cuda_dimshuffle(new_buf,
-                                              range(new_buf.ndim)[::-1])
+                    new_buf = cuda_dimshuffle(
+                        new_buf, reversed(list(range(new_buf.ndim))))
 
                 f_cont_outputs[r] = new_buf
 
@@ -1371,7 +1390,7 @@ def _check_preallocated_output(node, thunk, prealloc_modes, def_val,
         dmap = getattr(node.op, 'destroy_map', {})
         vmap = getattr(node.op, 'view_map', {})
         for i, r in enumerate(node.inputs):
-            if any(i in v for v in (dmap.values() + vmap.values())):
+            if any(i in v for v in chain(itervalues(dmap), itervalues(vmap))):
                 aliased_inputs.add(r)
 
         _logger.debug('starting preallocated output checking')
@@ -1601,7 +1620,7 @@ class _VariableEquivalenceTracker(object):
                  r,
                  debugprint(r, prefix='  ', depth=6,
                             file=StringIO(), done=done).getvalue(),
-                 debugprint(new_r, prefix='  ',  depth=6,
+                 debugprint(new_r, prefix='  ', depth=6,
                             file=StringIO(), done=done).getvalue()))
             self.replaced_by[r].append((reason, new_r))
 
@@ -1751,9 +1770,8 @@ class _Linker(gof.link.LocalLinker):
             # Pure ops don't really have a perform ( or their perform just
             # raises an not implemented exception), so in those cases we
             # consider that we don't have a python implementation
-            if ((self.maker.mode.check_py_code or thunks_c[-1] is None) and
-                    (node.op.perform.func_code !=
-                     gof.op.PureOp.perform.func_code)):
+            if (self.maker.mode.check_py_code or thunks_c[-1] is None) and \
+               node.op.perform.__code__ != gof.op.PureOp.perform.__code__:
                 thunk = node.op.make_py_thunk(node, storage_map, compute_map,
                                               no_recycling)
                 thunks_py.append(thunk)
@@ -1784,7 +1802,7 @@ class _Linker(gof.link.LocalLinker):
         # use new memory storage when it is needed, in particular for the
         # function's outputs. no_recycling_map will be used in f() below.
         if self.no_recycling is True:
-            no_recycling_map = storage_map.values()
+            no_recycling_map = list(storage_map.values())
             no_recycling_map = utils.difference(no_recycling_map,
                                                 input_storage)
         else:
@@ -1870,7 +1888,7 @@ class _Linker(gof.link.LocalLinker):
                 #  Precondition: the storage map is empty, transferred
                 #  completely to r_vals
                 #####
-                for r, s in storage_map.iteritems():
+                for r, s in iteritems(storage_map):
                     if s[0] is not None:
                         print(r, s)
                     assert s[0] is None
@@ -1992,8 +2010,8 @@ class _Linker(gof.link.LocalLinker):
                                 # as viewd are unsafe too, because the
                                 # corresponding output can be
                                 # destroyed.
-                                if any(i in v for v in (dmap.values() +
-                                                        vmap.values())):
+                                if any(i in v for v in chain(dmap.values(),
+                                                             vmap.values())):
                                     storage_map[r][0] = _lessbroken_deepcopy(
                                         r_vals[r])
 
@@ -2128,7 +2146,7 @@ class _Linker(gof.link.LocalLinker):
 
                 # Nothing should be in storage map after evaluating
                 # each the thunk (specifically the last one)
-                for r, s in storage_map.iteritems():
+                for r, s in iteritems(storage_map):
                     assert type(s) is list
                     assert s[0] is None
 
@@ -2272,8 +2290,9 @@ class _Maker(FunctionMaker):  # inheritance buys a few helper functions
             inputs = [inputs]
 
         # Wrap them in In or Out instances if needed.
-        inputs = map(self.wrap_in, inputs)
-        outputs = map(self.wrap_out, outputs)
+        inputs = [self.wrap_in(i) for i in inputs]
+        outputs = [self.wrap_out(o) for o in outputs]
+
         _inputs = gof.graph.inputs([o.variable for o in outputs] +
                                    [i.update for i in inputs
                                     if getattr(i, 'update', False)])
@@ -2301,7 +2320,7 @@ class _Maker(FunctionMaker):  # inheritance buys a few helper functions
                 optimizer(fgraph)
 
                 theano.compile.function_module.insert_deepcopy(
-                    fgraph, inputs, outputs + additional_outputs)
+                    fgraph, inputs, list(chain(outputs, additional_outputs)))
             finally:
                 theano.config.compute_test_value = compute_test_value_orig
 
@@ -2485,7 +2504,7 @@ class _Maker(FunctionMaker):  # inheritance buys a few helper functions
 
 def _pickle_DebugMode_Maker(maker):
     raise NotImplementedError('DebugMode is not picklable (yet)')
-copy_reg.pickle(_Maker, _pickle_DebugMode_Maker)
+copyreg.pickle(_Maker, _pickle_DebugMode_Maker)
 
 ########################
 #
@@ -2626,5 +2645,6 @@ class DebugMode(Mode):
     def __str__(self):
         return "DebugMode(linker=%s, optimizer=%s)" % (
             self.provided_linker, self.provided_optimizer)
+
 
 register_mode('DEBUG_MODE', DebugMode(optimizer='fast_run'))

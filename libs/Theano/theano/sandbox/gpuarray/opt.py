@@ -1,6 +1,7 @@
 import copy
 import theano
 import numpy
+from six.moves import xrange
 
 try:
     import pygpu
@@ -11,13 +12,17 @@ from theano import tensor, scalar, gof
 from theano.compile import optdb
 from theano.gof import (local_optimizer, EquilibriumDB,
                         SequenceDB, Optimizer, toolbox)
+from theano.gof.optdb import LocalGroupDB
 
+from theano.scalar.basic import Scalar, Pow, Cast
 from theano.scan_module import scan_utils, scan_op, scan_opt
 
 from theano.tensor.nnet.conv import ConvOp
 from theano.tests.breakpoint import PdbBreakpoint
+
 from .type import GpuArrayType, GpuArrayConstant
-from .basic_ops import (host_from_gpu, gpu_from_host,
+from .basic_ops import (as_gpuarray_variable,
+                        host_from_gpu, gpu_from_host,
                         HostFromGpu, GpuFromHost,
                         GpuSplit, GpuContiguous,
                         gpu_alloc, GpuAlloc, GpuReshape,
@@ -37,6 +42,10 @@ gpu_optimizer = EquilibriumDB()
 gpu_cut_copies = EquilibriumDB()
 
 gpu_seqopt = SequenceDB()
+
+# Don't register this right now
+conv_groupopt = LocalGroupDB()
+conv_groupopt.__name__ = "gpua_conv_opts"
 
 gpu_seqopt.register('gpuarray_local_optimiziations', gpu_optimizer, 1,
                     'fast_compile', 'fast_run', 'inplace', 'gpuarray')
@@ -254,11 +263,39 @@ def local_gpu_elemwise(node):
     scal_op = op.scalar_op
     name = op.name
     if name:
-        name = 'Gpu'+name
+        name = 'Gpu' + name
+
     res = GpuElemwise(scal_op, name=name,
                       inplace_pattern=copy.copy(op.inplace_pattern),
                       nfunc_spec=op.nfunc_spec)
-    return res
+
+    # If the elemwise operation is a pow, casts might be required on the
+    # inputs and or outputs because only the (float, float)->float and
+    # (double, double)->double cases are implemented at the moment.
+    if isinstance(op.scalar_op, Pow):
+
+        # Only transfer the computation on the gpu if the output dtype is
+        # floating point. Else, give up on the transfer to the gpu.
+        out_dtype = node.outputs[0].dtype
+        if out_dtype not in ['float16', 'float32', 'float64']:
+            return
+
+        # Transfer the inputs on the GPU and cast them to the right dtype.
+        new_inputs = []
+        for inp in node.inputs:
+            if inp.dtype != out_dtype:
+                gpu_cast_op = GpuElemwise(Cast(Scalar(out_dtype)))
+                new_inputs.append(gpu_cast_op(as_gpuarray_variable(inp)))
+            else:
+                new_inputs.append(as_gpuarray_variable(inp))
+
+        # Perform the exponent on the gpu and transfer the output back to the
+        # cpu.
+        gpu_output = res(*new_inputs)
+        cpu_output = host_from_gpu(gpu_output)
+        return [cpu_output]
+    else:
+        return res
 
 
 def max_inputs_to_GpuElemwise(node):
@@ -348,7 +385,7 @@ def local_gpu_pdbbreakpoint_op(node):
         nb_monitored_vars = len(node.outputs)
         for i in range(nb_monitored_vars):
 
-            inp = old_inputs[i+1]
+            inp = old_inputs[i + 1]
             out = old_outputs[i]
 
             input_is_from_gpu = (inp.owner and
@@ -632,8 +669,12 @@ def local_gpu_conv(node):
                       logical_kern_align_top=op.kshp_logical_top_aligned,
                       kshp=op.kshp,
                       version=op.version,
+                      direction_hint=op.direction_hint,
                       verbose=op.verbose,
                       imshp=op.imshp,
+                      nkern=op.nkern,
+                      bsize=op.bsize,
+                      fft_opt=op.fft_opt
                       )
         if op.imshp_logical is not None:
             logical_img_hw = op.imshp_logical[1:3]
@@ -687,6 +728,9 @@ def local_gpu_conv(node):
     out = gpu_from_host(out)
     out.values_eq_approx = values_eq_approx
     return [out]
+
+# Register this here so that it goes after 'local_gpu_conv'
+register_opt()(conv_groupopt)
 
 
 @register_opt("low_memory")
@@ -787,8 +831,8 @@ def local_scan_to_gpua(node):
         scan_outs = [safe_to_gpu(x) for x in node.op.outputs]
     scan_outs = scan_utils.clone(
         scan_outs,
-        replace=zip(node.op.inputs,
-                    [safe_to_cpu(x) for x in scan_ins]))
+        replace=list(zip(node.op.inputs,
+                         (safe_to_cpu(x) for x in scan_ins))))
 
     # We need to construct the hash here, because scan
     # __init__ does not know about the gpu and can not

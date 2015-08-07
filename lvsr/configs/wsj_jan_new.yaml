@@ -74,4 +74,6 @@ training:
 
     save_every_n_batches: 100
 
+    bokeh_server_url: http://cymes.stud.ii:5006/
+
 vocabulary: $FUEL_DATA_PATH/WSJ/words.txt

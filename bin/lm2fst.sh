@@ -41,7 +41,7 @@ $cat_cmd $LMFILE | \
     fstarcsort --sort_type=ilabel      \
     > $DIR/G.fst
 
-disambig_symbols=`$KU/add_lex_disambig.pl $DIR/lexicon.txt $DIR/lexicon_disambig.txt`
+ndisambig=`$KU/add_lex_disambig.pl $DIR/lexicon.txt $DIR/lexicon_disambig.txt`
 
 ndisambig=$[$ndisambig+1]; # add one disambig symbol for silence in lexicon FST. It won't hurt even if don't use it
 ( for n in `seq 0 $ndisambig`; do echo '#'$n; done ) >$DIR/disambig.txt

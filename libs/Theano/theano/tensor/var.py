@@ -1,10 +1,9 @@
 import copy
-import pdb
-import sys
 import traceback as tb
 import warnings
 
 import numpy
+from six.moves import xrange
 
 import theano
 from theano.compat import PY3
@@ -40,9 +39,9 @@ class _tensor_py_operators:
     # CASTS
     # REMOVED THESE BECAUSE PYTHON appears to require __int__ to return
     # an int. -JB 20081112
-    #def __int__(self): return convert_to_int32(self)
-    #def __float__(self): return convert_to_float64(self)
-    #def __complex__(self): return convert_to_complex128(self)
+    # def __int__(self): return convert_to_int32(self)
+    # def __float__(self): return convert_to_float64(self)
+    # def __complex__(self): return convert_to_complex128(self)
 
     # COMPARISONS
     _is_nonzero = True
@@ -68,6 +67,10 @@ class _tensor_py_operators:
         return rval
 
     def __nonzero__(self):
+        # Python 2.x
+        return self.__bool__()
+
+    def __bool__(self):
         # This is meant to prohibit stuff like a < b < c, which is internally
         # implemented as (a < b) and (b < c). The trouble with this is the
         # side-effect that checking for a non-NULL a by typing "if a: ..."
@@ -75,6 +78,8 @@ class _tensor_py_operators:
         # it seems impossible.  Currently, all vars evaluate to nonzero except
         # the return values of comparison operators, which raise this
         # exception.  If you can think of a better solution, go for it!
+        #
+        # __bool__ is Python 3.x data model. __nonzero__ is Python 2.x.
         if self._is_nonzero:
             return True
         else:
@@ -207,7 +212,7 @@ class _tensor_py_operators:
 
     # DO NOT USE THESE BECAUSE INPLACE OPS SHOULD BE INSERTED
     # BY OPTIMIZATIONS ONLY
-    ## ARITHMETIC - INPLACE
+    # ARITHMETIC - INPLACE
     # def __iadd__(self, other):
     #    return _add_inplace(self, other)
     # def __isub__(self, other):
@@ -349,6 +354,82 @@ class _tensor_py_operators:
     def diagonal(self, offset=0, axis1=0, axis2=1):
         return theano.tensor.basic.diagonal(self, offset, axis1, axis2)
 
+    # Elemwise
+    def arccos(self):
+        return theano.tensor.arccos(self)
+
+    def arccosh(self):
+        return theano.tensor.arccosh(self)
+
+    def arcsin(self):
+        return theano.tensor.arcsin(self)
+
+    def arcsinh(self):
+        return theano.tensor.arcsinh(self)
+
+    def arctan(self):
+        return theano.tensor.arctan(self)
+
+    def arctanh(self):
+        return theano.tensor.arctanh(self)
+
+    def ceil(self):
+        return theano.tensor.ceil(self)
+
+    def cos(self):
+        return theano.tensor.cos(self)
+
+    def cosh(self):
+        return theano.tensor.cosh(self)
+
+    def deg2rad(self):
+        return theano.tensor.deg2rad(self)
+
+    def exp(self):
+        return theano.tensor.exp(self)
+
+    def exp2(self):
+        return theano.tensor.exp2(self)
+
+    def expm1(self):
+        return theano.tensor.expm1(self)
+
+    def floor(self):
+        return theano.tensor.floor(self)
+
+    def log(self):
+        return theano.tensor.log(self)
+
+    def log10(self):
+        return theano.tensor.log10(self)
+
+    def log1p(self):
+        return theano.tensor.log1p(self)
+
+    def log2(self):
+        return theano.tensor.log2(self)
+
+    def rad2deg(self):
+        return theano.tensor.rad2deg(self)
+
+    def sin(self):
+        return theano.tensor.sin(self)
+
+    def sinh(self):
+        return theano.tensor.sinh(self)
+
+    def sqrt(self):
+        return theano.tensor.sqrt(self)
+
+    def tan(self):
+        return theano.tensor.tan(self)
+
+    def tanh(self):
+        return theano.tensor.tanh(self)
+
+    def trunc(self):
+        return theano.tensor.trunc(self)
+
     # CASTING
     def astype(self, dtype):
         return theano.tensor.cast(self, dtype)
@@ -381,17 +462,15 @@ class _tensor_py_operators:
                     axis = i
 
         if advanced:
-            if (axis is not None
-                and all(isinstance(a, slice) and
-                        equal_slices(a, slice(None)) for a in args[:axis])
-                and all(isinstance(a, slice) and
-                        equal_slices(a, slice(None)) for a in args[axis + 1:])
-                and isinstance(args[axis], (
-                    numpy.ndarray,
-                    list,
-                    TensorVariable,
-                    TensorConstant,
-                    theano.tensor.sharedvar.TensorSharedVariable))):
+            if (axis is not None and
+                all(isinstance(a, slice) and
+                    equal_slices(a, slice(None)) for a in args[:axis]) and
+                all(isinstance(a, slice) and
+                    equal_slices(a, slice(None)) for a in args[axis + 1:]) and
+                isinstance(args[axis],
+                           (numpy.ndarray, list,
+                            TensorVariable, TensorConstant,
+                            theano.tensor.sharedvar.TensorSharedVariable))):
                 return self.take(args[axis], axis)
             else:
                 return theano.tensor.subtensor.advanced_subtensor(self, *args)
@@ -636,7 +715,8 @@ class TensorVariable(_tensor_py_operators, Variable):
             elif config.warn_float64 == "raise":
                 raise Exception(msg)
             elif config.warn_float64 == 'pdb':
-                import pdb; pdb.set_trace()
+                import pdb
+                pdb.set_trace()
 TensorType.Variable = TensorVariable
 
 
@@ -738,8 +818,8 @@ class TensorConstant(_tensor_py_operators, Constant):
     def __init__(self, type, data, name=None):
         Constant.__init__(self, type, data, name)
         if (isinstance(data, numpy.ndarray) and
-            data.ndim > 0 and
-            len(numpy.unique(data)) == 1):
+                data.ndim > 0 and
+                len(numpy.unique(data)) == 1):
             self.tag.unique_value = numpy.unique(data)[0]
         else:
             self.tag.unique_value = None

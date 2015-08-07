@@ -1116,7 +1116,8 @@ def main(cmd_args):
                     # Plot 5: training and validation monotonicity penalty
                     [average_monitoring._record_name('weights_penalty_per_recording'),
                     validation._record_name('weights_penalty_per_recording')]],
-                    every_n_batches=10),
+                    every_n_batches=10,
+                    server_url=train_conf.get('bokeh_server_url')),
             Checkpoint(cmd_args.save_path,
                        before_first_epoch=not cmd_args.fast_start, after_epoch=True,
                        every_n_batches=train_conf.get('save_every_n_batches'),

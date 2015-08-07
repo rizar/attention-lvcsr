@@ -58,7 +58,11 @@ kaldi2fuel.py $DATASET read_symbols characters $DIR/net-chars.txt
 # filter any unrecognized character
 
 allowed_characters=`cat $DIR/net-chars.txt  | grep -v '<.*>' | cut -d ' ' -f 1 | tr -d '\n'`
-
+if echo $allowed_characters | grep '-' > /dev/null; then
+	allowed_characters=`echo $allowed_characters | tr -d '-'`
+	allowed_characters="${allowed_characters}-"
+fi
+echo "character set: $allowed_characters"
 
 #TODO: shall we also output noise instead of unk??
 echo "<UNK> <noise> <spc>" > $DIR/lexicon.txt
@@ -72,4 +76,4 @@ cat $DIR/tmp-words-to-convert.txt | \
 	sed -e "s/$/ <spc>/" | \
 	paste -d '' $DIR/tmp-words-to-convert.txt - >> $DIR/lexicon.txt
 
-rm $DIR/tmp-words-to-convert.txt
+#rm $DIR/tmp-words-to-convert.txt

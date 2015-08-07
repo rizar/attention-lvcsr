@@ -7,18 +7,16 @@ To read about what theano graphs are from a user perspective, have a look at
 """
 from __future__ import print_function
 
-__docformat__ = "restructuredtext en"
-
-
+from collections import deque
 from copy import copy
 from itertools import count
 
-
 import theano
-import warnings
 from theano.gof import utils
-from theano.compat import deque
+from six import string_types, integer_types, iteritems
 from theano.misc.ordered_set import OrderedSet
+
+__docformat__ = "restructuredtext en"
 
 # Lazy imports to avoid circular dependencies.
 is_same_graph_with_merge = None
@@ -148,7 +146,7 @@ class Apply(Node):
             else:
                 raise AttributeError(
                     "%s.default_output should be an output index." % self.op)
-        elif not isinstance(do, (int, long)):
+        elif not isinstance(do, integer_types):
             raise AttributeError("%s.default_output should be an int or long" %
                                  self.op)
         elif do < 0 or do >= len(self.outputs):
@@ -265,7 +263,7 @@ class Variable(Node):
 
     - `TensorVariable` subclass of Variable that represents a numpy.ndarray object
 
-    - `SharedTensorVariable` Shared version of TensorVariable
+    - `TensorSharedVariable` Shared version of TensorVariable
 
     - `SparseVariable` subclass of Variable that represents a scipy.sparse.{csc,csr}_matrix object
 
@@ -311,7 +309,7 @@ class Variable(Node):
     `compile.function` uses each `Apply` instance's `inputs` attribute
     together with each Variable's `owner` field to determine which inputs are necessary to compute the function's outputs.
     """
-    #__slots__ = ['type', 'owner', 'index', 'name']
+    # __slots__ = ['type', 'owner', 'index', 'name']
     __count__ = count(0)
 
     def __init__(self, type, owner=None, index=None, name=None):
@@ -341,7 +339,7 @@ class Variable(Node):
         if index is not None and not isinstance(index, int):
             raise TypeError("index must be an int", index)
         self.index = index
-        if name is not None and not isinstance(name, basestring):
+        if name is not None and not isinstance(name, string_types):
             raise TypeError("name must be a string", name)
         self.name = name
         self.auto_name = 'auto_' + str(next(self.__count__))
@@ -419,7 +417,7 @@ class Variable(Node):
             self._fn_cache = dict()
 
         inputs = tuple(sorted(inputs_to_values.keys(), key=id))
-        if not inputs in self._fn_cache:
+        if inputs not in self._fn_cache:
             self._fn_cache[inputs] = theano.function(inputs, self)
         args = [inputs_to_values[param] for param in inputs]
 
@@ -439,7 +437,7 @@ class Constant(Variable):
 
     Constant nodes make eligible numerous optimizations: constant inlining in C code, constant folding, etc.
     """
-    #__slots__ = ['data']
+    # __slots__ = ['data']
     def __init__(self, type, data, name=None):
         """Initialize self.
 
@@ -491,8 +489,7 @@ class Constant(Variable):
             raise ValueError("Constant instances cannot have an owner.")
 
     owner = property(lambda self: None, __set_owner)
-    value = property(lambda self: self.data,
-            doc='read-only data access method')
+    value = property(lambda self: self.data, doc='read-only data access method')
 
     # index is not defined, because the `owner` attribute must necessarily be None
 
@@ -664,9 +661,7 @@ def clone(i, o, copy_inputs=True):
     return [equiv[input] for input in i], [equiv[output] for output in o]
 
 
-def clone_get_equiv(inputs, outputs,
-        copy_inputs_and_orphans=True,
-        memo=None):
+def clone_get_equiv(inputs, outputs, copy_inputs_and_orphans=True, memo=None):
     """
     Return a dictionary that maps from Variable and Apply nodes in the
     original graph to a new node (a clone) in a new graph.
@@ -786,7 +781,8 @@ def general_toposort(r_out, deps, debug_print=False,
             rlist.append(node)
             rset.add(node)
             for client in clients.get(node, []):
-                deps_cache[client] = [a for a in deps_cache[client] if a is not node]
+                deps_cache[client] = [a for a in deps_cache[client]
+                                      if a is not node]
                 if not deps_cache[client]:
                     sources.append(client)
 
@@ -828,7 +824,7 @@ def io_toposort(inputs, outputs, orderings=None):
         # Also include the cache in the function itself for speed up.
         def compute_deps_cache(obj):
             if obj in deps_cache:
-                return deps_cache[io]
+                return deps_cache[obj]
             rval = []
             if obj not in iset:
                 if isinstance(obj, Variable):
@@ -868,8 +864,77 @@ def io_toposort(inputs, outputs, orderings=None):
 
 
 default_leaf_formatter = str
-default_node_formatter = lambda op, argstrings: "%s(%s)" % (op.op,
-                                                            ", ".join(argstrings))
+
+
+def default_node_formatter(op, argstrings):
+    return "%s(%s)" % (op.op, ", ".join(argstrings))
+
+
+def io_connection_pattern(inputs, outputs):
+    """
+    Returns the connection pattern of a subgraph defined by given
+    inputs and outputs
+    """
+
+    inner_nodes = io_toposort(inputs, outputs)
+
+    # Initialize 'connect_pattern_by_var' by establishing each input as
+    # connected only to itself
+    connect_pattern_by_var = {}
+    nb_inputs = len(inputs)
+
+    for i in range(nb_inputs):
+        input = inputs[i]
+        inp_connection_pattern = [i == j for j in range(nb_inputs)]
+        connect_pattern_by_var[input] = inp_connection_pattern
+
+    # Iterate through the nodes used to produce the outputs from the
+    # inputs and, for every node, infer their connection pattern to
+    # every input from the connection patterns of their parents.
+    for n in inner_nodes:
+
+        # Get the connection pattern of the inner node's op. If the op
+        # does not define a connection_pattern method, assume that
+        # every node output is connected to every node input
+        try:
+            op_connection_pattern = n.op.connection_pattern(n)
+        except AttributeError:
+            op_connection_pattern = ([[True] * len(n.outputs)] *
+                                     len(n.inputs))
+
+        # For every output of the inner node, figure out which inputs it
+        # is connected to by combining the connection pattern of the inner
+        # node and the connection patterns of the inner node's inputs.
+        for out_idx in range(len(n.outputs)):
+            out = n.outputs[out_idx]
+            out_connection_pattern = [False] * nb_inputs
+
+            for inp_idx in range(len(n.inputs)):
+                inp = n.inputs[inp_idx]
+
+                if inp in connect_pattern_by_var:
+                    inp_connection_pattern = connect_pattern_by_var[inp]
+
+                    # If the node output is connected to the node input, it
+                    # means it is connected to every inner input that the
+                    # node inputs is connected to
+                    if op_connection_pattern[inp_idx][out_idx]:
+                        out_connection_pattern = [out_connection_pattern[i] or
+                                                  inp_connection_pattern[i]
+                                                  for i in range(nb_inputs)]
+
+            # Store the connection pattern of the node output
+            connect_pattern_by_var[out] = out_connection_pattern
+
+    # Obtain the global connection pattern by combining the
+    # connnection patterns of the individual outputs
+    global_connection_pattern = [[] for o in range(len(inputs))]
+    for out in outputs:
+        out_connection_pattern = connect_pattern_by_var[out]
+        for i in range(len(inputs)):
+            global_connection_pattern[i].append(out_connection_pattern[i])
+
+    return global_connection_pattern
 
 
 def is_same_graph(var1, var2, givens=None, debug=False):
@@ -937,7 +1002,7 @@ def is_same_graph(var1, var2, givens=None, debug=False):
         in_xs = []
         in_ys = []
         # Compute the sets of all variables found in each computational graph.
-        inputs_var = map(inputs, ([var1], [var2]))
+        inputs_var = list(map(inputs, ([var1], [var2])))
         all_vars = [set(variables(v_i, v_o))
                     for v_i, v_o in ((inputs_var[0], [var1]),
                                      (inputs_var[1], [var2]))]
@@ -946,13 +1011,13 @@ def is_same_graph(var1, var2, givens=None, debug=False):
             # Return True iff `x` is in computation graph of variable `vark`.
             return x in all_vars[k - 1]
 
-        for to_replace, replace_by in givens.iteritems():
+        for to_replace, replace_by in iteritems(givens):
             # Map a substitution variable to the computational graphs it
             # belongs to.
             inside = dict((v, [in_var(v, k) for k in (1, 2)])
                           for v in (to_replace, replace_by))
             if (inside[to_replace][0] and not inside[to_replace][1] and
-                inside[replace_by][1] and not inside[replace_by][0]):
+                    inside[replace_by][1] and not inside[replace_by][0]):
                 # Substitute variable in `var1` by one from `var2`.
                 in_xs.append(to_replace)
                 in_ys.append(replace_by)
@@ -1075,7 +1140,8 @@ def view_roots(r):
     if owner is not None:
         try:
             view_map = owner.op.view_map
-            view_map = dict([(owner.outputs[o], i) for o, i in view_map.items()])
+            view_map = dict((owner.outputs[o], i)
+                            for o, i in iteritems(view_map))
         except AttributeError:
             return [r]
         if r in view_map:
@@ -1092,7 +1158,7 @@ def view_roots(r):
 def list_of_nodes(inputs, outputs):
     """ Return the apply nodes of the graph between inputs and outputs """
     return stack_search(
-            deque([o.owner for o in outputs]),
-            lambda o: [inp.owner for inp in o.inputs
-                           if inp.owner
-                           and not any(i in inp.owner.outputs for i in inputs)])
+        deque([o.owner for o in outputs]),
+        lambda o: [inp.owner for inp in o.inputs
+                   if inp.owner and
+                   not any(i in inp.owner.outputs for i in inputs)])
