@@ -1,6 +1,7 @@
 from theano import tensor
 
-from blocks.bricks import Initializable, Linear, Random, Brick
+from blocks.bricks import (
+    Initializable, Linear, Random, Brick, NDimensionalSoftmax)
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
@@ -103,11 +104,6 @@ class FSTTransition(BaseRecurrent, Initializable):
         return super(FSTTransition, self).get_dim(name)
 
 
-def normalize_log_probs(x):
-    x = x - x.max(axis=(x.ndim-1), keepdims=True)
-    x = x - tensor.log(tensor.exp(x).sum(axis=(x.ndim-1), keepdims=True))
-    return x
-
 class ShallowFusionReadout(Readout):
     def __init__(self, lm_logprobs_name, lm_weight,
                  normalize_am_weights=False,
@@ -122,16 +118,20 @@ class ShallowFusionReadout(Readout):
         self.normalize_lm_weights = normalize_lm_weights
         self.normalize_tot_weights = normalize_tot_weights
         self.am_beta = am_beta
+        self.softmax = NDimensionalSoftmax()
+        self.children += [self.softmax]
 
     @application
     def readout(self, **kwargs):
         lm_pre_softmax = -kwargs.pop(self.lm_logprobs_name)
         if self.normalize_lm_weights:
-            lm_pre_softmax = normalize_log_probs(lm_pre_softmax)
+            lm_pre_softmax = self.softmax.log_probabilities(
+                lm_pre_softmax, extra_ndim=lm_pre_softmax.ndim - 2)
         am_pre_softmax = self.am_beta * super(ShallowFusionReadout, self).readout(**kwargs)
         if self.normalize_am_weights:
-            am_pre_softmax = normalize_log_probs(am_pre_softmax)
+            am_pre_softmax = self.softmax.log_probabilities(
+                am_pre_softmax, extra_ndim=am_pre_softmax.ndim - 2)
         x = am_pre_softmax + self.lm_weight * lm_pre_softmax
         if self.normalize_tot_weights:
-            x = normalize_log_probs(x)
+            x = self.softmax.log_probabilities(x, extra_ndim=x.ndim - 2)
         return x
