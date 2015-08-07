@@ -130,6 +130,8 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
                 ali_to_05 = (ali_to_05>=0)
                 ali_median_pos = ali_to_05[:,1:] - ali_to_05[:,:-1]
                 expected_last_source_pos = tensor.argmax(ali_median_pos, axis=1)
+                expected_last_source_pos = theano.gradient.disconnected_grad(
+                    expected_last_source_pos)
             else:
                 raise ValueError
             #the window taken around each element

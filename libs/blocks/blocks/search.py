@@ -121,11 +121,12 @@ class BeamSearch(object):
         # This filtering should return identical variables
         # (in terms of computations) variables, and we do not care
         # which to use.
-        logprobs = -VariableFilter(
-            applications=[self.generator.readout.emitter.probs],
-            roles=[INPUT])(self.inner_cg)[0]
+        readouts = VariableFilter(
+            applications=[self.generator.readout.readout],
+            roles=[OUTPUT])(self.inner_cg)[0]
+        costs = self.generator.readout.costs(readouts)
         self.logprobs_computer = function(
-            self.contexts + self.input_states, logprobs,
+            self.contexts + self.input_states, costs,
             on_unused_input='ignore')
 
     def compile(self):
