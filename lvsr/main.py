@@ -52,7 +52,7 @@ from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT, WEIGHT
 from blocks.utils import named_copy, dict_union, check_theano_variable,\
     reraise_as
-from blocks.search import BeamSearch
+from blocks.search import BeamSearch, CandidateNotFoundError
 from blocks.select import Selector
 from blocks.serialization import load_parameter_values
 from fuel.schemes import (
@@ -760,10 +760,13 @@ class PhonemeErrorRate(MonitoredQuantity):
         if self.num_examples > 10 and self.mean_error > 0.8:
             self.mean_error = 1
             return
-        outputs, search_costs = self.recognizer.beam_search(recording)
-        recognized = self.dataset.decode(outputs[0])
         groundtruth = self.dataset.decode(transcription)
-        error = min(1, wer(groundtruth, recognized))
+        try:
+            outputs, search_costs = self.recognizer.beam_search(recording)
+            recognized = self.dataset.decode(outputs[0])
+            error = min(1, wer(groundtruth, recognized))
+        except CandidateNotFoundError:
+            error = 1.0
         self.total_errors += error * len(groundtruth)
         self.total_length += len(groundtruth)
         self.num_examples += 1

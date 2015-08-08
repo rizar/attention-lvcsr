@@ -12,6 +12,10 @@ from blocks.graph import ComputationGraph
 from blocks.roles import INPUT, OUTPUT
 
 
+class CandidateNotFoundError(Exception):
+    pass
+
+
 class BeamSearch(object):
     """Approximate search for the most likely sequence.
 
@@ -335,6 +339,8 @@ class BeamSearch(object):
                 states[name] = numpy.take(states[name], unfinished, axis=0)
             all_outputs = numpy.take(all_outputs, unfinished, axis=1)
             all_costs = numpy.take(all_costs, unfinished, axis=1)
+        if not done:
+            raise CandidateNotFoundError()
 
         done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
 
