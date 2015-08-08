@@ -1,4 +1,5 @@
 from __future__ import print_function
+import time
 import logging
 import pprint
 import math
@@ -1217,8 +1218,10 @@ def main(cmd_args):
                 continue
             print("Utterance {} ({})".format(number, data[2]), file=print_to)
 
+            before = time.time()
             outputs, search_costs = recognizer.beam_search(
                 data[0], char_discount=cmd_args.char_discount)
+            took = time.time() - before
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             recognized_text = dataset.pretty_print(outputs[0])
@@ -1241,7 +1244,7 @@ def main(cmd_args):
             total_wer_errors += len(groundtruth) * wer_error
             total_word_length += len(groundtruth)
 
-            if cmd_args.report:
+            if cmd_args.report and recognized:
                 show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
                 pyplot.savefig(os.path.join(
                     alignments_path, "{}.groundtruth.png".format(number)))
@@ -1252,6 +1255,7 @@ def main(cmd_args):
             if decoded_file is not None:
                 print("{} {}".format(data[2], ' '.join(recognized)), file=decoded_file)
 
+            print("Decoding took:", took, file=print_to)
             print("Beam search cost:", search_costs[0], file=print_to)
             print("Recognized:", recognized_text, file=print_to)
             print("Recognized cost:", costs_recognized.sum(), file=print_to)

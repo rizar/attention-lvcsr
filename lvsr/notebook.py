@@ -6,15 +6,15 @@ import base64
 import struct
 
 from matplotlib import pyplot
-from pandas import rolling_mean as rmean
+from pandas import rolling_mean as rmean, DataFrame
 from IPython.core.display import display, HTML
 
 models = {}
 
 def load_log(name):
-    log = cPickle.load(open(name + "_log.pkl"))
+    log = cPickle.load(open(name + "_log.zip"))
     models["log_" + name] = log
-    df = log.to_dataframe()
+    df = DataFrame.from_dict(log, orient='index')
     models["df_" + name] = df
     print "Iterations done for {}: {}".format(name, log.status['iterations_done'])
     print "Average batch time for {} was {}".format(
@@ -22,7 +22,7 @@ def load_log(name):
     print "Best PER: {}".format(log.status.get('best_valid_per', '?'))
 
 
-def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.0):
+def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.0, max_ll=None):
     indices = slice(start, finish if finish > 0 else None)
 
     f, axis = pyplot.subplots(1, 2)
@@ -36,6 +36,9 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.
                 ax.plot(
                     rmean(getattr(log, cost).interpolate()[indices], window),
                         label=name)
+                ax.set_xlim(start, finish)
+                if max_ll:
+                    ax.set_ylim(0, max_ll)
             ax.legend()
 
     f, axis = pyplot.subplots(1, 2)
@@ -45,9 +48,11 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.
         axis[0].plot(
             rmean(log.average_weights_entropy_per_label.interpolate()[indices], window),
                     label=name)
+        axis[0].set_xlim(start, finish)
         axis[0].legend(loc='best')
     for name in names:
         log = models['df_' + name]
+        axis[1].set_xlim(start, finish)
         axis[1].set_ylim(0, max_weight_penalty)
         axis[1].plot(
             rmean(log.average_weights_penalty_per_recording.interpolate()[indices], window),
@@ -60,6 +65,7 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.
         log = models['df_' + name]
         axis[0].plot(log.valid_per.interpolate()[indices],
                   label=name)
+        axis[1].set_xlim(start, finish)
         axis[0].set_ylim(0, max_per)
         axis[0].legend(loc='best')
     for name in names:
@@ -67,6 +73,7 @@ def plot(names, start=0, finish=-1, window=1, max_weight_penalty=500, max_per=1.
         axis[1].plot(
             rmean(log.average_total_gradient_norm.interpolate()[indices], window),
                     label=name)
+        axis[1].set_xlim(start, finish)
         axis[1].set_ylim(0, 500)
         axis[1].legend(loc='best')
 
