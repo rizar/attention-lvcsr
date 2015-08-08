@@ -1,4 +1,4 @@
-import fst
+#import fst
 import numpy
 import theano
 from theano import Op

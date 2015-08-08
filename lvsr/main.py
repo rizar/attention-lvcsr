@@ -28,6 +28,7 @@ from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback,
     AbstractFeedback)
+from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
@@ -49,7 +50,7 @@ from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.model import Model
-from blocks.filter import VariableFilter
+from blocks.filter import VariableFilter, get_brick
 from blocks.roles import OUTPUT, WEIGHT
 from blocks.utils import named_copy, dict_union, check_theano_variable,\
     reraise_as
@@ -1005,6 +1006,9 @@ def main(cmd_args):
         if reg_config.get('max_norm', False):
             logger.info("Apply MaxNorm")
             maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
+            if reg_config.get('max_norm_exclude_lookup', False):
+                maxnorm_subjects = [v for v in maxnorm_subjects
+                                    if not isinstance(get_brick(v), LookupTable)]
             logger.info("Parameters covered by MaxNorm:\n"
                         + pprint.pformat([name for name, p in params.items()
                                           if p in maxnorm_subjects]))
