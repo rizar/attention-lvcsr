@@ -76,5 +76,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--decode-only", default=None,
         help="Only decode the following utternaces")
+    parser.add_argument(
+        "--nll-only", default=False, action="store_true",
+        help="Only compute log-likelihood")
     args = parser.parse_args()
     main(args)
