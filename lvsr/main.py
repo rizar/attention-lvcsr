@@ -61,7 +61,7 @@ from fuel.schemes import (
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
-    Filter, FilterSources)
+    Filter, FilterSources, Transformer)
 from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
@@ -135,6 +135,24 @@ class _AddEosLabelBeginEnd(object):
     def __call__(self, example):
         return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label]) + tuple(example[2:])
 
+
+class ForceCContiguous(Transformer):
+    """Force all floating point numpy arrays to be floatX."""
+    def __init__(self, data_stream):
+        super(ForceCContiguous, self).__init__(
+            data_stream, axis_labels=data_stream.axis_labels)
+
+    def get_data(self, request=None):
+        if request is not None:
+            raise ValueError
+        data = next(self.child_epoch_iterator)
+        result = []
+        for piece in data:
+            if isinstance(piece, numpy.ndarray):
+                result.append(numpy.ascontiguousarray(piece))
+            else:
+                result.append(piece)
+        return tuple(result)
 
 
 class _MergeKFrames(object):
@@ -305,8 +323,8 @@ class Data(object):
 
         stream = Batch(stream, iteration_scheme=ConstantScheme(self.batch_size))
         stream = Padding(stream)
-        stream = Mapping(
-            stream, switch_first_two_axes)
+        stream = Mapping(stream, switch_first_two_axes)
+        stream = ForceCContiguous(stream)
         return stream
 
 
