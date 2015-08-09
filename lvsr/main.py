@@ -28,6 +28,7 @@ from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout, SoftmaxEmitter, LookupFeedback,
     AbstractFeedback)
+from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
@@ -49,7 +50,7 @@ from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.model import Model
-from blocks.filter import VariableFilter
+from blocks.filter import VariableFilter, get_brick
 from blocks.roles import OUTPUT, WEIGHT
 from blocks.utils import named_copy, dict_union, check_theano_variable,\
     reraise_as
@@ -1023,6 +1024,9 @@ def main(cmd_args):
         if reg_config.get('max_norm', False):
             logger.info("Apply MaxNorm")
             maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
+            if reg_config.get('max_norm_exclude_lookup', False):
+                maxnorm_subjects = [v for v in maxnorm_subjects
+                                    if not isinstance(get_brick(v), LookupTable)]
             logger.info("Parameters covered by MaxNorm:\n"
                         + pprint.pformat([name for name, p in params.items()
                                           if p in maxnorm_subjects]))
@@ -1217,7 +1221,8 @@ def main(cmd_args):
         if cmd_args.decoded_save:
             decoded_file = open(cmd_args.decoded_save, 'w')
 
-
+        num_examples = .0
+        total_nll = .0
         total_errors = .0
         total_length = .0
         total_wer_errors = .0
@@ -1235,6 +1240,21 @@ def main(cmd_args):
             if decode_only and number not in decode_only:
                 continue
             print("Utterance {} ({})".format(number, data[2]), file=print_to)
+            groundtruth = dataset.decode(data[1])
+            groundtruth_text = dataset.pretty_print(data[1])
+            costs_groundtruth, weights_groundtruth = (
+                recognizer.analyze(data[0], data[1])[:2])
+            weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
+                weights_groundtruth)
+            total_nll += costs_groundtruth.sum()
+            num_examples += 1
+            print("Groundtruth:", groundtruth_text, file=print_to)
+            print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
+            print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
+            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+            print("Average groundtruth cost: {}".format(total_nll / num_examples, file=print_to))
+            if cmd_args.nll_only:
+                continue
 
             before = time.time()
             outputs, search_costs = recognizer.beam_search(
@@ -1243,16 +1263,10 @@ def main(cmd_args):
             recognized = dataset.decode(
                 outputs[0], **({'old_labels': True} if cmd_args.old_labels else {}))
             recognized_text = dataset.pretty_print(outputs[0])
-            groundtruth = dataset.decode(data[1])
-            groundtruth_text = dataset.pretty_print(data[1])
             costs_recognized, weights_recognized = (
                 recognizer.analyze(data[0], outputs[0])[:2])
-            costs_groundtruth, weights_groundtruth = (
-                recognizer.analyze(data[0], data[1])[:2])
             weight_std_recognized, mono_penalty_recognized = weight_statistics(
                 weights_recognized)
-            weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
-                weights_groundtruth)
             error = min(1, wer(groundtruth, recognized))
             total_errors += len(groundtruth) * error
             total_length += len(groundtruth)
@@ -1279,13 +1293,10 @@ def main(cmd_args):
             print("Recognized cost:", costs_recognized.sum(), file=print_to)
             print("Recognized weight std:", weight_std_recognized, file=print_to)
             print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
-            print("Groundtruth:", groundtruth_text, file=print_to)
-            print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
-            print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
-            print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
             print("CER:", error, file=print_to)
             print("Average CER:", total_errors / total_length, file=print_to)
             print("WER:", wer_error, file=print_to)
             print("Average WER:", total_wer_errors / total_word_length, file=print_to)
 
             #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
+
