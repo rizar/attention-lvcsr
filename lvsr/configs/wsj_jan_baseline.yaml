@@ -13,3 +13,5 @@ net:
         min_speed: 2.4
         max_speed: 4.4
 
+training:
+    bokeh_server_url: http://cymes.stud.ii:5006/
