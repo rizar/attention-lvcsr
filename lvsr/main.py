@@ -34,7 +34,8 @@ from blocks.algorithms import (GradientDescent, Scale,
                                StepClipping, CompositeRule,
                                Momentum, RemoveNotFinite, AdaDelta,
                                Restrict, VariableClipping)
-from blocks.initialization import Orthogonal, IsotropicGaussian, Constant
+from blocks.initialization import (
+    Orthogonal, IsotropicGaussian, Constant, Uniform)
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
