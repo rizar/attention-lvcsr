@@ -1,0 +1,4 @@
+parent: $LVSR/lvsr/configs/wsj_bhd4.yaml
+initialization%extend:
+    - [/recognizer, weights_init, Uniform(width=0.1)]
+
