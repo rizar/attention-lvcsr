@@ -1,0 +1,4 @@
+parent: $LVSR/lvsr/configs/wsj_jan_baseline.yaml
+initialization%extend:
+    - [/recognizer, weights_init, Uniform(width=0.1)]
+
