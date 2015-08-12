@@ -596,7 +596,7 @@ class H5PYDataset(Dataset):
             self._out_of_memory_close()
 
     def _out_of_memory_close(self):
-        if not self._external_file_handle:
+        if not self.external_file_handle:
             self._ref_counts[self.path] -= 1
             if not self._ref_counts[self.path]:
                 del self._ref_counts[self.path]
