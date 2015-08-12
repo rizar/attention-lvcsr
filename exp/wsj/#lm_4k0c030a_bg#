@@ -1,0 +1,17 @@
+\data\
+ngram 1=8
+
+\1-grams:
+-1 <UNK>
+-1 NOTHING
+-1 SAYS
+-1 THE
+-1 BUSINESS
+-1 BUSINESSMAN
+-99 <s>
+-1 </s>
+
+\2-grams
+
+
+\end\
