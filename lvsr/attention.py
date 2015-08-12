@@ -59,8 +59,15 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             # Only this contributor to the match vector
             # is allowed to have biases
             attended_transformer = Linear(name="preprocess")
+
+        if not energy_normalizer:
+            energy_normalizer = 'softmax'
+        self.energy_normalizer = energy_normalizer
+
         if not energy_computer:
-            energy_computer = ShallowEnergyComputer(name="energy_comp")
+            energy_computer = ShallowEnergyComputer(
+                name="energy_comp",
+                use_bias=self.energy_normalizer != 'softmax')
         self.filter_handler = Linear(name="handler", use_bias=False)
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
@@ -69,10 +76,6 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             prior = dict(type='expanding', initial_begin=0, initial_end=10000,
                          min_speed=0, max_speed=0)
         self.prior = prior
-
-        if not energy_normalizer:
-            energy_normalizer = 'softmax'
-        self.energy_normalizer = energy_normalizer
 
         self.conv_n = conv_n
         self.conv_num_filters = conv_num_filters
@@ -197,7 +200,7 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             unnormalized_weights = tensor.nnet.sigmoid(energies)
         elif self.energy_normalizer == 'relu':
             logger.info("Using ReLU attention weights normalization")
-            unnormalized_weights = tensor.maximum(energies, 0.0)
+            unnormalized_weights = tensor.maximum(energies/1000., 0.0)
         else:
             raise Exception("Unknown energey_normalizer: {}"
                             .format(self.energy_computer))

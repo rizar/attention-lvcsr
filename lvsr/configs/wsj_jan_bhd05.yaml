@@ -1,0 +1,4 @@
+parent: $LVSR/lvsr/configs/wsj_jan_bhd04.yaml
+
+net:
+  energy_normalizer: logistic
