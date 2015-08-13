@@ -4,4 +4,4 @@ import sys
 from lvsr.ops import FST
 
 fst = FST(sys.argv[1])
-fst.explain(sys.argv[2])
+fst.explain([c if c != ' ' else '<spc>' for c in sys.argv[2]])
