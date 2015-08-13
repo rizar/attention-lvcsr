@@ -11,6 +11,10 @@ from collections import defaultdict
 
 from toposort import toposort_flatten
 
+EPSILON = 0
+MAX_STATES = 10
+NOT_STATE = -1
+
 
 def read_symbols(fname):
     syms = fst.SymbolTable('eps')
@@ -23,7 +27,6 @@ def read_symbols(fname):
 
 @do_not_pickle_attributes('fst')
 class FST(object):
-    EPSILON = 0
 
     """Picklable wrapper around FST."""
     def __init__(self, path):
@@ -37,11 +40,10 @@ class FST(object):
         """Returns all arcs of the state i"""
         return self.fst[state]
 
-    def combine_weights(self, x, y):
-        if x == None:
-            return y
-        m = max(-x, -y)
-        return -m - math.log(math.exp(-x - m) + math.exp(-y - m))
+    def combine_weights(self, *args):
+        x = numpy.array(filter(numpy.isfinite, args))
+        m = x.max()
+        return -m - numpy.log(numpy.exp(-x - m).sum())
 
     def get_arcs(self, state, character):
         return [(state, arc.nextstate, arc.ilabel, float(arc.weight))
@@ -50,12 +52,11 @@ class FST(object):
     def transition(self, states, character):
         arcs = list(itertools.chain(
             *[self.get_arcs(state, character) for state in states]))
-        next_states = {arc[1]: None for arc in arcs}
-        for next_state in list(next_states):
-            for arc in arcs:
-                if arc[1] == next_state:
-                    next_states[next_state] = self.combine_weights(
-                        next_states.get(next_state), states[arc[0]] + arc[3])
+        next_states = {}
+        for next_state in {arc[1] for arc in arcs}:
+            next_states[next_state] = self.combine_weights(
+                *[states[arc[0]] + arc[3] for arc in arcs
+                  if arc[1] == next_state])
         return next_states
 
     def expand(self, states):
@@ -67,7 +68,7 @@ class FST(object):
             seen.add(state)
         while not queue.empty():
             state = queue.get()
-            for arc in self.get_arcs(state, self.EPSILON):
+            for arc in self.get_arcs(state, EPSILON):
                 depends[arc[1]].append((arc[0], arc[3]))
                 if arc[1] in seen:
                     continue
@@ -80,9 +81,10 @@ class FST(object):
 
         next_states = states
         for next_state in order:
-            for prev_state, weight in depends[next_state]:
-                next_states[next_state] = self.combine_weights(
-                    next_states.get(next_state), next_states[prev_state] + weight)
+            next_states[next_state] = self.combine_weights(
+                *([next_states.get(next_state, numpy.Inf)] +
+                  [next_states[prev_state] + weight
+                   for prev_state, weight in depends[next_state]]))
 
         return next_states
 
@@ -99,7 +101,7 @@ class FST(object):
         states = self.expand(states)
         print("Expanded states: {}".format(states))
 
-        result = None
+        result = numpy.Inf
         for state, weight in states.items():
             if numpy.isfinite(weight + float(self.fst[state].final)):
                 print("Finite state {} with path weight {} and its own weight {}".format(
