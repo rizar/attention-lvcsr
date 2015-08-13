@@ -1,14 +1,12 @@
-import numpy
-
 from theano import tensor
 
 from blocks.bricks import (
-    Initializable, Linear, Random, Brick, NDimensionalSoftmax)
+    Initializable, Linear, Brick, NDimensionalSoftmax)
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
 from blocks.bricks.sequence_generators import (
-    AbstractReadout, Readout, AbstractEmitter)
+    Readout, AbstractEmitter)
 from blocks.bricks.wrappers import WithExtraDims
 from blocks.utils import dict_union
 
@@ -44,11 +42,7 @@ class RecurrentWithFork(Initializable):
 
 
 class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, remap_table, no_transition_cost,
-                 allow_spelling_unknowns,
-                 start_new_word_state, space_idx,
-                 all_weights_to_zeros,
-                 **kwargs):
+    def __init__(self, fst, remap_table, no_transition_cost, **kwargs):
         """Wrap FST in a recurrent brick.
 
         Parameters
@@ -59,25 +53,13 @@ class FSTTransition(BaseRecurrent, Initializable):
         no_transition_cost : float
             Cost of going to the start state when no arc for an input
             symbol is available.
-        allow_spelling_unknowns : bool
-            do we allow to emit characters outside of th edictionary
-        start_new_word_state : int
-            "Main looping state" of the FST which we enter after following backoff links
-        space_idx : int
-            id of the space character in network coding
-        all_weights_to_zero : bool
-            Ignore all weights as if they all were zeros.
-
 
         """
         super(FSTTransition, self).__init__(**kwargs)
         self.fst = fst
-        self.transition = FSTTransitionOp(fst, remap_table,
-                                          start_new_word_state=start_new_word_state,
-                                          space_idx=space_idx,
-                                          allow_spelling_unknowns=allow_spelling_unknowns)
+        self.transition = FSTTransitionOp(fst, remap_table)
         self.probability_computer = FSTCostsOp(
-            fst, remap_table, no_transition_cost, all_weights_to_zeros)
+            fst, remap_table, no_transition_cost)
 
         self.out_dim = len(remap_table)
 

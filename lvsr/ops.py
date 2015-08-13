@@ -2,7 +2,6 @@ import fst
 import numpy
 import theano
 import itertools
-import math
 from theano import Op
 from fuel.utils import do_not_pickle_attributes
 from picklable_itertools.extras import equizip
@@ -129,11 +128,9 @@ class FSTTransitionOp(Op):
     __props__ = ()
 
 
-    def __init__(self, fst, remap_table, start_new_word_state, space_idx,
-                 allow_spelling_unknowns):
+    def __init__(self, fst, remap_table):
         self.fst = fst
         self.remap_table = remap_table
-        assert not allow_spelling_unknowns
 
     def pad(self, arr, value):
         return numpy.pad(arr, (0, MAX_STATES - len(arr)),
@@ -185,8 +182,6 @@ class FSTCostsOp(Op):
     no_transition_cost : float
         Cost of going to the start state when no arc for an input
         symbol is available.
-    all_weights_to_zero : bool
-        Ignore all weights as if they all were zeros.
 
     Notes
     -----
@@ -195,11 +190,10 @@ class FSTCostsOp(Op):
     """
     __props__ = ()
 
-    def __init__(self, fst, remap_table, no_transition_cost, all_weights_to_zeros):
+    def __init__(self, fst, remap_table, no_transition_cost):
         self.fst = fst
         self.remap_table = remap_table
         self.no_transition_cost = no_transition_cost
-        self.all_weights_to_zeros = all_weights_to_zeros
 
     def perform(self, node, inputs, output_storage):
         all_states, all_weights = inputs
