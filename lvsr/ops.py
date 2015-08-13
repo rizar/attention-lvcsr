@@ -5,8 +5,7 @@ import itertools
 from theano import Op
 from fuel.utils import do_not_pickle_attributes
 from picklable_itertools.extras import equizip
-from Queue import Queue
-from collections import defaultdict
+from collections import defaultdict, deque
 
 from toposort import toposort_flatten
 
@@ -62,17 +61,17 @@ class FST(object):
     def expand(self, states):
         seen = set()
         depends = defaultdict(list)
-        queue = Queue()
+        queue = deque()
         for state in states:
-            queue.put(state)
+            queue.append(state)
             seen.add(state)
-        while not queue.empty():
-            state = queue.get()
+        while len(queue):
+            state = queue.popleft()
             for arc in self.get_arcs(state, EPSILON):
                 depends[arc[1]].append((arc[0], arc[3]))
                 if arc[1] in seen:
                     continue
-                queue.put(arc[1])
+                queue.append(arc[1])
                 seen.add(arc[1])
 
         depends_for_toposort = {key: {state for state, weight in value}
