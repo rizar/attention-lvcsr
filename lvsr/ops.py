@@ -1,3 +1,4 @@
+import math
 import fst
 import numpy
 import theano
@@ -39,10 +40,9 @@ class FST(object):
         return self.fst[state]
 
     def combine_weights(self, *args):
-        x = numpy.array(filter(numpy.isfinite, args))
         # Protection from underflow when -x is too small
-        m = x.max()
-        return m - numpy.log(numpy.exp(-x + m).sum())
+        m = max(args)
+        return m - math.log(sum(math.exp(m - x) for x in args if x is not None))
 
     def get_arcs(self, state, character):
         return [(state, arc.nextstate, arc.ilabel, float(arc.weight))
@@ -81,7 +81,7 @@ class FST(object):
         next_states = states
         for next_state in order:
             next_states[next_state] = self.combine_weights(
-                *([next_states.get(next_state, numpy.Inf)] +
+                *([next_states.get(next_state)] +
                   [next_states[prev_state] + weight
                    for prev_state, weight in depends[next_state]]))
 
@@ -100,7 +100,7 @@ class FST(object):
             states = self.expand(states)
             print("Expanded states: {}".format(states))
 
-        result = numpy.Inf
+        result = None
         for state, weight in states.items():
             if numpy.isfinite(weight + float(self.fst[state].final)):
                 print("Finite state {} with path weight {} and its own weight {}".format(
@@ -204,12 +204,12 @@ class FSTCostsOp(Op):
             costs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
                      * self.no_transition_cost)
             if states_dict:
-                total_weight = self.fst.combine_weights(states_dict.values())
+                total_weight = self.fst.combine_weights(*states_dict.values())
                 for nn_character, fst_character in self.remap_table.items():
                     next_states_dict = self.fst.transition(states_dict, fst_character)
                     next_states_dict = self.fst.expand(next_states_dict)
                     if next_states_dict:
-                        next_total_weight = self.fst.combine_weights(next_states_dict.values())
+                        next_total_weight = self.fst.combine_weights(*next_states_dict.values())
                         costs[nn_character] = next_total_weight - total_weight
             all_costs.append(costs)
 
