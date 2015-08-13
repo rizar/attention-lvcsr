@@ -4,4 +4,7 @@ import sys
 from lvsr.ops import FST
 
 fst = FST(sys.argv[1])
-fst.explain([c if c != ' ' else '<spc>' for c in sys.argv[2]])
+s = sys.argv[2]
+s = s.replace('<noise>', '%')
+subst = {' ': '<spc>', '%': '<noise>'}
+fst.explain([subst.get(c, c) for c in s])

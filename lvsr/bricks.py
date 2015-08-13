@@ -99,14 +99,15 @@ class FSTTransition(BaseRecurrent, Initializable):
 
     @application(outputs=['states', 'weights', 'add'])
     def initial_states(self, batch_size, *args, **kwargs):
+        states_dict = self.fst.expand({self.fst.fst.start: 0.0})
         states = tensor.as_tensor_variable(
-            self.transition.pad([self.fst.fst.start], NOT_STATE))
+            self.transition.pad(states_dict.keys(), NOT_STATE))
         states = tensor.tile(states[None, :], (batch_size, 1))
         weights = tensor.as_tensor_variable(
-            self.transition.pad([0.0], 0))
+            self.transition.pad(states_dict.values(), 0))
         weights = tensor.tile(weights[None, :], (batch_size, 1))
-        return (states, weights,
-                tensor.zeros((batch_size, self.out_dim)))
+        add = self.probability_computer(states, weights)
+        return states, weights, add
 
     def get_dim(self, name):
         if name == 'states' or name == 'weights':

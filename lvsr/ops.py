@@ -92,15 +92,15 @@ class FST(object):
     def explain(self, input_):
         input_ = ['<eol>'] + list(input_) + ['<eol>']
         states = {self.fst.start: 0}
-
         print("Initial states: {}".format(states))
-        for char, ilabel in zip(input_, [self.isyms[char] for char in input_]):
-            states = self.expand(states)
-            print("Expanded states: {}".format(states))
-            states = self.transition(states, ilabel)
-            print("{} consumed: {}".format(char, states))
         states = self.expand(states)
         print("Expanded states: {}".format(states))
+
+        for char, ilabel in zip(input_, [self.isyms[char] for char in input_]):
+            states = self.transition(states, ilabel)
+            print("{} consumed: {}".format(char, states))
+            states = self.expand(states)
+            print("Expanded states: {}".format(states))
 
         result = numpy.Inf
         for state, weight in states.items():
@@ -149,9 +149,9 @@ class FSTTransitionOp(Op):
         for states, weights, input_ in equizip(all_states, all_weights, all_inputs):
             states_dict = dict(zip(states, weights))
             del states_dict[NOT_STATE]
-            next_states_dict = self.fst.expand(states_dict)
             next_states_dict = self.fst.transition(
-                next_states_dict, self.remap_table[input_])
+                states_dict, self.remap_table[input_])
+            next_states_dict = self.fst.expand(next_states_dict)
             if next_states_dict:
                 next_states, next_weights = zip(*next_states_dict.items())
             else:
@@ -213,8 +213,8 @@ class FSTCostsOp(Op):
             if states_dict:
                 total_weight = self.fst.combine_weights(states_dict.values())
                 for nn_character, fst_character in self.remap_table.items():
-                    next_states_dict = self.fst.expand(states_dict)
-                    next_states_dict = self.fst.transition(next_states_dict, fst_character)
+                    next_states_dict = self.fst.transition(states_dict, fst_character)
+                    next_states_dict = self.fst.expand(next_states_dict)
                     if next_states_dict:
                         next_total_weight = self.fst.combine_weights(next_states_dict.values())
                         costs[nn_character] = next_total_weight - total_weight
