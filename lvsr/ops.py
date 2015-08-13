@@ -12,7 +12,7 @@ from collections import defaultdict
 from toposort import toposort_flatten
 
 EPSILON = 0
-MAX_STATES = 10
+MAX_STATES = 7
 NOT_STATE = -1
 
 
@@ -42,8 +42,9 @@ class FST(object):
 
     def combine_weights(self, *args):
         x = numpy.array(filter(numpy.isfinite, args))
+        # Protection from underflow when -x is too small
         m = x.max()
-        return -m - numpy.log(numpy.exp(-x - m).sum())
+        return m - numpy.log(numpy.exp(-x + m).sum())
 
     def get_arcs(self, state, character):
         return [(state, arc.nextstate, arc.ilabel, float(arc.weight))
@@ -113,8 +114,6 @@ class FST(object):
         return result
 
 
-
-
 class FSTTransitionOp(Op):
     """Performs transition in an FST.
 
@@ -125,62 +124,58 @@ class FSTTransitionOp(Op):
     fst : FST instance
     remap_table : dict
         Maps neutral network characters to FST characters.
-    start_new_word_state : int
-        "Main looping state" of the FST which we enter after following backoff links
-    space_idx : int
-        id of the space character in network coding
-    allow_spelling_unknowns : bool
-        do we want to allow the net to enerate characters corresponding to unknown words
 
     """
     __props__ = ()
+
 
     def __init__(self, fst, remap_table, start_new_word_state, space_idx,
                  allow_spelling_unknowns):
         self.fst = fst
         self.remap_table = remap_table
-        self.start_new_word_state = start_new_word_state
-        self.space_idx = space_idx
-        self.allow_spelling_unknowns = allow_spelling_unknowns
-        if allow_spelling_unknowns:
-            assert self.space_idx is not None
+        assert not allow_spelling_unknowns
+
+    def pad(self, arr, value):
+        return numpy.pad(arr, (0, MAX_STATES - len(arr)),
+                         mode='constant', constant_values=value)
 
     def perform(self, node, inputs, output_storage):
-        all_states, all_inputs = inputs
+        all_states, all_weights, all_inputs = inputs
+        # Each row of all_states contains a set of states
+        # padded with NOT_STATE.
 
-        next_states = []
-        for state, input_ in equizip(all_states, all_inputs):
-            #default next state if no transition is found
-            next_state = self.start_new_word_state
-
-            if self.allow_spelling_unknowns:
-                next_state = -1 #special loop state that spells out letters
-                if state == -1:
-                    if input_ == self.space_idx:
-                        next_state = self.start_new_word_state
-
-            if state != -1:
-                arcs = {arc.ilabel: arc for arc in self.fst[state]}
+        all_next_states = []
+        all_next_weights = []
+        for states, weights, input_ in equizip(all_states, all_weights, all_inputs):
+            states_dict = dict(zip(states, weights))
+            del states_dict[NOT_STATE]
+            next_states_dict = self.fst.expand(states_dict)
+            next_states_dict = self.fst.transition(
+                states_dict, self.remap_table[input_])
+            if next_states_dict:
+                next_states, next_weights = zip(*next_states_dict.items())
             else:
-                arcs = {}
+                # No adequate state when no arc exists for now
+                next_states, next_weights = [], []
+            all_next_states.append(self.pad(next_states, NOT_STATE))
+            all_next_weights.append(self.pad(next_weights, 0))
 
-            fst_input_ = self.remap_table[input_]
-            if fst_input_ in arcs:
-                next_state = arcs[fst_input_].nextstate
-            next_states.append(next_state)
+        output_storage[0][0] = numpy.array(all_next_states, dtype='int64')
+        output_storage[1][0] = numpy.array(all_next_weights)
 
-        output_storage[0][0] = numpy.array(next_states, dtype='int64')
-
-    def make_node(self, state, input_):
+    def make_node(self, states, weights, input_):
         # check that the theano version has support for __props__
         assert hasattr(self, '_props')
-        state = theano.tensor.as_tensor_variable(state)
+        states = theano.tensor.as_tensor_variable(states)
+        weights = theano.tensor.as_tensor_variable(weights)
         input_ = theano.tensor.as_tensor_variable(input_)
-        return theano.Apply(self, [state, input_], [state.type()])
+        return theano.Apply(self,
+            [states, weights, input_],
+            [states.type(), weights.type()])
 
 
-class FSTProbabilitiesOp(Op):
-    """Returns transition log probabilities for all possible input symbols.
+class FSTCostsOp(Op):
+    """Returns transition costs for all possible input symbols.
 
     Parameters
     ----------
@@ -207,28 +202,30 @@ class FSTProbabilitiesOp(Op):
         self.all_weights_to_zeros = all_weights_to_zeros
 
     def perform(self, node, inputs, output_storage):
-        states, = inputs
+        all_states, all_weights = inputs
 
-        all_logprobs = []
-        for state in states:
-            if state == -1:
-                logprobs = numpy.zeros(len(self.remap_table), dtype=theano.config.floatX)
-            else:
-                arcs = {arc.ilabel: arc for arc in self.fst[state]}
-                logprobs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
-                            * self.no_transition_cost)
+        all_costs = []
+        for states, weights in zip(all_states, all_weights):
+            states_dict = dict(zip(states, weights))
+            del states_dict[NOT_STATE]
+            costs = (numpy.ones(len(self.remap_table), dtype=theano.config.floatX)
+                     * self.no_transition_cost)
+            if states_dict:
+                total_weight = self.fst.combine_weights(states_dict.values())
                 for nn_character, fst_character in self.remap_table.items():
-                    if fst_character in arcs:
-                        logprobs[nn_character] = (
-                            arcs[fst_character].weight
-                            if not self.all_weights_to_zeros
-                            else 0)
-            all_logprobs.append(logprobs)
+                    next_states_dict = self.fst.expand(states_dict)
+                    next_states_dict = self.fst.transition(next_states_dict, fst_character)
+                    if next_states_dict:
+                        next_total_weight = self.fst.combine_weights(next_states_dict.values())
+                        costs[nn_character] = next_total_weight - total_weight
+            all_costs.append(costs)
 
-        output_storage[0][0] = numpy.array(all_logprobs)
+        output_storage[0][0] = numpy.array(all_costs)
 
-    def make_node(self, state):
+    def make_node(self, states, weights):
         # check that the theano version has support for __props__
         assert hasattr(self, '_props')
-        state = theano.tensor.as_tensor_variable(state)
-        return theano.Apply(self, [state], [theano.tensor.matrix()])
+        states = theano.tensor.as_tensor_variable(states)
+        weights = theano.tensor.as_tensor_variable(weights)
+        return theano.Apply(self,
+            [states, weights], [theano.tensor.matrix()])

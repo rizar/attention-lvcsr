@@ -570,7 +570,7 @@ class SpeechRecognizer(Initializable):
             if normalize_am_weights + normalize_lm_weights + normalize_tot_weights < 1:
                 logger.warn("Beam search is prone to fail with no log-prob normalization")
             language_model = LanguageModel(nn_char_map=character_map, **lm)
-            readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
+            readout = ShallowFusionReadout(lm_costs_name='lm_add',
                                            lm_weight=lm_weight,
                                            normalize_am_weights=normalize_am_weights,
                                            normalize_lm_weights=normalize_lm_weights,
@@ -747,8 +747,8 @@ class LanguageModel(SequenceGenerator):
         # That's why it is sufficient to equip it with a completely
         # fake readout.
         dummy_readout = Readout(
-            source_names=['logprobs'], readout_dim=len(remap_table),
-            merge=Merge(input_names=['logprobs'], prototype=Identity()),
+            source_names=['add'], readout_dim=len(remap_table),
+            merge=Merge(input_names=['costs'], prototype=Identity()),
             post_merge=Identity(),
             emitter=SoftmaxEmitter())
         super(LanguageModel, self).__init__(
