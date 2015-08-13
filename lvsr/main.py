@@ -1253,7 +1253,8 @@ def main(cmd_args):
             print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
             print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
-            print("Average groundtruth cost: {}".format(total_nll / num_examples, file=print_to))
+            print("Average groundtruth cost: {}".format(total_nll / num_examples),
+                  file=print_to)
             if cmd_args.nll_only:
                 continue
 
