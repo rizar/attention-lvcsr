@@ -151,7 +151,7 @@ class FSTTransitionOp(Op):
             del states_dict[NOT_STATE]
             next_states_dict = self.fst.expand(states_dict)
             next_states_dict = self.fst.transition(
-                states_dict, self.remap_table[input_])
+                next_states_dict, self.remap_table[input_])
             if next_states_dict:
                 next_states, next_weights = zip(*next_states_dict.items())
             else:
