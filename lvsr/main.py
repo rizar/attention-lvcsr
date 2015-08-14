@@ -12,9 +12,10 @@ import copy
 from collections import OrderedDict
 
 import numpy
+import matplotlib
+matplotlib.use('Agg')
 import theano
 import fuel
-from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import (
     Tanh, MLP, Brick, application,
