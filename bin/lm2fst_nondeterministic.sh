@@ -115,3 +115,12 @@ fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_push
 	fstcompile --isymbols=$DIR/chars.txt                 \
         --osymbols=$DIR/words.txt                       \
         --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+
+
+fstprint $DIR/LG_withsyms.fst | \
+	fstcompile --isymbols=$DIR/chars.txt --osymbols=$DIR/words.txt \
+		--keep_isymbols=true --keep_osymbols=true --arc_type=log \
+	> $DIR/LG_log_withsyms.fst
+fstpush --push_weights=true $DIR/LG_log_withsyms.fst \
+	$DIR/LG_log_pushed_withsyms.fst
+
