@@ -457,6 +457,7 @@ class SpeechRecognizer(Initializable):
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
+                 energy_normalizer=None,  # softmax is th edefault set in SequenceContentAndConvAttention
                  **kwargs):
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
@@ -522,6 +523,7 @@ class SpeechRecognizer(Initializable):
                 conv_num_filters=conv_num_filters,
                 attended_dim=2 * dims_bidir[-1], match_dim=dim_matcher,
                 prior=prior,
+                energy_normalizer=energy_normalizer,
                 name="conv_att")
         else:
             raise ValueError("Unknown attention type {}"

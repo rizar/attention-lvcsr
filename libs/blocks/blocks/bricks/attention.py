@@ -417,9 +417,9 @@ class SequenceContentAttention(GenericSequenceAttention, Initializable):
 class ShallowEnergyComputer(Sequence, Initializable, Feedforward):
     """A simple energy computer: first tanh, then weighted sum."""
     @lazy()
-    def __init__(self, **kwargs):
+    def __init__(self, use_bias=False, **kwargs):
         super(ShallowEnergyComputer, self).__init__(
-            [Tanh().apply, Linear(use_bias=False).apply], **kwargs)
+            [Tanh().apply, Linear(use_bias=use_bias).apply], **kwargs)
 
     @property
     def input_dim(self):

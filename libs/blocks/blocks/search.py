@@ -297,8 +297,23 @@ class BeamSearch(object):
         done = []
 
         for i in range(max_length):
+            done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
+
             if len(states.values()[0].flatten()) == 0:
                 break
+
+            # stop only when we have at least self.beam_size sequences,
+            # that are all cheaper than we can possibly obtain by extending
+            # other ones
+            if (len(done) >= self.beam_size):
+                optimistic_future_cost = (all_costs[-1, :].min() -
+                                          char_discount * max_length)
+                last_in_done = done[self.beam_size - 1][1]
+                # note: done is sorted by the cost with char discount subtracted
+                last_in_done_cost = (last_in_done[-1] -
+                                     char_discount * len(last_in_done))
+                if last_in_done_cost < optimistic_future_cost:
+                    break
 
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
@@ -339,6 +354,7 @@ class BeamSearch(object):
                 states[name] = numpy.take(states[name], unfinished, axis=0)
             all_outputs = numpy.take(all_outputs, unfinished, axis=1)
             all_costs = numpy.take(all_costs, unfinished, axis=1)
+
         if not done:
             raise CandidateNotFoundError()
 

@@ -1,0 +1,8 @@
+parent: $LVSR/lvsr/configs/wsj_bhd4.yaml
+
+net:
+  energy_normalizer: logistic
+
+initialization%extend:
+    - [/recognizer, weights_init, Uniform(width=0.1)]
+    - [/recognizer/generator/att_trans/conv_att/energy_comp, weights_init, Constant(0.)]

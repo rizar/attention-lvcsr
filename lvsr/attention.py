@@ -17,6 +17,9 @@ from lvsr.expressions import conv1d
 
 floatX = theano.config.floatX
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class Conv1D(Initializable):
 
@@ -41,7 +44,7 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
     def __init__(self, match_dim, conv_n, conv_num_filters=1,
                  state_transformer=None,
                  attended_transformer=None, energy_computer=None,
-                 prior=None, **kwargs):
+                 prior=None, energy_normalizer=None, **kwargs):
         super(SequenceContentAndConvAttention, self).__init__(**kwargs)
         if not state_transformer:
             state_transformer = Linear(use_bias=False)
@@ -56,8 +59,15 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
             # Only this contributor to the match vector
             # is allowed to have biases
             attended_transformer = Linear(name="preprocess")
+
+        if not energy_normalizer:
+            energy_normalizer = 'softmax'
+        self.energy_normalizer = energy_normalizer
+
         if not energy_computer:
-            energy_computer = ShallowEnergyComputer(name="energy_comp")
+            energy_computer = ShallowEnergyComputer(
+                name="energy_comp",
+                use_bias=self.energy_normalizer != 'softmax')
         self.filter_handler = Linear(name="handler", use_bias=False)
         self.attended_transformer = attended_transformer
         self.energy_computer = energy_computer
@@ -177,6 +187,30 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
         return (['attended', 'preprocessed_attended',
                  'attended_mask', 'weights', 'step'] +
                 self.state_names)
+
+    @application
+    def compute_weights(self, energies, attended_mask):
+        if self.energy_normalizer == 'softmax':
+            logger.info("Using softmax attention weights normalization")
+            energies = energies - energies.max(axis=0)
+            unnormalized_weights = tensor.exp(energies)
+        elif self.energy_normalizer == 'logistic':
+            logger.info("Using smoothfocus (logistic sigm) "
+                        "attention weights normalization")
+            unnormalized_weights = tensor.nnet.sigmoid(energies)
+        elif self.energy_normalizer == 'relu':
+            logger.info("Using ReLU attention weights normalization")
+            unnormalized_weights = tensor.maximum(energies/1000., 0.0)
+        else:
+            raise Exception("Unknown energey_normalizer: {}"
+                            .format(self.energy_computer))
+        if attended_mask:
+            unnormalized_weights *= attended_mask
+
+        # If mask consists of all zeros use 1 as the normalization coefficient
+        normalization = (unnormalized_weights.sum(axis=0) +
+                         tensor.all(1 - attended_mask, axis=0))
+        return unnormalized_weights / normalization
 
     @application
     def initial_glimpses(self, batch_size, attended):
