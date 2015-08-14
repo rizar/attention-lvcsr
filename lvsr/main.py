@@ -570,7 +570,7 @@ class SpeechRecognizer(Initializable):
             if normalize_am_weights + normalize_lm_weights + normalize_tot_weights < 1:
                 logger.warn("Beam search is prone to fail with no log-prob normalization")
             language_model = LanguageModel(nn_char_map=character_map, **lm)
-            readout = ShallowFusionReadout(lm_logprobs_name='lm_logprobs',
+            readout = ShallowFusionReadout(lm_costs_name='lm_add',
                                            lm_weight=lm_weight,
                                            normalize_am_weights=normalize_am_weights,
                                            normalize_lm_weights=normalize_lm_weights,
@@ -718,8 +718,7 @@ class SpeechRecognizer(Initializable):
 
 class LanguageModel(SequenceGenerator):
 
-    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12,
-                 allow_spelling_unknowns=False, all_weights_to_zeros=False, **kwargs):
+    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
         # TODO: num_labels should be possible to extract from the FST
         if type_ != 'fst':
             raise ValueError("Supports only FST's so far.")
@@ -730,25 +729,14 @@ class LanguageModel(SequenceGenerator):
             raise ValueError()
         remap_table = {nn_char_map[character]: fst_code
                        for character, fst_code in fst_char_map.items()}
-        fst_start_state = fst.fst[fst.fst.start]
-        start_new_word_state = fst_start_state.stateid
-        if len(fst_start_state)==1:
-            arc, = fst_start_state.arcs
-            if arc.ilabel == nn_char_map['<eol>']:
-                start_new_word_state = arc.nextstate
-        transition = FSTTransition(fst, remap_table, no_transition_cost,
-                                   allow_spelling_unknowns=allow_spelling_unknowns,
-                                   space_idx=nn_char_map['<spc>'],
-                                   start_new_word_state=start_new_word_state,
-                                   all_weights_to_zeros=all_weights_to_zeros,
-                                   )
+        transition = FSTTransition(fst, remap_table, no_transition_cost)
 
         # This SequenceGenerator will be used only in a very limited way.
         # That's why it is sufficient to equip it with a completely
         # fake readout.
         dummy_readout = Readout(
-            source_names=['logprobs'], readout_dim=len(remap_table),
-            merge=Merge(input_names=['logprobs'], prototype=Identity()),
+            source_names=['add'], readout_dim=len(remap_table),
+            merge=Merge(input_names=['costs'], prototype=Identity()),
             post_merge=Identity(),
             emitter=SoftmaxEmitter())
         super(LanguageModel, self).__init__(
@@ -1253,7 +1241,8 @@ def main(cmd_args):
             print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
             print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
             print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
-            print("Average groundtruth cost: {}".format(total_nll / num_examples, file=print_to))
+            print("Average groundtruth cost: {}".format(total_nll / num_examples),
+                  file=print_to)
             if cmd_args.nll_only:
                 continue
 

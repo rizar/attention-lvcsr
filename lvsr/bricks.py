@@ -1,16 +1,16 @@
 from theano import tensor
 
 from blocks.bricks import (
-    Initializable, Linear, Random, Brick, NDimensionalSoftmax)
+    Initializable, Linear, Brick, NDimensionalSoftmax)
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
 from blocks.bricks.sequence_generators import (
-    AbstractReadout, Readout, AbstractEmitter)
+    Readout, AbstractEmitter)
 from blocks.bricks.wrappers import WithExtraDims
 from blocks.utils import dict_union
 
-from lvsr.ops import FSTProbabilitiesOp, FSTTransitionOp
+from lvsr.ops import FSTCostsOp, FSTTransitionOp, MAX_STATES, NOT_STATE
 
 class RecurrentWithFork(Initializable):
 
@@ -42,11 +42,7 @@ class RecurrentWithFork(Initializable):
 
 
 class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, remap_table, no_transition_cost,
-                 allow_spelling_unknowns,
-                 start_new_word_state, space_idx,
-                 all_weights_to_zeros,
-                 **kwargs):
+    def __init__(self, fst, remap_table, no_transition_cost, **kwargs):
         """Wrap FST in a recurrent brick.
 
         Parameters
@@ -57,49 +53,48 @@ class FSTTransition(BaseRecurrent, Initializable):
         no_transition_cost : float
             Cost of going to the start state when no arc for an input
             symbol is available.
-        allow_spelling_unknowns : bool
-            do we allow to emit characters outside of th edictionary
-        start_new_word_state : int
-            "Main looping state" of the FST which we enter after following backoff links
-        space_idx : int
-            id of the space character in network coding
-        all_weights_to_zero : bool
-            Ignore all weights as if they all were zeros.
-
 
         """
         super(FSTTransition, self).__init__(**kwargs)
         self.fst = fst
-        self.transition = FSTTransitionOp(fst, remap_table,
-                                          start_new_word_state=start_new_word_state,
-                                          space_idx=space_idx,
-                                          allow_spelling_unknowns=allow_spelling_unknowns)
-        self.probability_computer = FSTProbabilitiesOp(
-            fst, remap_table, no_transition_cost, all_weights_to_zeros)
+        self.transition = FSTTransitionOp(fst, remap_table)
+        self.probability_computer = FSTCostsOp(
+            fst, remap_table, no_transition_cost)
 
         self.out_dim = len(remap_table)
 
     @recurrent(sequences=['inputs', 'mask'],
-               states=['states', 'logprobs'],
-               outputs=['states', 'logprobs'], contexts=[])
-    def apply(self, inputs, states, logprobs,
+               states=['states', 'weights', 'add'],
+               outputs=['states', 'weights', 'add'], contexts=[])
+    def apply(self, inputs, states, weights, add,
               mask=None):
-        new_states = self.transition(states, inputs)
+        new_states, new_weights = self.transition(states, weights, inputs)
         if mask:
+            # In fact I don't really understand why we do this:
+            # anyway states not covered by masks should have no effect
+            # on the cost...
             new_states = tensor.cast(mask * new_states +
                                      (1. - mask) * states, 'int64')
-        logprobs = self.probability_computer(new_states)
-        return new_states, logprobs
+            new_weights = mask * new_weights + (1. - mask) * weights
+        new_add = self.probability_computer(new_states, new_weights)
+        return new_states, new_weights, new_add
 
-    @application(outputs=['states', 'logprobs'])
+    @application(outputs=['states', 'weights', 'add'])
     def initial_states(self, batch_size, *args, **kwargs):
-        return (tensor.ones((batch_size,), dtype='int64') * self.fst.fst.start,
-                tensor.zeros((batch_size, self.out_dim)))
+        states_dict = self.fst.expand({self.fst.fst.start: 0.0})
+        states = tensor.as_tensor_variable(
+            self.transition.pad(states_dict.keys(), NOT_STATE))
+        states = tensor.tile(states[None, :], (batch_size, 1))
+        weights = tensor.as_tensor_variable(
+            self.transition.pad(states_dict.values(), 0))
+        weights = tensor.tile(weights[None, :], (batch_size, 1))
+        add = self.probability_computer(states, weights)
+        return states, weights, add
 
     def get_dim(self, name):
-        if name == 'states':
-            return 0
-        if name == 'logprobs':
+        if name == 'states' or name == 'weights':
+            return MAX_STATES
+        if name == 'add':
             return self.out_dim
         if name == 'inputs':
             return 0
@@ -107,14 +102,14 @@ class FSTTransition(BaseRecurrent, Initializable):
 
 
 class ShallowFusionReadout(Readout):
-    def __init__(self, lm_logprobs_name, lm_weight,
+    def __init__(self, lm_costs_name, lm_weight,
                  normalize_am_weights=False,
                  normalize_lm_weights=False,
                  normalize_tot_weights=True,
                  am_beta=1.0,
                  **kwargs):
         super(ShallowFusionReadout, self).__init__(**kwargs)
-        self.lm_logprobs_name = lm_logprobs_name
+        self.lm_costs_name = lm_costs_name
         self.lm_weight = lm_weight
         self.normalize_am_weights = normalize_am_weights
         self.normalize_lm_weights = normalize_lm_weights
@@ -125,15 +120,15 @@ class ShallowFusionReadout(Readout):
 
     @application
     def readout(self, **kwargs):
-        lm_pre_softmax = -kwargs.pop(self.lm_logprobs_name)
+        lm_costs = -kwargs.pop(self.lm_costs_name)
         if self.normalize_lm_weights:
-            lm_pre_softmax = self.softmax.log_probabilities(
-                lm_pre_softmax, extra_ndim=lm_pre_softmax.ndim - 2)
+            lm_costs = self.softmax.log_probabilities(
+                lm_costs, extra_ndim=lm_costs.ndim - 2)
         am_pre_softmax = self.am_beta * super(ShallowFusionReadout, self).readout(**kwargs)
         if self.normalize_am_weights:
             am_pre_softmax = self.softmax.log_probabilities(
                 am_pre_softmax, extra_ndim=am_pre_softmax.ndim - 2)
-        x = am_pre_softmax + self.lm_weight * lm_pre_softmax
+        x = am_pre_softmax + self.lm_weight * lm_costs
         if self.normalize_tot_weights:
             x = self.softmax.log_probabilities(x, extra_ndim=x.ndim - 2)
         return x
