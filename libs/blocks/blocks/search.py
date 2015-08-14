@@ -298,6 +298,7 @@ class BeamSearch(object):
 
         for i in range(max_length):
             done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
+            done = done[:self.beam_size]
 
             if len(states.values()[0].flatten()) == 0:
                 break
