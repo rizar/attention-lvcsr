@@ -1,5 +1,6 @@
 import os.path
 from picklable_itertools.extras import equizip
+from pykwalify.core import Core
 from StringIO import StringIO
 
 import yaml
@@ -42,6 +43,72 @@ training:
     scale: 0.01
     momentum: 0.0
 """))
+
+
+schema = """
+type: map
+mapping:
+    data:
+        mapping:
+            batch_size:
+                type: int
+            max_length:
+                type: int
+                allowempty: yes
+            normalization:
+                type: str
+                allowempty: yes
+            sort_k_batches:
+                type: str
+                allowempty: yes
+            dataset:
+                type: str
+    net:
+        mapping:
+            dim_dec:
+                type: int
+            dims_bidir:
+                type: seq
+                sequence:
+                    - type: int
+            dims_bottom:
+                type: seq
+                sequence:
+                    - type: int
+            enc_transition:
+                type: any
+            dec_transition:
+                type: any
+            attention_type:
+                type: str
+            use_states_for_readout:
+                type: bool
+            lm:
+                type: map
+                allowempty: yes
+    regularization:
+        mapping:
+            dropout:
+                type: bool
+            noise:
+                type: str
+                allowempty: yes
+    initialization:
+        type: seq
+        sequence:
+            - type: seq
+              sequence:
+                  - type: any
+    training:
+        type: map
+        mapping:
+            gradient_threshold:
+                type: float
+            scale:
+                type: float
+            momentum:
+                type: float
+"""
 
 
 def read_config(file_):
@@ -103,4 +170,6 @@ def load_config(cmd_args):
     make_config_changes(config, equizip(
         cmd_args.config_changes[::2],
         cmd_args.config_changes[1::2]))
+    core = Core(source_data=config, schema_data=yaml.safe_load(schema))
+    core.validate(raise_exception=True)
     return config
