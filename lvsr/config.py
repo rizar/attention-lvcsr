@@ -1,4 +1,5 @@
 import os.path
+from picklable_itertools.extras import equizip
 from StringIO import StringIO
 
 import yaml
@@ -83,3 +84,23 @@ def merge_recursively(config, changes):
         else:
             config[pure_key] = value
 
+
+def make_config_changes(config, changes):
+    for path, value in changes:
+        parts = path.split('.')
+        assign_to = config
+        for part in parts[:-1]:
+            assign_to = assign_to[part]
+        assign_to[parts[-1]] = yaml.load(value)
+
+
+def load_config(cmd_args):
+    config = prototype
+    if cmd_args.config_path:
+        with open(cmd_args.config_path, 'rt') as src:
+            config = read_config(src)
+    config['cmd_args'] = cmd_args.__dict__
+    make_config_changes(config, equizip(
+        cmd_args.config_changes[::2],
+        cmd_args.config_changes[1::2]))
+    return config
