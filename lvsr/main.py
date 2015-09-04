@@ -8,21 +8,15 @@ import functools
 import cPickle
 import cPickle as pickle
 import sys
-import copy
-from collections import OrderedDict
 
 import numpy
 import theano
 import fuel
-from numpy.testing import assert_allclose
 from theano import tensor
 from blocks.bricks import (
-    Tanh, MLP, Brick, application,
-    Initializable, Identity, Rectifier, Maxout,
-    Sequence, Bias, Linear)
+    Tanh, MLP, application, Initializable, Identity, Sequence, Bias)
 from blocks.bricks.recurrent import (
-    SimpleRecurrent, GatedRecurrent, LSTM, Bidirectional, BaseRecurrent,
-    RecurrentStack)
+    Bidirectional, BaseRecurrent, RecurrentStack)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
@@ -30,18 +24,16 @@ from blocks.bricks.sequence_generators import (
     AbstractFeedback)
 from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
-from blocks.algorithms import (GradientDescent, Scale,
+from blocks.algorithms import (GradientDescent,
                                StepClipping, CompositeRule,
                                Momentum, RemoveNotFinite, AdaDelta,
                                Restrict, VariableClipping)
-from blocks.initialization import (
-    Orthogonal, IsotropicGaussian, Constant, Uniform)
 from blocks.monitoring import aggregation
 from blocks.monitoring.aggregation import MonitoredQuantity
 from blocks.theano_expressions import l2_norm
 from blocks.extensions import (
     FinishAfter, Printing, Timing, ProgressBar, SimpleExtension,
-    TrainingExtension, saveload, PrintingFilterList)
+    TrainingExtension, PrintingFilterList)
 from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
@@ -53,13 +45,13 @@ from blocks.main_loop import MainLoop
 from blocks.model import Model
 from blocks.filter import VariableFilter, get_brick
 from blocks.roles import OUTPUT, WEIGHT
-from blocks.utils import named_copy, dict_union, check_theano_variable,\
+from blocks.utils import named_copy, check_theano_variable,\
     reraise_as
 from blocks.search import BeamSearch, CandidateNotFoundError
 from blocks.select import Selector
 from blocks.serialization import load_parameter_values
 from fuel.schemes import (
-    SequentialScheme, ConstantScheme, ShuffledExampleScheme)
+    ConstantScheme, ShuffledExampleScheme)
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
@@ -76,12 +68,11 @@ from lvsr.bricks import (
 from lvsr.config import prototype, read_config
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import (
-    monotonicity_penalty, entropy, weights_std, pad_to_a_multiple)
-from lvsr.extensions import CGStatistics, CodeVersion, AdaptiveClipping
+    monotonicity_penalty, entropy, weights_std)
+from lvsr.extensions import CGStatistics, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.ops import FST
 from lvsr.preprocessing import log_spectrogram, Normalization
-from blocks import serialization
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -449,8 +440,8 @@ class SpeechRecognizer(Initializable):
                  dims_top=None,
                  shift_predictor_dims=None, max_left=None, max_right=None,
                  padding=None, prior=None, conv_n=None,
-                 bottom_activation='Tanh()',
-                 post_merge_activation='Tanh()',
+                 bottom_activation=None,
+                 post_merge_activation=None,
                  post_merge_dims=None,
                  dim_matcher=None,
                  embed_outputs=True,
@@ -459,6 +450,10 @@ class SpeechRecognizer(Initializable):
                  data_prepend_eos=True,
                  energy_normalizer=None,  # softmax is th edefault set in SequenceContentAndConvAttention
                  **kwargs):
+        if bottom_activation is None:
+            bottom_activation = Tanh()
+        if post_merge_activation is None:
+            post_merge_activation = Tanh()
         super(SpeechRecognizer, self).__init__(**kwargs)
         self.recordings_source = recordings_source
         self.labels_source = labels_source
@@ -468,12 +463,12 @@ class SpeechRecognizer(Initializable):
         self.rec_weights_init = None
         self.initial_states_init = None
 
-        self.enc_transition = eval(enc_transition)
-        self.dec_transition = eval(dec_transition)
+        self.enc_transition = enc_transition
+        self.dec_transition = dec_transition
         self.dec_stack = dec_stack
 
-        bottom_activation = eval(bottom_activation)
-        post_merge_activation = eval(post_merge_activation)
+        bottom_activation = bottom_activation
+        post_merge_activation = post_merge_activation
 
         if dim_matcher is None:
             dim_matcher = dim_dec
@@ -847,9 +842,12 @@ def main(cmd_args):
         assign_to = config
         for part in parts[:-1]:
             assign_to = assign_to[part]
-        assign_to[parts[-1]] = eval(value)
+        assign_to[parts[-1]] = value
     logging.info("Config:\n" + pprint.pformat(config, width=120))
 
+
+    if cmd_args.mode == "init_norm":
+        config['data']['normalization'] = None
     data = Data(**config['data'])
 
     if cmd_args.mode == "init_norm":
@@ -877,7 +875,7 @@ def main(cmd_args):
             **config["net"])
         for brick_path, attribute, value in config['initialization']:
             brick, = Selector(recognizer).select(brick_path).bricks
-            setattr(brick, attribute, eval(value))
+            setattr(brick, attribute, value)
             brick.push_initialization_config()
         recognizer.initialize()
 
@@ -1192,7 +1190,7 @@ def main(cmd_args):
         it = stream.get_epoch_iterator()
         decode_only = None
         if cmd_args.decode_only is not None:
-            decode_only = eval(cmd_args.decode_only)
+            decode_only = cmd_args.decode_only
 
         weights = tensor.matrix('weights')
         weight_statistics = theano.function(

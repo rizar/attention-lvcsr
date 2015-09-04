@@ -1,9 +1,9 @@
 parent: $LVSR/lvsr/configs/wsj_jan_new.yaml
 net:
-    bottom_activation: Rectifier()
+    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
     dims_bottom: []
 
-    enc_transition: GatedRecurrent
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     dims_bidir: [256, 256, 256, 256, 256, 256]
     subsample: [1, 1, 2, 2, 2, 2]
 

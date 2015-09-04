@@ -3,7 +3,7 @@ from StringIO import StringIO
 
 import yaml
 
-prototype = yaml.safe_load(StringIO(
+prototype = yaml.load(StringIO(
 """
 data:
     batch_size: 10
@@ -15,8 +15,8 @@ net:
     dim_dec: 100
     dims_bidir: [100]
     dims_bottom: [100]
-    enc_transition: SimpleRecurrent
-    dec_transition: SimpleRecurrent
+    enc_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
+    dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     attention_type: content
     use_states_for_readout: False
     lm: {}
@@ -24,9 +24,18 @@ regularization:
     dropout: False
     noise:
 initialization:
-    - [/recognizer, weights_init, IsotropicGaussian(0.1)]
-    - [/recognizer, biases_init, Constant(0.0)]
-    - [/recognizer, rec_weights_init, Orthogonal()]
+    -
+        - /recognizer
+        - weights_init
+        - !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]
+    -
+        - /recognizer
+        - biases_init
+        - !!python/object/apply:blocks.initialization.Constant [0.0]
+    -
+        - /recognizer
+        - rec_weights_init
+        - !!python/object/apply:blocks.initialization.Orthogonal []
 training:
     gradient_threshold: 100.0
     scale: 0.01
@@ -43,7 +52,7 @@ def read_config(file_):
 
     """
     config = prototype
-    changes = yaml.safe_load(file_)
+    changes = yaml.load(file_)
     if 'parent' in changes:
         with open(os.path.expandvars(changes['parent'])) as src:
             config = read_config(src)
