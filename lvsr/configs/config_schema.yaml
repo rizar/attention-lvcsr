@@ -43,12 +43,12 @@ map:
                 type: str
                 allowempty: yes
     initialization:
-        matching-rule: 'any'
+        matching-rule: any
         map:
             regex;(/.*):
-                matching-rule: 'any'
+                matching-rule: any
                 map:
-                    regex;(.*):
+                    regex;(weights_init|biases_init|rec_weights_init|initial_states_init):
                         type: any
     training:
         mapping:

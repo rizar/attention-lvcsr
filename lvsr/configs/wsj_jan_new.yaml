@@ -17,22 +17,15 @@ data:
     batch_size: 10
 
 initialization:
-    -
-        - /recognizer
-        - weights_init
-        - !!python/object/apply:blocks.initialization.IsotropicGaussian [0.01]
-    -
-        - /recognizer
-        - biases_init
-        - !!python/object/apply:blocks.initialization.Constant [0.0]
-    -
-        - /recognizer
-        - rec_weights_init
-        - !!python/object/apply:blocks.initialization.Orthogonal []
-    -
-        - /recognizer
-        - initial_states_init
-        - !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.01]
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [0.0]
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.Orthogonal []
+        initial_states_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
 
 net:
     bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
