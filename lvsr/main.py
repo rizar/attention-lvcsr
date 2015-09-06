@@ -860,10 +860,11 @@ def main(cmd_args):
             data_prepend_eos=data.prepend_eos,
             character_map=data.character_map,
             **config["net"])
-        for brick_path, attribute, value in config['initialization']:
-            brick, = Selector(recognizer).select(brick_path).bricks
-            setattr(brick, attribute, value)
-            brick.push_initialization_config()
+        for brick_path, attribute_dict in config['initialization'].items():
+            for attribute, value in attribute_dict.items():
+                brick, = Selector(recognizer).select(brick_path).bricks
+                setattr(brick, attribute, value)
+                brick.push_initialization_config()
         recognizer.initialize()
 
         # Separate attention_params to be handled differently

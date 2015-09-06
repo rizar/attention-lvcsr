@@ -5,8 +5,7 @@ data:
 net:
     dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
-initialization%extend:
-    -
-        - /recognizer
-        - rec_weights_init
-        - !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]
+initialization:
+    /recognizer:
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]

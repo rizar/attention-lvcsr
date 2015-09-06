@@ -1,114 +1,8 @@
 import os.path
 from picklable_itertools.extras import equizip
 from pykwalify.core import Core
-from StringIO import StringIO
 
 import yaml
-
-prototype = yaml.load(StringIO(
-"""
-data:
-    batch_size: 10
-    max_length:
-    normalization:
-    sort_k_batches:
-    dataset: TIMIT
-net:
-    dim_dec: 100
-    dims_bidir: [100]
-    dims_bottom: [100]
-    enc_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
-    dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
-    attention_type: content
-    use_states_for_readout: False
-    lm: {}
-regularization:
-    dropout: False
-    noise:
-initialization:
-    -
-        - /recognizer
-        - weights_init
-        - !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]
-    -
-        - /recognizer
-        - biases_init
-        - !!python/object/apply:blocks.initialization.Constant [0.0]
-    -
-        - /recognizer
-        - rec_weights_init
-        - !!python/object/apply:blocks.initialization.Orthogonal []
-training:
-    gradient_threshold: 100.0
-    scale: 0.01
-    momentum: 0.0
-"""))
-
-
-schema = """
-type: map
-mapping:
-    data:
-        mapping:
-            batch_size:
-                type: int
-            max_length:
-                type: int
-                allowempty: yes
-            normalization:
-                type: str
-                allowempty: yes
-            sort_k_batches:
-                type: str
-                allowempty: yes
-            dataset:
-                type: str
-    net:
-        mapping:
-            dim_dec:
-                type: int
-            dims_bidir:
-                type: seq
-                sequence:
-                    - type: int
-            dims_bottom:
-                type: seq
-                sequence:
-                    - type: int
-            enc_transition:
-                type: any
-            dec_transition:
-                type: any
-            attention_type:
-                type: str
-            use_states_for_readout:
-                type: bool
-            lm:
-                type: map
-                allowempty: yes
-    regularization:
-        mapping:
-            dropout:
-                type: bool
-            noise:
-                type: str
-                allowempty: yes
-    initialization:
-        type: seq
-        sequence:
-            - type: seq
-              sequence:
-                  - type: any
-    training:
-        type: map
-        mapping:
-            gradient_threshold:
-                type: float
-            scale:
-                type: float
-            momentum:
-                type: float
-"""
 
 
 def read_config(file_):
@@ -119,7 +13,8 @@ def read_config(file_):
     Interprets merge hints such as e.g. "%extend".
 
     """
-    config = prototype
+    with open('lvsr/configs/prototype.yaml') as prototype:
+        config = yaml.load(prototype)
     changes = yaml.load(file_)
     if 'parent' in changes:
         with open(os.path.expandvars(changes['parent'])) as src:
@@ -162,7 +57,8 @@ def make_config_changes(config, changes):
 
 
 def load_config(cmd_args):
-    config = prototype
+    with open('lvsr/configs/prototype.yaml') as prototype:
+        config = yaml.load(prototype)
     if cmd_args.config_path:
         with open(cmd_args.config_path, 'rt') as src:
             config = read_config(src)
@@ -170,6 +66,7 @@ def load_config(cmd_args):
     make_config_changes(config, equizip(
         cmd_args.config_changes[::2],
         cmd_args.config_changes[1::2]))
-    core = Core(source_data=config, schema_data=yaml.safe_load(schema))
+    with open('lvsr/configs/config_schema.yaml') as schema:
+        core = Core(source_data=config, schema_data=yaml.safe_load(schema))
     core.validate(raise_exception=True)
     return config

@@ -1,0 +1,60 @@
+map:
+    data:
+        map:
+            batch_size:
+                type: int
+            max_length:
+                type: int
+                allowempty: yes
+            normalization:
+                type: str
+                allowempty: yes
+            sort_k_batches:
+                type: str
+                allowempty: yes
+            dataset:
+                type: str
+    net:
+        map:
+            dim_dec:
+                type: int
+            dims_bidir:
+                sequence:
+                    - type: int
+            dims_bottom:
+                sequence:
+                    - type: int
+            enc_transition:
+                type: any
+            dec_transition:
+                type: any
+            attention_type:
+                type: str
+            use_states_for_readout:
+                type: bool
+            lm:
+                type: any
+                allowempty: yes
+    regularization:
+        map:
+            dropout:
+                type: bool
+            noise:
+                type: str
+                allowempty: yes
+    initialization:
+        matching-rule: 'any'
+        map:
+            regex;(/.*):
+                matching-rule: 'any'
+                map:
+                    regex;(.*):
+                        type: any
+    training:
+        mapping:
+            gradient_threshold:
+                type: float
+            scale:
+                type: float
+            momentum:
+                type: float

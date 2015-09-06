@@ -1,0 +1,30 @@
+data:
+    batch_size: 10
+    max_length:
+    normalization:
+    sort_k_batches:
+    dataset: TIMIT
+net:
+    dim_dec: 100
+    dims_bidir: [100]
+    dims_bottom: [100]
+    enc_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
+    dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
+    attention_type: content
+    use_states_for_readout: False
+    lm: {}
+regularization:
+    dropout: False
+    noise:
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [0.0]
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.Orthogonal []
+training:
+    gradient_threshold: 100.0
+    scale: 0.01
+    momentum: 0.0
