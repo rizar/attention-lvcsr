@@ -10,7 +10,6 @@ def read_config(file_):
 
     Merge changes from a user-made config into the prototype.
     Does not allow to create fields non-existing in the prototypes.
-    Interprets merge hints such as e.g. "%extend".
 
     """
     with open('lvsr/configs/prototype.yaml') as prototype:
@@ -25,26 +24,13 @@ def read_config(file_):
 
 def merge_recursively(config, changes):
     for key, value in changes.items():
-        pure_key = key
-        hint = None
-        if '%' in key:
-            pure_key, hint = key.split('%')
         if isinstance(value, dict):
-            if hint:
-                raise ValueError
-            if isinstance(config.get(pure_key), dict):
-                merge_recursively(config[pure_key], value)
+            if isinstance(config.get(key), dict):
+                merge_recursively(config[key], value)
             else:
-                config[pure_key] = value
-        elif isinstance(value, list):
-            if hint == 'extend':
-                config[pure_key].extend(value)
-            elif hint is None:
-                config[pure_key] = value
-            else:
-                raise ValueError
+                config[key] = value
         else:
-            config[pure_key] = value
+            config[key] = value
 
 
 def make_config_changes(config, changes):
