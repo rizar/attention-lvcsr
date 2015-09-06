@@ -56,6 +56,7 @@ from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
     Filter, FilterSources, Transformer)
+from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
 from lvsr.datasets.h5py import H5PYAudioDataset
@@ -829,9 +830,12 @@ class LoadLog(TrainingExtension):
 
 def main(cmd_args):
     # Experiment configuration
-    config = load_config(cmd_args)
+    config = load_config(cmd_args.config_path, cmd_args.__dict__,
+                         equizip(
+                             cmd_args.config_changes[::2],
+                             cmd_args.config_changes[1::2])
+                         )
     logging.info("Config:\n" + pprint.pformat(config, width=120))
-
 
     if cmd_args.mode == "init_norm":
         config['data']['normalization'] = None

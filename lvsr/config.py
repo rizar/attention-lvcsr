@@ -1,5 +1,4 @@
 import os.path
-from picklable_itertools.extras import equizip
 from pykwalify.core import Core
 
 import yaml
@@ -42,16 +41,14 @@ def make_config_changes(config, changes):
         assign_to[parts[-1]] = yaml.load(value)
 
 
-def load_config(cmd_args):
+def load_config(config_path, cmd_dict, config_changes):
     with open('lvsr/configs/prototype.yaml') as prototype:
         config = yaml.load(prototype)
-    if cmd_args.config_path:
-        with open(cmd_args.config_path, 'rt') as src:
+    if config_path:
+        with open(config_path, 'rt') as src:
             config = read_config(src)
-    config['cmd_args'] = cmd_args.__dict__
-    make_config_changes(config, equizip(
-        cmd_args.config_changes[::2],
-        cmd_args.config_changes[1::2]))
+    config['cmd_args'] = cmd_dict
+    make_config_changes(config, config_changes)
     with open('lvsr/configs/config_schema.yaml') as schema:
         core = Core(source_data=config, schema_data=yaml.safe_load(schema))
     core.validate(raise_exception=True)
