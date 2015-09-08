@@ -20,7 +20,7 @@ map:
             labels_source:
                 type: str
             preprocess_features:
-                type: bool
+                type: str
             preprocess_text:
                 type: bool
             add_eos:

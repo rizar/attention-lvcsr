@@ -6,7 +6,7 @@ data:
     labels_source: characters
     add_eos: True
     preprocess_text: False
-    preprocess_features: False
+    preprocess_features: ""
 net:
     # 0.8 times respective settings from wsj_good_fbank.yaml
     prior:
@@ -16,5 +16,5 @@ net:
         max_speed: 8.8
         before: 400
         after: 400
-    
+
 

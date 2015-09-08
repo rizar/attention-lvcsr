@@ -827,14 +827,15 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-
 def main(cmd_args):
     # Experiment configuration
-    config = load_config(cmd_args.config_path, cmd_args.__dict__,
+    config = load_config(cmd_args.config_path,
+                         '$LVSR/lvsr/configs/schema.yaml',
                          equizip(
                              cmd_args.config_changes[::2],
                              cmd_args.config_changes[1::2])
                          )
+    config['cmd_args'] = cmd_args
     logging.info("Config:\n" + pprint.pformat(config, width=120))
 
     if cmd_args.mode == "init_norm":

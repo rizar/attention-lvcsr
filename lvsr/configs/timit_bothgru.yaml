@@ -1,3 +1,4 @@
+parent: $LVSR/lvsr/configs/prototype.yaml
 data:
     normalization: timit2_norm.pkl
     recordings_source: recordings

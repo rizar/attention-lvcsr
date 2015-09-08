@@ -3,9 +3,6 @@ from pykwalify.core import Core
 
 import yaml
 
-PROTOTYPE_FILE = '$LVSR/lvsr/configs/prototype.yaml'
-SCHEMA_FILE = '$LVSR/lvsr/configs/schema.yaml'
-
 
 def read_config(file_):
     """Reads a config from a file object.
@@ -14,13 +11,12 @@ def read_config(file_):
     Does not allow to create fields non-existing in the prototypes.
 
     """
-    with open(os.path.expandvars(PROTOTYPE_FILE)) as prototype:
-        config = yaml.load(prototype)
-    changes = yaml.load(file_)
-    if 'parent' in changes:
-        with open(os.path.expandvars(changes['parent'])) as src:
+    config = yaml.load(file_)
+    if 'parent' in config:
+        with open(os.path.expandvars(config['parent'])) as src:
+            changes = dict(config)
             config = read_config(src)
-    merge_recursively(config, changes)
+            merge_recursively(config, changes)
     return config
 
 
@@ -44,15 +40,11 @@ def make_config_changes(config, changes):
         assign_to[parts[-1]] = yaml.load(value)
 
 
-def load_config(config_path, cmd_dict, config_changes):
-    with open(os.path.expandvars(PROTOTYPE_FILE)) as prototype:
-        config = yaml.load(prototype)
-    if config_path:
-        with open(config_path, 'rt') as src:
-            config = read_config(src)
-    config['cmd_args'] = cmd_dict
+def load_config(config_path, schema_path, config_changes):
+    with open(config_path, 'rt') as src:
+        config = read_config(src)
     make_config_changes(config, config_changes)
-    with open(os.path.expandvars(SCHEMA_FILE)) as schema:
+    with open(os.path.expandvars(schema_path)) as schema:
         core = Core(source_data=config, schema_data=yaml.safe_load(schema))
     core.validate(raise_exception=True)
     return config
