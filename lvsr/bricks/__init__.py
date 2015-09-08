@@ -4,28 +4,27 @@ import theano
 from theano import tensor
 
 from blocks.bricks import (
-    Bias, Brick, Identity, Initializable, MLP, Linear, NDimensionalSoftmax,
-    Sequence, Tanh)
+    Bias, Brick, Identity, Initializable, MLP, Linear, Sequence, Tanh)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.base import lazy, application
-from blocks.bricks.parallel import Fork, Merge
+from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import (
-    BaseRecurrent, Bidirectional,RecurrentStack, recurrent)
+    BaseRecurrent, Bidirectional, RecurrentStack)
 from blocks.bricks.sequence_generators import (
     AbstractEmitter, AbstractFeedback, SequenceGenerator, Readout,
     SoftmaxEmitter, LookupFeedback)
 from blocks.bricks.wrappers import WithExtraDims
 from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
-from blocks.model import Model
 from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
 from blocks.serialization import load_parameter_values
 from blocks.utils import dict_union, check_theano_variable
 
 from lvsr.attention import SequenceContentAndConvAttention
-from lvsr.ops import FST, FSTCostsOp, FSTTransitionOp, MAX_STATES, NOT_STATE
-from lvsr.utils import global_push_initialization_config
+from lvsr.bricks.language_models import (
+    FSTTransition, LanguageModel, ShallowFusionReadout)
+from lvsr.utils import global_push_initialization_config, SpeechModel
 
 logger = logging.getLogger(__name__)
 
@@ -57,99 +56,6 @@ class RecurrentWithFork(Initializable):
     @apply.property('outputs')
     def apply_outputs(self):
         return self.recurrent.states
-
-
-class FSTTransition(BaseRecurrent, Initializable):
-    def __init__(self, fst, remap_table, no_transition_cost, **kwargs):
-        """Wrap FST in a recurrent brick.
-
-        Parameters
-        ----------
-        fst : FST instance
-        remap_table : dict
-            Maps neutral network characters to FST characters.
-        no_transition_cost : float
-            Cost of going to the start state when no arc for an input
-            symbol is available.
-
-        """
-        super(FSTTransition, self).__init__(**kwargs)
-        self.fst = fst
-        self.transition = FSTTransitionOp(fst, remap_table)
-        self.probability_computer = FSTCostsOp(
-            fst, remap_table, no_transition_cost)
-
-        self.out_dim = len(remap_table)
-
-    @recurrent(sequences=['inputs', 'mask'],
-               states=['states', 'weights', 'add'],
-               outputs=['states', 'weights', 'add'], contexts=[])
-    def apply(self, inputs, states, weights, add,
-              mask=None):
-        new_states, new_weights = self.transition(states, weights, inputs)
-        if mask:
-            # In fact I don't really understand why we do this:
-            # anyway states not covered by masks should have no effect
-            # on the cost...
-            new_states = tensor.cast(mask * new_states +
-                                     (1. - mask) * states, 'int64')
-            new_weights = mask * new_weights + (1. - mask) * weights
-        new_add = self.probability_computer(new_states, new_weights)
-        return new_states, new_weights, new_add
-
-    @application(outputs=['states', 'weights', 'add'])
-    def initial_states(self, batch_size, *args, **kwargs):
-        states_dict = self.fst.expand({self.fst.fst.start: 0.0})
-        states = tensor.as_tensor_variable(
-            self.transition.pad(states_dict.keys(), NOT_STATE))
-        states = tensor.tile(states[None, :], (batch_size, 1))
-        weights = tensor.as_tensor_variable(
-            self.transition.pad(states_dict.values(), 0))
-        weights = tensor.tile(weights[None, :], (batch_size, 1))
-        add = self.probability_computer(states, weights)
-        return states, weights, add
-
-    def get_dim(self, name):
-        if name == 'states' or name == 'weights':
-            return MAX_STATES
-        if name == 'add':
-            return self.out_dim
-        if name == 'inputs':
-            return 0
-        return super(FSTTransition, self).get_dim(name)
-
-
-class ShallowFusionReadout(Readout):
-    def __init__(self, lm_costs_name, lm_weight,
-                 normalize_am_weights=False,
-                 normalize_lm_weights=False,
-                 normalize_tot_weights=True,
-                 am_beta=1.0,
-                 **kwargs):
-        super(ShallowFusionReadout, self).__init__(**kwargs)
-        self.lm_costs_name = lm_costs_name
-        self.lm_weight = lm_weight
-        self.normalize_am_weights = normalize_am_weights
-        self.normalize_lm_weights = normalize_lm_weights
-        self.normalize_tot_weights = normalize_tot_weights
-        self.am_beta = am_beta
-        self.softmax = NDimensionalSoftmax()
-        self.children += [self.softmax]
-
-    @application
-    def readout(self, **kwargs):
-        lm_costs = -kwargs.pop(self.lm_costs_name)
-        if self.normalize_lm_weights:
-            lm_costs = self.softmax.log_probabilities(
-                lm_costs, extra_ndim=lm_costs.ndim - 2)
-        am_pre_softmax = self.am_beta * super(ShallowFusionReadout, self).readout(**kwargs)
-        if self.normalize_am_weights:
-            am_pre_softmax = self.softmax.log_probabilities(
-                am_pre_softmax, extra_ndim=am_pre_softmax.ndim - 2)
-        x = am_pre_softmax + self.lm_weight * lm_costs
-        if self.normalize_tot_weights:
-            x = self.softmax.log_probabilities(x, extra_ndim=x.ndim - 2)
-        return x
 
 
 class SelectInEachRow(Brick):
@@ -260,23 +166,6 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
         if name == 'feedback':
             return self.feedback_dim
         return super(LookupFeedback, self).get_dim(name)
-
-
-class SpeechModel(Model):
-    def set_parameter_values(self, param_values):
-        filtered_param_values = {
-            key: value for key, value in param_values.items()
-            # Shared variables are now saved separately, thanks to the
-            # recent PRs by Dmitry Serdyuk and Bart. Unfortunately,
-            # that applies to all shared variables, and not only to the
-            # parameters. That's why temporarily we have to filter the
-            # unnecessary ones. The filter deliberately does not take into
-            # account for a few exotic ones, there will be a warning
-            # with the list of the variables that were not matched with
-            # model parameters.
-            if not ('shared' in key
-                    or 'None' in key)}
-        super(SpeechModel,self).set_parameter_values(filtered_param_values)
 
 
 class SpeechRecognizer(Initializable):
@@ -576,34 +465,3 @@ class SpeechRecognizer(Initializable):
         emitter = self.generator.readout.emitter
         if hasattr(emitter, '_theano_rng'):
             del emitter._theano_rng
-
-
-class LanguageModel(SequenceGenerator):
-
-    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
-        # TODO: num_labels should be possible to extract from the FST
-        if type_ != 'fst':
-            raise ValueError("Supports only FST's so far.")
-        fst = FST(path)
-        fst_char_map = dict(fst.fst.isyms.items())
-        del fst_char_map['<eps>']
-        if not len(fst_char_map) == len(nn_char_map):
-            raise ValueError()
-        remap_table = {nn_char_map[character]: fst_code
-                       for character, fst_code in fst_char_map.items()}
-        transition = FSTTransition(fst, remap_table, no_transition_cost)
-
-        # This SequenceGenerator will be used only in a very limited way.
-        # That's why it is sufficient to equip it with a completely
-        # fake readout.
-        dummy_readout = Readout(
-            source_names=['add'], readout_dim=len(remap_table),
-            merge=Merge(input_names=['costs'], prototype=Identity()),
-            post_merge=Identity(),
-            emitter=SoftmaxEmitter())
-        super(LanguageModel, self).__init__(
-            transition=transition,
-            fork=Fork(output_names=[name for name in transition.apply.sequences
-                                    if name != 'mask'],
-                      prototype=Identity()),
-            readout=dummy_readout, **kwargs)

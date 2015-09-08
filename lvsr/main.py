@@ -48,7 +48,7 @@ from fuel.transformers import (
 from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
-from lvsr.bricks import SpeechModel, SpeechRecognizer
+from lvsr.bricks import SpeechRecognizer
 from lvsr.config import Configuration
 from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.datasets import TIMIT2, WSJ
@@ -57,6 +57,7 @@ from lvsr.expressions import (
 from lvsr.extensions import CGStatistics, AdaptiveClipping
 from lvsr.error_rate import wer
 from lvsr.preprocessing import log_spectrogram, Normalization
+from lvsr.utils import SpeechModel
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
