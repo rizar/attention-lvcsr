@@ -1,7 +1,7 @@
 parent: $LVSR/lvsr/configs/wsj_good.yaml
 data:
     dataset: WSJnew
-    normalization: 
+    normalization: ""
     recordings_source: fbank_dd
     labels_source: characters
     add_eos: True

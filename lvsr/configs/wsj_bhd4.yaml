@@ -12,5 +12,5 @@ net:
         min_speed: 1.2
         max_speed: 2.2
 regularization:
-    max_norm: 1
+    max_norm: 1.0
 

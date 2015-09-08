@@ -1,19 +1,30 @@
 map:
+    parent:
+        type: str
+    cmd_args:
+        type: any
     data:
         map:
             batch_size:
                 type: int
             max_length:
                 type: int
-                allowempty: yes
             normalization:
                 type: str
-                allowempty: yes
             sort_k_batches:
                 type: str
-                allowempty: yes
             dataset:
                 type: str
+            recordings_source:
+                type: str
+            labels_source:
+                type: str
+            preprocess_features:
+                type: bool
+            preprocess_text:
+                type: bool
+            add_eos:
+                type: bool
     net:
         map:
             dim_dec:
@@ -24,24 +35,38 @@ map:
             dims_bottom:
                 sequence:
                     - type: int
+            post_merge_dims:
+                sequence:
+                    - type: int
+            conv_n:
+                type: int
+            bottom_activation:
+                type: any
+            post_merge_activation:
+                type: any
             enc_transition:
                 type: any
             dec_transition:
                 type: any
+            subsample:
+                sequence:
+                    - type: int
             attention_type:
                 type: str
             use_states_for_readout:
                 type: bool
             lm:
                 type: any
-                allowempty: yes
+            prior:
+                type: any
     regularization:
         map:
             dropout:
                 type: bool
             noise:
-                type: str
-                allowempty: yes
+                type: float
+            max_norm:
+                type: float
     initialization:
         matching-rule: any
         map:
@@ -51,10 +76,17 @@ map:
                     regex;(weights_init|biases_init|rec_weights_init|initial_states_init):
                         type: any
     training:
-        mapping:
+        map:
             gradient_threshold:
                 type: float
             scale:
                 type: float
             momentum:
                 type: float
+            epsilon:
+                type: float
+            decay_rate:
+                type: float
+            rules:
+                sequence:
+                    - type: str

@@ -179,8 +179,8 @@ class _SilentPadding(object):
 class Data(object):
 
     def __init__(self, dataset, recordings_source, labels_source,
-                 batch_size, sort_k_batches,
-                 max_length, normalization,
+                 batch_size, sort_k_batches=None,
+                 max_length=None, normalization=None,
                  uttid_source='uttids',
                  merge_k_frames=None,
                  pad_k_frames=None,
@@ -965,10 +965,10 @@ def main(cmd_args):
         # would not have effect on auxiliary variables, see Blocks #514.
         reg_config = config['regularization']
         regularized_cg = cg
-        if reg_config['dropout']:
+        if reg_config.get('dropout'):
             logger.info('apply dropout')
             regularized_cg = apply_dropout(cg, [bottom_output], 0.5)
-        if reg_config['noise'] is not None:
+        if reg_config.get('noise'):
             logger.info('apply noise')
             noise_subjects = [p for p in cg.parameters if p not in attention_params]
             regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])

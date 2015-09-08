@@ -1,8 +1,5 @@
 data:
     batch_size: 10
-    max_length:
-    normalization:
-    sort_k_batches:
     dataset: TIMIT
 net:
     dim_dec: 100
@@ -15,7 +12,6 @@ net:
     lm: {}
 regularization:
     dropout: False
-    noise:
 initialization:
     /recognizer:
         weights_init:
