@@ -71,6 +71,18 @@ if __name__ == "__main__":
     parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
+    parser.add_argument(
+        "--validation-batches", type=float, default=float('inf'),
+        help="Perform validation every n batches. `Inf` is acceptable")
+    parser.add_argument(
+        "--validation-epochs", type=float, default=1,
+        help="Perform validation every n epochs. `Inf` is acceptable")
+    parser.add_argument(
+        "--per-batches", type=float, default=float('inf'),
+        help="Perform validation of PER every n batches. `Inf` is acceptable")
+    parser.add_argument(
+        "--per-epochs", type=float, default=2,
+        help="Perform validation of PER every n epochs. `Inf` is acceptable")
     args = parser.parse_args()
 
     logging.basicConfig(

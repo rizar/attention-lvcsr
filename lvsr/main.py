@@ -1064,16 +1064,19 @@ def train(config, cmd_args):
     validation = DataStreamMonitoring(
         attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
         data.get_stream("valid"), prefix="valid",
-        before_first_epoch=not cmd_args['fast_start'],
-        after_epoch=True, after_training=False)
+        before_first_epoch=not cmd_args.fast_start,
+        every_n_epochs=cmd_args.validation_epochs,
+        every_n_batches=cmd_args.validation_batches, after_training=False)
     extensions.append(validation)
     recognizer.init_beam_search(10)
     per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
-        prefix="valid").set_conditions(
-            before_first_epoch=not cmd_args['fast_start'], every_n_epochs=2,
-            after_training=False)
+        prefix="valid",
+        before_first_epoch=not cmd_args.fast_start,
+        every_n_epochs=cmd_args.per_epochs,
+        every_n_batches=cmd_args.per_batches,
+        after_training=False)
     extensions.append(per_monitoring)
     track_the_best_per = TrackTheBest(
         per_monitoring.record_name(per)).set_conditions(
