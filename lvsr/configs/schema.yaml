@@ -77,6 +77,10 @@ map:
                         type: any
     training:
         map:
+            num_batches:
+                type: int
+            num_epochs:
+                type: int
             gradient_threshold:
                 type: float
             scale:

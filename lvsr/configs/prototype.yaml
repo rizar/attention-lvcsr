@@ -21,6 +21,8 @@ initialization:
         rec_weights_init:
             !!python/object/apply:blocks.initialization.Orthogonal []
 training:
+    num_batches: 100000
+    num_epochs: 100
     gradient_threshold: 100.0
     scale: 0.01
     momentum: 0.0

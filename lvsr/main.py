@@ -653,8 +653,8 @@ def train(config, cmd_args):
     extensions += [
         SwitchOffLengthFilter(data.length_filter,
             after_n_batches=train_conf.get('stop_filtering', 1)),
-        FinishAfter(after_n_batches=config['training']['num_batches'],
-                    after_n_epochs=config['training']['num_epochs'])
+        FinishAfter(after_n_batches=train_conf['num_batches'],
+                    after_n_epochs=train_conf['num_epochs'])
         .add_condition(["after_batch"], _gradient_norm_is_none),
         # Live plotting: requires launching `bokeh-server`
         # and allows to see what happens online.
