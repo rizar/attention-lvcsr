@@ -65,7 +65,7 @@ from lvsr.attention import (
 from lvsr.bricks import (
     RecurrentWithFork, FSTTransition,
     ShallowFusionReadout, LMEmitter)
-from lvsr.config import load_config
+from lvsr.config import safe_compile_configuration
 from lvsr.datasets import TIMIT2, WSJ
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
@@ -829,12 +829,13 @@ class LoadLog(TrainingExtension):
 
 def main(cmd_args):
     # Experiment configuration
-    config = load_config(cmd_args.config_path,
-                         '$LVSR/lvsr/configs/schema.yaml',
-                         equizip(
-                             cmd_args.config_changes[::2],
-                             cmd_args.config_changes[1::2])
-                         )
+    config = safe_compile_configuration(
+        cmd_args.config_path,
+        '$LVSR/lvsr/configs/schema.yaml',
+        equizip(
+            cmd_args.config_changes[::2],
+            cmd_args.config_changes[1::2])
+        )
     config['cmd_args'] = cmd_args
     logging.info("Config:\n" + pprint.pformat(config, width=120))
 

@@ -5,10 +5,9 @@ import yaml
 
 
 def read_config(file_):
-    """Reads a config from a file object.
+    """Reads a configuration from YAML file.
 
-    Merge changes from a user-made config into the prototype.
-    Does not allow to create fields non-existing in the prototypes.
+    Resolves parent links in the configuration.
 
     """
     config = yaml.load(file_)
@@ -21,17 +20,25 @@ def read_config(file_):
 
 
 def merge_recursively(config, changes):
+    """Merge hierarchy of changes into a configuration."""
     for key, value in changes.items():
-        if isinstance(value, dict):
-            if isinstance(config.get(key), dict):
-                merge_recursively(config[key], value)
-            else:
-                config[key] = value
+        if isinstance(value, dict) and isinstance(config.get(key), dict):
+            merge_recursively(config[key], value)
         else:
             config[key] = value
 
 
 def make_config_changes(config, changes):
+    """Apply changes to a configuration.
+
+    Parameters
+    ----------
+    config : dict
+        The configuration.
+    changes : dict
+        A dict of (hierachical path as string, new value) pairs.
+
+    """
     for path, value in changes:
         parts = path.split('.')
         assign_to = config
@@ -40,7 +47,8 @@ def make_config_changes(config, changes):
         assign_to[parts[-1]] = yaml.load(value)
 
 
-def load_config(config_path, schema_path, config_changes):
+def safe_compile_configuration(config_path, schema_path, config_changes):
+    """Read configuration, apply changes, validate."""
     with open(config_path, 'rt') as src:
         config = read_config(src)
     make_config_changes(config, config_changes)
