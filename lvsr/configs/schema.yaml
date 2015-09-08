@@ -58,7 +58,21 @@ map:
             lm:
                 type: any
             prior:
-                type: any
+                map:
+                    before:
+                        type: int
+                    after:
+                        type: int
+                    initial_begin:
+                        type: int
+                    initial_end:
+                        type: int
+                    min_speed:
+                        type: float
+                    max_speed:
+                        type: float
+                    type:
+                        type: str
     regularization:
         map:
             dropout:
