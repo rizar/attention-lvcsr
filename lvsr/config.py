@@ -4,7 +4,7 @@ from pykwalify.core import Core
 import yaml
 
 PROTOTYPE_FILE = '$LVSR/lvsr/configs/prototype.yaml'
-SCHEMA_FILE = '$LVSR/lvsr/configs/config_schema.yaml'
+SCHEMA_FILE = '$LVSR/lvsr/configs/schema.yaml'
 
 
 def read_config(file_):

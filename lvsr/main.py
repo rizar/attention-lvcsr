@@ -864,7 +864,9 @@ def main(cmd_args):
             data_prepend_eos=data.prepend_eos,
             character_map=data.character_map,
             **config["net"])
-        for brick_path, attribute_dict in config['initialization'].items():
+        for brick_path, attribute_dict in sorted(
+                config['initialization'].items(),
+                key=lambda (k, v): -k.count('/')):
             for attribute, value in attribute_dict.items():
                 brick, = Selector(recognizer).select(brick_path).bricks
                 setattr(brick, attribute, value)
