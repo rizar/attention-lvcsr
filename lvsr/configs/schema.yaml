@@ -90,5 +90,12 @@ map:
             rules:
                 sequence:
                     - type: str
+            num_batches:
+                type: int
+                desc: "Train on this many batches."
+            num_epochs:
+                type: int
+                desc: "Train for this many epochs"
+
     stages:
         type: any

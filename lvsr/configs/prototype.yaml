@@ -24,6 +24,8 @@ training:
     gradient_threshold: 100.0
     scale: 0.01
     momentum: 0.0
+    num_batches: 100000
+    num_epochs: 100000
 stages:
     main:
         number: 1
