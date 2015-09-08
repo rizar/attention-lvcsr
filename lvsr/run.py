@@ -1,12 +1,7 @@
 #!/usr/bin/env python
 """Learn to reverse the words in a text."""
 import logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 import argparse
-
-from lvsr.main import main
 
 class StoreIfNotUnderscore(argparse.Action):
 
@@ -74,10 +69,19 @@ if __name__ == "__main__":
         "--test-tag", default=None, type=int,
         help="Tag the batch with test data for debugging?")
     parser.add_argument(
+        "--logging", default='INFO', type=str,
+        help="Logging level to use")
+    parser.add_argument(
         "--decode-only", default=None,
         help="Only decode the following utternaces")
     parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=args.logging,
+        format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
+
+    from lvsr.main import main
     main(args)
