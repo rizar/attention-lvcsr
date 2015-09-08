@@ -84,4 +84,4 @@ if __name__ == "__main__":
         format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
     from lvsr.main import main
-    main(args)
+    main(args.__dict__)

@@ -1,6 +1,7 @@
 import os.path
-from pykwalify.core import Core
+from collections import OrderedDict
 
+from pykwalify.core import Core
 import yaml
 
 
@@ -47,12 +48,37 @@ def make_config_changes(config, changes):
         assign_to[parts[-1]] = yaml.load(value)
 
 
-def safe_compile_configuration(config_path, schema_path, config_changes):
-    """Read configuration, apply changes, validate."""
-    with open(config_path, 'rt') as src:
-        config = read_config(src)
-    make_config_changes(config, config_changes)
-    with open(os.path.expandvars(schema_path)) as schema:
-        core = Core(source_data=config, schema_data=yaml.safe_load(schema))
-    core.validate(raise_exception=True)
-    return config
+class Configuration(dict):
+    """Convenient access to a multi-stage configuration.
+
+    Attributes
+    ----------
+    ordered_stages : OrderedDict
+        Configurations for all the training stages in the order of
+        their numbers.
+
+    """
+    def __init__(self, config_path, schema_path, config_changes):
+        with open(config_path, 'rt') as src:
+            config = read_config(src)
+        make_config_changes(config, config_changes)
+
+        ordered_changes = OrderedDict(
+            sorted(config['stages'].items(), key=lambda (k, v): v['number'],))
+        self.ordered_stages = OrderedDict()
+        current_config = dict(config)
+        del current_config['stages']
+        for name, changes in ordered_changes.items():
+            del changes['number']
+            merge_recursively(current_config, changes)
+            self.ordered_stages[name] = dict(current_config)
+
+        # Validate the configuration and the training stages
+        with open(os.path.expandvars(schema_path)) as schema_file:
+            schema = yaml.safe_load(schema_file)
+            core = Core(source_data=config, schema_data=schema)
+            core.validate(raise_exception=True)
+            for stage in self.ordered_stages.values():
+                core = Core(source_data=config, schema_data=schema)
+                core.validate(raise_exception=True)
+        super(Configuration, self).__init__(config)

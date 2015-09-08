@@ -90,3 +90,5 @@ map:
             rules:
                 sequence:
                     - type: str
+    stages:
+        type: any
