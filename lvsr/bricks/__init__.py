@@ -4,7 +4,7 @@ import theano
 from theano import tensor
 
 from blocks.bricks import (
-    Bias, Brick, Identity, Initializable, MLP, Linear, Sequence, Tanh)
+    Bias, Identity, Initializable, MLP, Linear, Sequence, Tanh)
 from blocks.bricks.attention import SequenceContentAttention
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
@@ -13,7 +13,6 @@ from blocks.bricks.recurrent import (
 from blocks.bricks.sequence_generators import (
     AbstractFeedback, SequenceGenerator, Readout,
     SoftmaxEmitter, LookupFeedback)
-from blocks.bricks.wrappers import WithExtraDims
 from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
@@ -56,16 +55,6 @@ class RecurrentWithFork(Initializable):
     @apply.property('outputs')
     def apply_outputs(self):
         return self.recurrent.states
-
-
-class SelectInEachRow(Brick):
-    @application(inputs=['matrix', 'indices'], outputs=['output_'])
-    def apply(self, matrix, indices):
-        return matrix[tensor.arange(matrix.shape[0]), indices]
-
-
-class SelectInEachSubtensor(SelectInEachRow):
-    decorators = [WithExtraDims()]
 
 
 class InitializableSequence(Sequence, Initializable):

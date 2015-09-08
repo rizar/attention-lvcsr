@@ -1,11 +1,12 @@
 from theano import tensor
 
 from blocks.bricks import (
-    Identity, Initializable, NDimensionalSoftmax, application)
+    Brick, Identity, Initializable, NDimensionalSoftmax, application, lazy)
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
 from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
     AbstractEmitter, SequenceGenerator, Readout, SoftmaxEmitter)
+from blocks.bricks.wrappers import WithExtraDims
 
 from lvsr.ops import FST, FSTCostsOp, FSTTransitionOp, MAX_STATES, NOT_STATE
 
@@ -131,6 +132,16 @@ class LanguageModel(SequenceGenerator):
                                     if name != 'mask'],
                       prototype=Identity()),
             readout=dummy_readout, **kwargs)
+
+
+class SelectInEachRow(Brick):
+    @application(inputs=['matrix', 'indices'], outputs=['output_'])
+    def apply(self, matrix, indices):
+        return matrix[tensor.arange(matrix.shape[0]), indices]
+
+
+class SelectInEachSubtensor(SelectInEachRow):
+    decorators = [WithExtraDims()]
 
 
 class LMEmitter(AbstractEmitter):
