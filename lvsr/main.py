@@ -1164,7 +1164,7 @@ def search(config, cmd_args):
     it = stream.get_epoch_iterator()
     decode_only = None
     if cmd_args['decode_only'] is not None:
-        decode_only = cmd_args['decode_only']
+        decode_only = eval(cmd_args['decode_only'])
 
     weights = tensor.matrix('weights')
     weight_statistics = theano.function(
