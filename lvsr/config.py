@@ -53,7 +53,9 @@ class Configuration(dict):
 
     Attributes
     ----------
-    ordered_stages : OrderedDict
+    multi_stage : bool
+        ``True`` if the configuration describes multiple training stages
+    ordered_stages : OrderedDict, optional
         Configurations for all the training stages in the order of
         their numbers.
 
@@ -63,22 +65,26 @@ class Configuration(dict):
             config = read_config(src)
         make_config_changes(config, config_changes)
 
-        ordered_changes = OrderedDict(
-            sorted(config['stages'].items(), key=lambda (k, v): v['number'],))
-        self.ordered_stages = OrderedDict()
-        current_config = dict(config)
-        del current_config['stages']
-        for name, changes in ordered_changes.items():
-            del changes['number']
-            merge_recursively(current_config, changes)
-            self.ordered_stages[name] = dict(current_config)
+        self.multi_stage = 'stages' in config
+        if self.multi_stage:
+            ordered_changes = OrderedDict(
+                sorted(config['stages'].items(),
+                       key=lambda (k, v): v['number'],))
+            self.ordered_stages = OrderedDict()
+            current_config = dict(config)
+            del current_config['stages']
+            for name, changes in ordered_changes.items():
+                del changes['number']
+                merge_recursively(current_config, changes)
+                self.ordered_stages[name] = dict(current_config)
 
         # Validate the configuration and the training stages
         with open(os.path.expandvars(schema_path)) as schema_file:
             schema = yaml.safe_load(schema_file)
             core = Core(source_data=config, schema_data=schema)
             core.validate(raise_exception=True)
-            for stage in self.ordered_stages.values():
-                core = Core(source_data=config, schema_data=schema)
-                core.validate(raise_exception=True)
+            if self.multi_stage:
+                for stage in self.ordered_stages.values():
+                    core = Core(source_data=config, schema_data=schema)
+                    core.validate(raise_exception=True)
         super(Configuration, self).__init__(config)

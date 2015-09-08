@@ -658,23 +658,25 @@ def train(config, cmd_args):
         .add_condition(["after_batch"], _gradient_norm_is_none),
         # Live plotting: requires launching `bokeh-server`
         # and allows to see what happens online.
-        Plot(os.path.basename(cmd_args['save_path']),
-                [# Plot 1: training and validation costs
-                [average_monitoring.record_name(regularized_cost),
-                validation.record_name(cost)],
-                # Plot 2: gradient norm,
-                [average_monitoring.record_name(algorithm.total_gradient_norm),
-                average_monitoring.record_name(clipping.threshold)],
-                # Plot 3: phoneme error rate
-                [per_monitoring.record_name(per)],
-                # Plot 4: training and validation mean weight entropy
-                [average_monitoring._record_name('weights_entropy_per_label'),
-                validation._record_name('weights_entropy_per_label')],
-                # Plot 5: training and validation monotonicity penalty
-                [average_monitoring._record_name('weights_penalty_per_recording'),
-                validation._record_name('weights_penalty_per_recording')]],
-                every_n_batches=10,
-                server_url=train_conf.get('bokeh_server_url')),
+        Plot(cmd_args['bokeh_name']
+             if cmd_args['bokeh_name']
+             else os.path.basename(cmd_args['save_path']),
+             [# Plot 1: training and validation costs
+             [average_monitoring.record_name(regularized_cost),
+             validation.record_name(cost)],
+             # Plot 2: gradient norm,
+             [average_monitoring.record_name(algorithm.total_gradient_norm),
+             average_monitoring.record_name(clipping.threshold)],
+             # Plot 3: phoneme error rate
+             [per_monitoring.record_name(per)],
+             # Plot 4: training and validation mean weight entropy
+             [average_monitoring._record_name('weights_entropy_per_label'),
+             validation._record_name('weights_entropy_per_label')],
+             # Plot 5: training and validation monotonicity penalty
+             [average_monitoring._record_name('weights_penalty_per_recording'),
+             validation._record_name('weights_penalty_per_recording')]],
+             every_n_batches=10,
+             server_url=train_conf.get('bokeh_server_url')),
         Checkpoint(cmd_args['save_path'],
                     before_first_epoch=not cmd_args['fast_start'], after_epoch=True,
                     every_n_batches=train_conf.get('save_every_n_batches'),
@@ -855,17 +857,22 @@ def main(cmd_args):
         import IPython; IPython.embed()
     elif cmd_args['mode'] == "train":
         # Run multiple stages of the training procedure
-        os.mkdir(cmd_args['save_path'])
-        for iteration, (stage_name, stage_config) in enumerate(
-                config.ordered_stages.items()):
-            logging.info("Stage \"{}\" config:\n".format(stage_name)
-                         + pprint.pformat(stage_config, width=120))
-            stage_cmd_args = dict(cmd_args)
-            stage_cmd_args['save_path'] = '{}/{}.zip'.format(
-                cmd_args['save_path'], stage_name)
-            last_save_path = stage_cmd_args['save_path']
-            if iteration > 0:
-                stage_cmd_args['params'] = last_save_path
-            train(stage_config, stage_cmd_args)
+        if config.multi_stage:
+            os.mkdir(cmd_args['save_path'])
+            for iteration, (stage_name, stage_config) in enumerate(
+                    config.ordered_stages.items()):
+                logging.info("Stage \"{}\" config:\n".format(stage_name)
+                            + pprint.pformat(stage_config, width=120))
+                stage_cmd_args = dict(cmd_args)
+                stage_cmd_args['save_path'] = '{}/{}.zip'.format(
+                    cmd_args['save_path'], stage_name)
+                stage_cmd_args['bokeh_name'] = '{}_{}'.format(
+                    cmd_args['save_path'], stage_name)
+                last_save_path = stage_cmd_args['save_path']
+                if iteration > 0:
+                    stage_cmd_args['params'] = last_save_path
+                train(stage_config, stage_cmd_args)
+        else:
+            train(config, cmd_args)
     elif cmd_args['mode'] == "search":
         search(config, cmd_args)
