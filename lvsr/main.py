@@ -859,8 +859,8 @@ def main(cmd_args):
         # Run multiple stages of the training procedure
         if config.multi_stage:
             os.mkdir(cmd_args['save_path'])
-            for iteration, (stage_name, stage_config) in enumerate(
-                    config.ordered_stages.items()):
+            last_save_path = None
+            for stage_name, stage_config in config.ordered_stages.items():
                 logging.info("Stage \"{}\" config:\n".format(stage_name)
                             + pprint.pformat(stage_config, width=120))
                 stage_cmd_args = dict(cmd_args)
@@ -868,9 +868,9 @@ def main(cmd_args):
                     cmd_args['save_path'], stage_name)
                 stage_cmd_args['bokeh_name'] = '{}_{}'.format(
                     cmd_args['save_path'], stage_name)
-                last_save_path = stage_cmd_args['save_path']
-                if iteration > 0:
+                if last_save_path:
                     stage_cmd_args['params'] = last_save_path
+                last_save_path = stage_cmd_args['save_path']
                 train(stage_config, stage_cmd_args)
         else:
             train(config, cmd_args)
