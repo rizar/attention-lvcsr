@@ -652,7 +652,7 @@ def train(config, cmd_args):
         decay_rate=0.998, burnin_period=500))
     extensions += [
         SwitchOffLengthFilter(data.length_filter,
-            after_n_batches=train_conf.get('stop_filtering', 1)),
+            after_n_batches=train_conf.get('stop_filtering')),
         FinishAfter(after_n_batches=train_conf['num_batches'],
                     after_n_epochs=train_conf['num_epochs'])
         .add_condition(["after_batch"], _gradient_norm_is_none),
