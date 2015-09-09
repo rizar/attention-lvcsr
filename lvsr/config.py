@@ -71,12 +71,12 @@ class Configuration(dict):
                 sorted(config['stages'].items(),
                        key=lambda (k, v): v['number'],))
             self.ordered_stages = OrderedDict()
-            current_config = dict(config)
-            del current_config['stages']
             for name, changes in ordered_changes.items():
+                current_config = dict(config)
+                del current_config['stages']
                 del changes['number']
                 merge_recursively(current_config, changes)
-                self.ordered_stages[name] = dict(current_config)
+                self.ordered_stages[name] = current_config
 
         # Validate the configuration and the training stages
         with open(os.path.expandvars(schema_path)) as schema_file:
