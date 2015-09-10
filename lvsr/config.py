@@ -1,3 +1,4 @@
+import copy
 import os.path
 from collections import OrderedDict
 
@@ -72,7 +73,7 @@ class Configuration(dict):
                        key=lambda (k, v): v['number'],))
             self.ordered_stages = OrderedDict()
             for name, changes in ordered_changes.items():
-                current_config = dict(config)
+                current_config = copy.deepcopy(config)
                 del current_config['stages']
                 del changes['number']
                 merge_recursively(current_config, changes)
