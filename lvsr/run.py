@@ -15,15 +15,6 @@ if __name__ == "__main__":
         description="Fully neural speech recognition",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    config_parser = argparse.ArgumentParser(add_help=False)
-    config_parser.add_argument(
-        "config_path", default=None, nargs="?",
-        action=StoreIfNotUnderscore,
-        help="The configuration")
-    config_parser.add_argument(
-        "config_changes", default=[], nargs='*',
-        help="Changes to configuration. Path, value, path, value.")
-
     params_parser = argparse.ArgumentParser(add_help=False)
     params_parser.add_argument(
         "--params", default=None, type=str,
@@ -31,28 +22,38 @@ if __name__ == "__main__":
 
     subparsers = root_parser.add_subparsers()
     train_parser = subparsers.add_parser(
-        "train", parents=[params_parser, config_parser],
+        "train", parents=[params_parser],
         help="Train speech model")
     train_parser.set_defaults(mode='train')
 
     test_parser = subparsers.add_parser(
-        "test", parents=[params_parser, config_parser],
+        "test", parents=[params_parser],
         help="Evaluate speech model on a test set")
     test_parser.set_defaults(mode='test')
 
     init_norm_parser = subparsers.add_parser(
-        "init_norm", parents=[params_parser, config_parser])
+        "init_norm", parents=[params_parser])
     init_norm_parser.set_defaults(mode='init_norm')
 
     show_data_parser = subparsers.add_parser(
-        "show_data", parents=[params_parser, config_parser],
+        "show_data", parents=[params_parser],
         help="Run ipython notebook to show data")
     show_data_parser.set_defaults(mode='show_data')
 
     search_parser = subparsers.add_parser(
-        "search", parents=[params_parser, config_parser],
+        "search", parents=[params_parser],
         help="Perform beam search using speech model")
     search_parser.set_defaults(mode='search')
+
+    for parser in [train_parser, test_parser, init_norm_parser,
+                   show_data_parser, search_parser]:
+        # This is a bit ugly and should be done with `parents`, but it works
+        # very strange with nargs. I wasn't able to place config changes
+        # at the end.
+        parser.add_argument(
+            "config_path", default=None, nargs="?",
+            action=StoreIfNotUnderscore,
+            help="The configuration")
 
     train_parser.add_argument(
         "save_path", default="chain",
@@ -110,6 +111,11 @@ if __name__ == "__main__":
     search_parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
+    for parser in [train_parser, test_parser, init_norm_parser,
+                   show_data_parser, search_parser]:
+        parser.add_argument(
+            "config_changes", default=[], nargs='*',
+            help="Changes to configuration. Path, value, path, value.")
 
     root_parser.add_argument(
         "--logging", default='INFO', type=str,
