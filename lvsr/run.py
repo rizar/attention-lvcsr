@@ -3,12 +3,6 @@
 import logging
 import argparse
 
-class StoreIfNotUnderscore(argparse.Action):
-
-    def __call__(self, parser, namespace, values, option_string):
-        if values != '_':
-            setattr(namespace, self.dest, values)
-
 
 if __name__ == "__main__":
     root_parser = argparse.ArgumentParser(
@@ -24,26 +18,21 @@ if __name__ == "__main__":
     train_parser = subparsers.add_parser(
         "train", parents=[params_parser],
         help="Train speech model")
-    train_parser.set_defaults(mode='train')
 
     test_parser = subparsers.add_parser(
         "test", parents=[params_parser],
         help="Evaluate speech model on a test set")
-    test_parser.set_defaults(mode='test')
 
     init_norm_parser = subparsers.add_parser(
         "init_norm", parents=[params_parser])
-    init_norm_parser.set_defaults(mode='init_norm')
 
     show_data_parser = subparsers.add_parser(
         "show_data", parents=[params_parser],
         help="Run ipython notebook to show data")
-    show_data_parser.set_defaults(mode='show_data')
 
     search_parser = subparsers.add_parser(
         "search", parents=[params_parser],
         help="Perform beam search using speech model")
-    search_parser.set_defaults(mode='search')
 
     for parser in [train_parser, test_parser, init_norm_parser,
                    show_data_parser, search_parser]:
@@ -51,9 +40,7 @@ if __name__ == "__main__":
         # very strange with nargs. I wasn't able to place config changes
         # at the end.
         parser.add_argument(
-            "config_path", default=None, nargs="?",
-            action=StoreIfNotUnderscore,
-            help="The configuration")
+            "config_path", help="The configuration")
 
     train_parser.add_argument(
         "save_path", default="chain",
@@ -121,11 +108,18 @@ if __name__ == "__main__":
         "--logging", default='INFO', type=str,
         help="Logging level to use")
 
+    from lvsr.main import (
+        prepare_config, show_data, init_norm, train_multistage, test, search)
+    train_parser.set_defaults(func=train_multistage)
+    test_parser.set_defaults(func=test)
+    init_norm_parser.set_defaults(func=init_norm)
+    show_data_parser.set_defaults(func=show_data)
+    search_parser.set_defaults(func=search)
     args = root_parser.parse_args()
 
     logging.basicConfig(
         level=args.logging,
         format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
-    from lvsr.main import main
-    main(args.__dict__)
+    config = prepare_config(args.__dict__)
+    args.func(config, args.__dict__)

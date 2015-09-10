@@ -832,7 +832,7 @@ def search(config, cmd_args):
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
 
-def main(cmd_args):
+def prepare_config(cmd_args):
     # Experiment configuration
     config = Configuration(
         cmd_args['config_path'],
@@ -840,42 +840,50 @@ def main(cmd_args):
         equizip(
             cmd_args['config_changes'][::2],
             cmd_args['config_changes'][1::2])
-        )
+    )
     config['cmd_args'] = cmd_args
     logging.info("Config:\n" + pprint.pformat(config, width=120))
+    return config
 
-    if cmd_args['mode'] == "init_norm":
-        config['data']['normalization'] = None
-        data = Data(**config['data'])
-        stream = data.get_stream("train", batches=False, shuffle=False)
-        normalization = Normalization(stream, data.recordings_source)
-        with open(cmd_args['save_path'], "wb") as dst:
-            cPickle.dump(normalization, dst)
-    elif cmd_args['mode'] == "show_data":
-        data = Data(**config['data'])
-        stream = data.get_stream("train")
-        data = next(stream.get_epoch_iterator(as_dict=True))
-        import IPython; IPython.embed()
-    elif cmd_args['mode'] == "train":
-        # Run multiple stages of the training procedure
-        if config.multi_stage:
-            os.mkdir(cmd_args['save_path'])
-            last_save_path = None
-            for stage_name, stage_config in config.ordered_stages.items():
-                logging.info("Stage \"{}\" config:\n".format(stage_name)
-                            + pprint.pformat(stage_config, width=120))
-                stage_cmd_args = dict(cmd_args)
-                stage_cmd_args['save_path'] = '{}/{}.zip'.format(
-                    cmd_args['save_path'], stage_name)
-                stage_cmd_args['bokeh_name'] = '{}_{}'.format(
-                    cmd_args['save_path'], stage_name)
-                if last_save_path:
-                    stage_cmd_args['params'] = last_save_path
-                last_save_path = '{}/{}{}.zip'.format(
-                    cmd_args['save_path'], stage_name,
-                    config['training'].get('restart_from', ''))
-                train(stage_config, stage_cmd_args)
-        else:
-            train(config, cmd_args)
-    elif cmd_args['mode'] == "search":
-        search(config, cmd_args)
+
+def init_norm(config, cmd_args):
+    config['data']['normalization'] = None
+    data = Data(**config['data'])
+    stream = data.get_stream("train", batches=False, shuffle=False)
+    normalization = Normalization(stream, data.recordings_source)
+    with open(cmd_args['save_path'], "wb") as dst:
+        cPickle.dump(normalization, dst)
+
+
+def show_data(config, cmd_args):
+    data = Data(**config['data'])
+    stream = data.get_stream("train")
+    data = next(stream.get_epoch_iterator(as_dict=True))
+    import IPython; IPython.embed()
+
+
+def train_multistage(config, cmd_args):
+    """Run multiple stages of the training procedure."""
+    if config.multi_stage:
+        os.mkdir(cmd_args['save_path'])
+        last_save_path = None
+        for stage_name, stage_config in config.ordered_stages.items():
+            logging.info("Stage \"{}\" config:\n".format(stage_name)
+                         + pprint.pformat(stage_config, width=120))
+            stage_cmd_args = dict(cmd_args)
+            stage_cmd_args['save_path'] = '{}/{}.zip'.format(
+                cmd_args['save_path'], stage_name)
+            stage_cmd_args['bokeh_name'] = '{}_{}'.format(
+                cmd_args['save_path'], stage_name)
+            if last_save_path:
+                stage_cmd_args['params'] = last_save_path
+            last_save_path = '{}/{}{}.zip'.format(
+                cmd_args['save_path'], stage_name,
+                config['training'].get('restart_from', ''))
+            train(stage_config, stage_cmd_args)
+    else:
+        train(config, cmd_args)
+
+
+def test(config, cmd_args):
+    raise NotImplementedError()
