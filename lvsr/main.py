@@ -262,7 +262,6 @@ class Data(object):
                   if shuffle
                   else dataset.get_example_stream())
 
-
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
         if self.add_eos:
@@ -277,15 +276,15 @@ class Data(object):
         stream = Filter(stream, self.length_filter)
         if self.sort_k_batches and batches:
             stream = Batch(stream,
-                        iteration_scheme=ConstantScheme(
-                            self.batch_size * self.sort_k_batches))
+                           iteration_scheme=ConstantScheme(
+                               self.batch_size * self.sort_k_batches))
             stream = Mapping(stream, SortMapping(_length))
             stream = Unpack(stream)
 
         if self.preprocess_features == 'log_spectrogram':
             stream = Mapping(
                 stream, functools.partial(apply_preprocessing,
-                                        log_spectrogram))
+                                          log_spectrogram))
         if self.pad_k_frames:
             stream = Mapping(
                 stream, _SilentPadding(self.pad_k_frames))
