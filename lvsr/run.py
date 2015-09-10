@@ -11,82 +11,111 @@ class StoreIfNotUnderscore(argparse.Action):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        "Fully neural speech recognition",
+    root_parser = argparse.ArgumentParser(
+        description="Fully neural speech recognition",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(
-        "mode", choices=[
-            "train", "test", "init_norm", "show_data", "search"],
-        help="The mode to run")
-    parser.add_argument(
-        "save_path", default="chain",
-        help="The path to save the training process.")
-    parser.add_argument(
+
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument(
         "config_path", default=None, nargs="?",
         action=StoreIfNotUnderscore,
         help="The configuration")
-    parser.add_argument(
+    config_parser.add_argument(
         "config_changes", default=[], nargs='*',
         help="Changes to configuration. Path, value, path, value.")
-    parser.add_argument(
-        "--bokeh-name", default="", type=str,
-        help="Name for Bokeh document")
-    parser.add_argument(
+
+    params_parser = argparse.ArgumentParser(add_help=False)
+    params_parser.add_argument(
         "--params", default=None, type=str,
         help="Load parameters from this file.")
-    parser.add_argument(
+
+    subparsers = root_parser.add_subparsers()
+    train_parser = subparsers.add_parser(
+        "train", parents=[params_parser, config_parser],
+        help="Train speech model")
+    train_parser.set_defaults(mode='train')
+
+    test_parser = subparsers.add_parser(
+        "test", parents=[params_parser, config_parser],
+        help="Evaluate speech model on a test set")
+    test_parser.set_defaults(mode='test')
+
+    init_norm_parser = subparsers.add_parser(
+        "init_norm", parents=[params_parser, config_parser])
+    init_norm_parser.set_defaults(mode='init_norm')
+
+    show_data_parser = subparsers.add_parser(
+        "show_data", parents=[params_parser, config_parser],
+        help="Run ipython notebook to show data")
+    show_data_parser.set_defaults(mode='show_data')
+
+    search_parser = subparsers.add_parser(
+        "search", parents=[params_parser, config_parser],
+        help="Perform beam search using speech model")
+    search_parser.set_defaults(mode='search')
+
+    train_parser.add_argument(
+        "save_path", default="chain",
+        help="The path to save the training process.")
+    train_parser.add_argument(
+        "--bokeh-name", default="", type=str,
+        help="Name for Bokeh document")
+    train_parser.add_argument(
         "--use-load-ext", default=False, action="store_true",
         help="Use the load ext to reload log and main loop state")
-    parser.add_argument(
+    train_parser.add_argument(
         "--load-log", default=False, action="store_true",
         help="Load the log from a separate pickle")
-    parser.add_argument(
+    train_parser.add_argument(
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins.")
-    parser.add_argument(
+    train_parser.add_argument(
+        "--test-tag", default=None, type=int,
+        help="Tag the batch with test data for debugging?")
+    train_parser.add_argument(
+        "--validation-batches", type=int, default=0,
+        help="Perform validation every n batches. `Inf` is acceptable")
+    train_parser.add_argument(
+        "--validation-epochs", type=int, default=1,
+        help="Perform validation every n epochs. `Inf` is acceptable")
+    train_parser.add_argument(
+        "--per-batches", type=int, default=0,
+        help="Perform validation of PER every n batches. `Inf` is acceptable")
+    train_parser.add_argument(
+        "--per-epochs", type=int, default=2,
+        help="Perform validation of PER every n epochs. `Inf` is acceptable")
+
+    search_parser.add_argument(
         "--part", default="valid",
         help="Data to recognize with beam search.")
-    parser.add_argument(
+    search_parser.add_argument(
         "--beam-size", default=10, type=int,
         help="Beam size")
-    parser.add_argument(
+    search_parser.add_argument(
         "--char-discount", default=0.0, type=float,
         help="A discount given by beam search for every additional character"
         " added to a candidate.")
-    parser.add_argument(
+    search_parser.add_argument(
         "--old-labels", default=False, action="store_true",
         help="Expect old labels when decoding.")
-    parser.add_argument(
+    search_parser.add_argument(
         "--report", default=None,
         help="Destination to save a detailed report.")
-    parser.add_argument(
+    search_parser.add_argument(
         "--decoded-save", default=None,
         help="Destination to save decoded sequences.")
-    parser.add_argument(
-        "--test-tag", default=None, type=int,
-        help="Tag the batch with test data for debugging?")
-    parser.add_argument(
-        "--logging", default='INFO', type=str,
-        help="Logging level to use")
-    parser.add_argument(
+    search_parser.add_argument(
         "--decode-only", default=None,
         help="Only decode the following utternaces")
-    parser.add_argument(
+    search_parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
-    parser.add_argument(
-        "--validation-batches", type=int, default=0,
-        help="Perform validation every n batches.")
-    parser.add_argument(
-        "--validation-epochs", type=int, default=1,
-        help="Perform validation every n epochs.")
-    parser.add_argument(
-        "--per-batches", type=int, default=0,
-        help="Perform validation of PER every n batches.")
-    parser.add_argument(
-        "--per-epochs", type=int, default=2,
-        help="Perform validation of PER every n epochs.")
-    args = parser.parse_args()
+
+    root_parser.add_argument(
+        "--logging", default='INFO', type=str,
+        help="Logging level to use")
+
+    args = root_parser.parse_args()
 
     logging.basicConfig(
         level=args.logging,
