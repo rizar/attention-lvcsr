@@ -2,7 +2,16 @@
 """Learn to reverse the words in a text."""
 import logging
 import argparse
+from picklable_itertools.extras import equizip
 
+
+class ParseChanges(argparse.Action):
+    def __call__(self, parser, args, values, option_string=None):
+        setattr(args, self.dest, equizip(values[::2], values[1::2]))
+
+
+def parse_pairs(config_changes):
+    return equizip(config_changes[::2], config_changes[1::2])
 
 if __name__ == "__main__":
     root_parser = argparse.ArgumentParser(
@@ -101,7 +110,7 @@ if __name__ == "__main__":
     for parser in [train_parser, test_parser, init_norm_parser,
                    show_data_parser, search_parser]:
         parser.add_argument(
-            "config_changes", default=[], nargs='*',
+            "config_changes", default=[], action=ParseChanges, nargs='*',
             help="Changes to configuration. [<path>, <value>]")
 
     root_parser.add_argument(

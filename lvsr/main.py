@@ -45,7 +45,6 @@ from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack,
     Filter, FilterSources, Transformer)
-from picklable_itertools.extras import equizip
 
 import lvsr.datasets.wsj
 from lvsr.bricks import SpeechRecognizer
@@ -837,9 +836,7 @@ def prepare_config(cmd_args):
     config = Configuration(
         cmd_args['config_path'],
         '$LVSR/lvsr/configs/schema.yaml',
-        equizip(
-            cmd_args['config_changes'][::2],
-            cmd_args['config_changes'][1::2])
+        cmd_args['config_changes']
     )
     config['cmd_args'] = cmd_args
     logging.info("Config:\n" + pprint.pformat(config, width=120))
