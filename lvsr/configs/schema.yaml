@@ -108,5 +108,7 @@ map:
             rules:
                 sequence:
                     - type: str
+            restart_from:
+                type: str
     stages:
         type: any

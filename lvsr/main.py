@@ -870,7 +870,9 @@ def main(cmd_args):
                     cmd_args['save_path'], stage_name)
                 if last_save_path:
                     stage_cmd_args['params'] = last_save_path
-                last_save_path = stage_cmd_args['save_path']
+                last_save_path = '{}/{}{}.zip'.format(
+                    cmd_args['save_path'], stage_name,
+                    config['training'].get('restart_from', ''))
                 train(stage_config, stage_cmd_args)
         else:
             train(config, cmd_args)

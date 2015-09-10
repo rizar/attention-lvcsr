@@ -9,7 +9,7 @@ net:
         before: 400
         after: 400
 data:
-    max_length: 1000
+    max_length: 200
 regularization:
     max_norm: 1.0
 stages:
@@ -28,13 +28,16 @@ stages:
         number: 100
         training:
             num_epochs: 4
+            restart_from: _best_ll
     annealing1:
         number: 200
         training:
             num_epochs: 2
             epsilon: 1.0e-8
+            restart_from: _best_ll
     annealing2:
         number: 300
         training:
             num_epochs: 2
             epsilon: 1.0e-10
+            restart_from: _best_ll
