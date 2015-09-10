@@ -10,9 +10,6 @@ class ParseChanges(argparse.Action):
         setattr(args, self.dest, equizip(values[::2], values[1::2]))
 
 
-def parse_pairs(config_changes):
-    return equizip(config_changes[::2], config_changes[1::2])
-
 if __name__ == "__main__":
     root_parser = argparse.ArgumentParser(
         description="Fully neural speech recognition",
