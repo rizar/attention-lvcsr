@@ -17,12 +17,13 @@ class ParseChanges(argparse.Action):
 
 def prepare_config(cmd_args):
     # Experiment configuration
+    original_cmd_args = dict(cmd_args)
     config = Configuration(
         cmd_args.pop('config_path'),
         '$LVSR/lvsr/configs/schema.yaml',
         cmd_args.pop('config_changes')
     )
-    config['cmd_args'] = cmd_args
+    config['cmd_args'] = original_cmd_args
     logger.info("Config:\n" + pprint.pformat(config, width=120))
     return config
 

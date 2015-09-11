@@ -47,7 +47,7 @@ from fuel.transformers import (
     Filter, FilterSources, Transformer)
 
 import lvsr.datasets.wsj
-from lvsr.bricks import SpeechRecognizer
+from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.config import Configuration
 from lvsr.datasets.h5py import H5PYAudioDataset
 from lvsr.datasets import TIMIT2, WSJ
