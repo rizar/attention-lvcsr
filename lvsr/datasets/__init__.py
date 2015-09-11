@@ -66,34 +66,6 @@ class _LengthFilter(object):
         return True
 
 
-class _SilentPadding(object):
-
-    def __init__(self, k_frames):
-        self.k_frames = k_frames
-
-    def __call__(self, example):
-        features = example[0]
-        features = numpy.vstack([features, numpy.zeros_like(features[[0]])])
-        return (features) + tuple(example[1:])
-
-
-class _MergeKFrames(object):
-
-    def __init__(self, k_frames):
-        self.k_frames = k_frames
-
-    def __call__(self, example):
-        features = example[0]
-        assert features.ndim == 2
-        new_length = features.shape[0] / self.k_frames
-        new_width = features.shape[1] * self.k_frames
-        remainder = features.shape[0] % self.k_frames
-        if remainder:
-            features = features[:-remainder]
-        new_features = features.reshape((new_length, new_width))
-        return (new_features) + tuple(example[1:])
-
-
 class ForceCContiguous(Transformer):
     """Force all floating point numpy arrays to be floatX."""
     def __init__(self, data_stream):
@@ -114,18 +86,49 @@ class ForceCContiguous(Transformer):
 
 
 class Data(object):
+    """Dataset manager.
 
+    Chooses and tunes a dataset.
+
+    Parameters
+    ----------
+    dataset : str
+        Dataset name.
+    recordings_source : str
+        Source name for recording.
+    labels_source : str
+        Source name for labels.
+    batch_size : int
+        Batch size.
+    sort_k_batches : int
+    max_length : int
+        Maximum length of input, longer sequences will be filtered.
+    normalization : str
+        Normalization file name to use.
+    uttid_source : str
+        Utterance id source name.
+    feature_name : str
+        `wav` or `fbank_and_delta_delta`.
+    preprocess_features : str
+        Now supports only `log_spectrogram` value.
+    add_eos : bool
+        Add end of sequence symbol.
+    eos_label : int
+        Label to use for eos symbol.
+    prepend_eos : bool
+        Old option.
+    preprocess_text : bool
+        Preprocess text for WSJ.
+
+    """
     def __init__(self, dataset, recordings_source, labels_source,
                  batch_size, sort_k_batches=None,
                  max_length=None, normalization=None,
                  uttid_source='uttids',
-                 merge_k_frames=None,
-                 pad_k_frames=None,
                  feature_name='wav', preprocess_features=None,
                  # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None,
                  prepend_eos=True,
-                 # For WSJ
                  preprocess_text=False):
         if not dataset in ('TIMIT', 'WSJ', 'WSJnew'):
             raise ValueError()
@@ -141,8 +144,6 @@ class Data(object):
         self.normalization = normalization
         self.batch_size = batch_size
         self.sort_k_batches = sort_k_batches
-        self.merge_k_frames = merge_k_frames
-        self.pad_k_frames = pad_k_frames
         self.feature_name = feature_name
         self.max_length = max_length
         self.add_eos = add_eos
@@ -152,7 +153,7 @@ class Data(object):
         self.prepend_eos = prepend_eos
         self.dataset_cache = {}
 
-        self.length_filter =_LengthFilter(self.max_length)
+        self.length_filter = _LengthFilter(self.max_length)
 
     @property
     def num_labels(self):
@@ -168,14 +169,13 @@ class Data(object):
 
     @property
     def num_features(self):
-        merge_multiplier = self.merge_k_frames if self.merge_k_frames else 1
         # For old datasets
         if self.dataset in ['TIMIT', 'WSJ']:
             if self.feature_name == 'wav':
-                return 129 * merge_multiplier
+                return 129
             elif self.feature_name == 'fbank_and_delta_delta':
-                return 123 * merge_multiplier
-        return self.get_dataset("train").num_features * merge_multiplier
+                return 123
+        return self.get_dataset("train").num_features
 
     @property
     def eos_label(self):
@@ -238,14 +238,8 @@ class Data(object):
             stream = Mapping(
                 stream, functools.partial(apply_preprocessing,
                                           log_spectrogram))
-        if self.pad_k_frames:
-            stream = Mapping(
-                stream, _SilentPadding(self.pad_k_frames))
         if self.normalization:
             stream = self.normalization.wrap_stream(stream)
-        if self.merge_k_frames:
-            stream = Mapping(
-                stream, _MergeKFrames(self.merge_k_frames))
         stream = ForceFloatX(stream)
         if not batches:
             return stream
