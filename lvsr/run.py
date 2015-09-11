@@ -2,12 +2,29 @@
 """Learn to reverse the words in a text."""
 import logging
 import argparse
+import pprint
 from picklable_itertools.extras import equizip
+
+from lvsr.config import Configuration
+
+logger = logging.getLogger(__name__)
 
 
 class ParseChanges(argparse.Action):
     def __call__(self, parser, args, values, option_string=None):
         setattr(args, self.dest, equizip(values[::2], values[1::2]))
+
+
+def prepare_config(cmd_args):
+    # Experiment configuration
+    config = Configuration(
+        cmd_args['config_path'],
+        '$LVSR/lvsr/configs/schema.yaml',
+        cmd_args['config_changes']
+    )
+    config['cmd_args'] = cmd_args
+    logger.info("Config:\n" + pprint.pformat(config, width=120))
+    return config
 
 
 if __name__ == "__main__":
@@ -106,18 +123,21 @@ if __name__ == "__main__":
         "--logging", default='INFO', type=str,
         help="Logging level to use")
 
-    from lvsr.main import (
-        prepare_config, show_data, init_norm, train_multistage, test, search)
-    train_parser.set_defaults(func=train_multistage)
-    test_parser.set_defaults(func=test)
-    init_norm_parser.set_defaults(func=init_norm)
-    show_data_parser.set_defaults(func=show_data)
-    search_parser.set_defaults(func=search)
+    # Because in an older Bokeh version logging.basicConfig
+    # is called at module level, we have to import lvsr.main
+    # after logging level has been set. That's why here we use
+    # function names and not functions themselves.
+    train_parser.set_defaults(func='train_multistage')
+    test_parser.set_defaults(func='test')
+    init_norm_parser.set_defaults(func='init_norm')
+    show_data_parser.set_defaults(func='show_data')
+    search_parser.set_defaults(func='search')
     args = root_parser.parse_args()
 
     logging.basicConfig(
         level=args.logging,
         format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
-    config = prepare_config(args.__dict__)
-    args.func(config, args.__dict__)
+    import lvsr.main
+    config = lvsr.main.prepare_config(args.__dict__)
+    getattr(lvsr.main, args.func)(config, args.__dict__)
