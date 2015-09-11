@@ -61,6 +61,9 @@ if __name__ == "__main__":
         "--bokeh-name", default="", type=str,
         help="Name for Bokeh document")
     train_parser.add_argument(
+        "--bokeh-server", default="", type=str,
+        help="Bokeh Server to use")
+    train_parser.add_argument(
         "--use-load-ext", default=False, action="store_true",
         help="Use the load ext to reload log and main loop state")
     train_parser.add_argument(

@@ -388,7 +388,8 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
+def train(config, save_path, bokeh_name, bokeh_server,
+          params, test_tag, use_load_ext,
           load_log, fast_start, validation_epochs, validation_batches,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
@@ -680,7 +681,7 @@ def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
              [average_monitoring._record_name('weights_penalty_per_recording'),
              validation._record_name('weights_penalty_per_recording')]],
              every_n_batches=10,
-             server_url=train_conf.get('bokeh_server_url')),
+             server_url=bokeh_server),
         Checkpoint(save_path,
                    before_first_epoch=not fast_start, after_epoch=True,
                    every_n_batches=train_conf.get('save_every_n_batches'),
