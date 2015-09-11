@@ -417,9 +417,11 @@ def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
     attention = recognizer.generator.transition.attention
     attention_params = Selector(attention).get_parameters().values()
 
-    logger.info("Initialization schemes for all bricks.\n"
+    logger.info(
+        "Initialization schemes for all bricks.\n"
         "Works well only in my branch with __repr__ added to all them,\n"
         "there is an issue #463 in Blocks to do that properly.")
+
     def show_init_scheme(cur):
         result = dict()
         for attr in dir(cur):
@@ -474,26 +476,26 @@ def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
         applications=[r.generator.evaluate], name="weights")(
                 cost_cg)
     max_recording_length = named_copy(r.recordings.shape[0],
-                                        "max_recording_length")
+                                      "max_recording_length")
     # To exclude subsampling related bugs
     max_attended_mask_length = named_copy(attended_mask.shape[0],
-                                            "max_attended_mask_length")
+                                          "max_attended_mask_length")
     max_attended_length = named_copy(attended.shape[0],
-                                        "max_attended_length")
+                                     "max_attended_length")
     max_num_phonemes = named_copy(r.labels.shape[0],
-                                    "max_num_phonemes")
+                                  "max_num_phonemes")
     min_energy = named_copy(energies.min(), "min_energy")
     max_energy = named_copy(energies.max(), "max_energy")
     mean_attended = named_copy(abs(attended).mean(),
-                                "mean_attended")
+                               "mean_attended")
     mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                     "mean_bottom_output")
     weights_penalty = named_copy(monotonicity_penalty(weights, r.labels_mask),
-                                    "weights_penalty")
+                                 "weights_penalty")
     weights_entropy = named_copy(entropy(weights, r.labels_mask),
-                                    "weights_entropy")
+                                 "weights_entropy")
     mask_density = named_copy(r.labels_mask.mean(),
-                                "mask_density")
+                              "mask_density")
     cg = ComputationGraph([
         cost, weights_penalty, weights_entropy,
         min_energy, max_energy,
