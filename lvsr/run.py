@@ -142,5 +142,5 @@ if __name__ == "__main__":
         format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
     import lvsr.main
-    config = lvsr.main.prepare_config(args.__dict__)
+    config = prepare_config(args.__dict__)
     getattr(lvsr.main, args.func)(config, args.__dict__)

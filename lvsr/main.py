@@ -830,18 +830,6 @@ def search(config, cmd_args):
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
 
-def prepare_config(cmd_args):
-    # Experiment configuration
-    config = Configuration(
-        cmd_args['config_path'],
-        '$LVSR/lvsr/configs/schema.yaml',
-        cmd_args['config_changes']
-    )
-    config['cmd_args'] = cmd_args
-    logging.info("Config:\n" + pprint.pformat(config, width=120))
-    return config
-
-
 def init_norm(config, cmd_args):
     config['data']['normalization'] = None
     data = Data(**config['data'])
