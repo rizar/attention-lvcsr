@@ -25,6 +25,8 @@ map:
                 type: bool
             add_eos:
                 type: bool
+            prepend_eos:
+                type: bool
     net:
         map:
             dim_dec:

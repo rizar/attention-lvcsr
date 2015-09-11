@@ -328,7 +328,8 @@ class PhonemeErrorRate(MonitoredQuantity):
             return
         groundtruth = self.dataset.decode(transcription)
         try:
-            outputs, search_costs = self.recognizer.beam_search(recording)
+            outputs, search_costs = self.recognizer.beam_search(
+                recording, char_discount=0.1)
             recognized = self.dataset.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
