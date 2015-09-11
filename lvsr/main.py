@@ -388,8 +388,8 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-def train(config, save_path, bokeh_name, bokeh_server,
-          params, test_tag, use_load_ext,
+def train(config, save_path, bokeh_name,
+          params, bokeh_server, test_tag, use_load_ext,
           load_log, fast_start, validation_epochs, validation_batches,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
