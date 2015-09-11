@@ -681,10 +681,10 @@ def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
              every_n_batches=10,
              server_url=train_conf.get('bokeh_server_url')),
         Checkpoint(save_path,
-                    before_first_epoch=not fast_start, after_epoch=True,
-                    every_n_batches=train_conf.get('save_every_n_batches'),
-                    save_separately=["model", "log"],
-                    use_cpickle=True)
+                   before_first_epoch=not fast_start, after_epoch=True,
+                   every_n_batches=train_conf.get('save_every_n_batches'),
+                   save_separately=["model", "log"],
+                   use_cpickle=True)
         .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_per.notification_name),
