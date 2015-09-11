@@ -18,9 +18,9 @@ class ParseChanges(argparse.Action):
 def prepare_config(cmd_args):
     # Experiment configuration
     config = Configuration(
-        cmd_args['config_path'],
+        cmd_args.pop('config_path'),
         '$LVSR/lvsr/configs/schema.yaml',
-        cmd_args['config_changes']
+        cmd_args.pop('config_changes')
     )
     config['cmd_args'] = cmd_args
     logger.info("Config:\n" + pprint.pformat(config, width=120))
@@ -45,9 +45,9 @@ if __name__ == "__main__":
         "test", parents=[params_parser],
         help="Evaluate speech model on a test set")
     init_norm_parser = subparsers.add_parser(
-        "init_norm", parents=[params_parser])
+        "init_norm")
     show_data_parser = subparsers.add_parser(
-        "show_data", parents=[params_parser],
+        "show_data",
         help="Run IPython to show data")
     search_parser = subparsers.add_parser(
         "search", parents=[params_parser],
@@ -98,9 +98,6 @@ if __name__ == "__main__":
         help="A discount given by beam search for every additional character"
         " added to a candidate")
     search_parser.add_argument(
-        "--old-labels", default=False, action="store_true",
-        help="Expect old labels when decoding")
-    search_parser.add_argument(
         "--report", default=None,
         help="Destination to save a detailed report")
     search_parser.add_argument(
@@ -112,6 +109,10 @@ if __name__ == "__main__":
     search_parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
+
+    init_norm_parser.add_argument(
+        "save_path",
+        help="The path to save the normalization")
 
     # Adds final positional arguments to all the subparsers
     for parser in [train_parser, test_parser, init_norm_parser,
@@ -135,12 +136,12 @@ if __name__ == "__main__":
     init_norm_parser.set_defaults(func='init_norm')
     show_data_parser.set_defaults(func='show_data')
     search_parser.set_defaults(func='search')
-    args = root_parser.parse_args()
+    args = root_parser.parse_args().__dict__
 
     logging.basicConfig(
-        level=args.logging,
+        level=args.pop('logging'),
         format="%(asctime)s: %(name)s: %(levelname)s: %(message)s")
 
     import lvsr.main
-    config = prepare_config(args.__dict__)
-    getattr(lvsr.main, args.func)(config, args.__dict__)
+    config = prepare_config(args)
+    getattr(lvsr.main, args.pop('func'))(config, **args)

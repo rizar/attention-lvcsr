@@ -387,8 +387,10 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-def train(config, cmd_args):
-    root_path, extension = os.path.splitext(cmd_args['save_path'])
+def train(config, save_path, bokeh_name, params, test_tag, use_load_ext,
+          load_log, fast_start, validation_epochs, validation_batches,
+          per_epochs, per_batches):
+    root_path, extension = os.path.splitext(save_path)
 
     data = Data(**config['data'])
 
@@ -428,11 +430,11 @@ def train(config, cmd_args):
         return result
     logger.info(pprint.pformat(show_init_scheme(recognizer)))
 
-    if cmd_args['params']:
-        logger.info("Load parameters from " + cmd_args['params'])
-        recognizer.load_params(cmd_args['params'])
+    if params:
+        logger.info("Load parameters from " + params)
+        recognizer.load_params(params)
 
-    if cmd_args['test_tag']:
+    if test_tag:
         tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
         __stream = data.get_stream("train")
         __data = next(__stream.get_epoch_iterator(as_dict=True))
@@ -602,10 +604,10 @@ def train(config, cmd_args):
     # Build main loop.
     logger.info("Initialize extensions")
     extensions = []
-    if cmd_args['use_load_ext'] and cmd_args['params']:
-        extensions.append(Load(cmd_args['params'], load_iteration_state=True, load_log=True))
-    if cmd_args['load_log'] and cmd_args['params']:
-        extensions.append(LoadLog(cmd_args['params']))
+    if use_load_ext and params:
+        extensions.append(Load(params, load_iteration_state=True, load_log=True))
+    if load_log and params:
+        extensions.append(LoadLog(params))
     extensions += [
         Timing(after_batch=True),
         CGStatistics(),
@@ -623,9 +625,9 @@ def train(config, cmd_args):
     validation = DataStreamMonitoring(
         attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
         data.get_stream("valid"), prefix="valid").set_conditions(
-            before_first_epoch=not cmd_args['fast_start'],
-            every_n_epochs=cmd_args['validation_epochs'],
-            every_n_batches=cmd_args['validation_batches'],
+            before_first_epoch=not fast_start,
+            every_n_epochs=validation_epochs,
+            every_n_batches=validation_batches,
             after_training=False)
     extensions.append(validation)
     recognizer.init_beam_search(10)
@@ -633,9 +635,9 @@ def train(config, cmd_args):
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(
-            before_first_epoch=not cmd_args['fast_start'],
-            every_n_epochs=cmd_args['per_epochs'],
-            every_n_batches=cmd_args['per_batches'],
+            before_first_epoch=not fast_start,
+            every_n_epochs=per_epochs,
+            every_n_batches=per_batches,
             after_training=False)
     extensions.append(per_monitoring)
     track_the_best_per = TrackTheBest(
@@ -657,9 +659,9 @@ def train(config, cmd_args):
         .add_condition(["after_batch"], _gradient_norm_is_none),
         # Live plotting: requires launching `bokeh-server`
         # and allows to see what happens online.
-        Plot(cmd_args['bokeh_name']
-             if cmd_args['bokeh_name']
-             else os.path.basename(cmd_args['save_path']),
+        Plot(bokeh_name
+             if bokeh_name
+             else os.path.basename(save_path),
              [# Plot 1: training and validation costs
              [average_monitoring.record_name(regularized_cost),
              validation.record_name(cost)],
@@ -676,8 +678,8 @@ def train(config, cmd_args):
              validation._record_name('weights_penalty_per_recording')]],
              every_n_batches=10,
              server_url=train_conf.get('bokeh_server_url')),
-        Checkpoint(cmd_args['save_path'],
-                    before_first_epoch=not cmd_args['fast_start'], after_epoch=True,
+        Checkpoint(save_path,
+                    before_first_epoch=not fast_start, after_epoch=True,
                     every_n_batches=train_conf.get('save_every_n_batches'),
                     save_separately=["model", "log"],
                     use_cpickle=True)
@@ -704,32 +706,32 @@ def train(config, cmd_args):
     main_loop.run()
 
 
-def search(config, cmd_args):
+def search(config, params, load_path, beam_size, part, decode_only, report,
+           decoded_save, nll_only, char_discount):
     from matplotlib import pyplot
     from lvsr.notebook import show_alignment
 
     data = Data(**config['data'])
 
     # Try to guess if just parameters or the whole model was given.
-    if cmd_args['params'] is not None:
+    if params is not None:
         recognizer = SpeechRecognizer(
             data.recordings_source, data.labels_source,
             data.eos_label, data.num_features, data.num_labels,
             character_map=data.character_map,
             name='recognizer', **config["net"])
-        recognizer.load_params(cmd_args['load_path'])
+        recognizer.load_params(load_path)
     else:
         recognizer, = cPickle.load(
-            open(cmd_args['load_path'])).get_top_bricks()
-    recognizer.init_beam_search(cmd_args['beam_size'])
+            open(load_path)).get_top_bricks()
+    recognizer.init_beam_search(beam_size)
 
-    dataset = data.get_dataset(cmd_args['part'], add_sources=(data.uttid_source,))
-    stream = data.get_stream(cmd_args['part'], batches=False, shuffle=False,
+    dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
+    stream = data.get_stream(part, batches=False, shuffle=False,
                                 add_sources=(data.uttid_source,))
     it = stream.get_epoch_iterator()
-    decode_only = None
-    if cmd_args['decode_only'] is not None:
-        decode_only = eval(cmd_args['decode_only'])
+    if decode_only is not None:
+        decode_only = eval(decode_only)
 
     weights = tensor.matrix('weights')
     weight_statistics = theano.function(
@@ -738,16 +740,16 @@ def search(config, cmd_args):
             monotonicity_penalty(weights.dimshuffle(0, 'x', 1))])
 
     print_to = sys.stdout
-    if cmd_args['report']:
-        alignments_path = os.path.join(cmd_args['report'], "alignments")
-        if not os.path.exists(cmd_args['report']):
-            os.mkdir(cmd_args['report'])
+    if report:
+        alignments_path = os.path.join(report, "alignments")
+        if not os.path.exists(report):
+            os.mkdir(report)
             os.mkdir(alignments_path)
-        print_to = open(os.path.join(cmd_args['report'], "report.txt"), 'w')
+        print_to = open(os.path.join(report, "report.txt"), 'w')
 
     decoded_file = None
-    if cmd_args['decoded_save']:
-        decoded_file = open(cmd_args['decoded_save'], 'w')
+    if decoded_save:
+        decoded_file = open(decoded_save, 'w')
 
     num_examples = .0
     total_nll = .0
@@ -782,15 +784,14 @@ def search(config, cmd_args):
         print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
         print("Average groundtruth cost: {}".format(total_nll / num_examples),
                 file=print_to)
-        if cmd_args['nll_only']:
+        if nll_only:
             continue
 
         before = time.time()
         outputs, search_costs = recognizer.beam_search(
-            data[0], char_discount=cmd_args['char_discount'])
+            data[0], char_discount=char_discount)
         took = time.time() - before
-        recognized = dataset.decode(
-            outputs[0], **({'old_labels': True} if cmd_args['old_labels'] else {}))
+        recognized = dataset.decode(outputs[0])
         recognized_text = dataset.pretty_print(outputs[0])
         costs_recognized, weights_recognized = (
             recognizer.analyze(data[0], outputs[0])[:2])
@@ -805,7 +806,7 @@ def search(config, cmd_args):
         total_wer_errors += len(groundtruth) * wer_error
         total_word_length += len(groundtruth)
 
-        if cmd_args['report'] and recognized:
+        if report and recognized:
             show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
             pyplot.savefig(os.path.join(
                 alignments_path, "{}.groundtruth.png".format(number)))
@@ -830,44 +831,46 @@ def search(config, cmd_args):
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
 
-def init_norm(config, cmd_args):
+def init_norm(config, save_path):
     config['data']['normalization'] = None
     data = Data(**config['data'])
     stream = data.get_stream("train", batches=False, shuffle=False)
     normalization = Normalization(stream, data.recordings_source)
-    with open(cmd_args['save_path'], "wb") as dst:
+    with open(save_path, "wb") as dst:
         cPickle.dump(normalization, dst)
 
 
-def show_data(config, cmd_args):
+def show_data(config):
     data = Data(**config['data'])
     stream = data.get_stream("train")
     data = next(stream.get_epoch_iterator(as_dict=True))
     import IPython; IPython.embed()
 
 
-def train_multistage(config, cmd_args):
+def train_multistage(config, save_path, bokeh_name, params, **kwargs):
     """Run multiple stages of the training procedure."""
     if config.multi_stage:
-        os.mkdir(cmd_args['save_path'])
+        os.mkdir(save_path)
         last_save_path = None
         for stage_name, stage_config in config.ordered_stages.items():
             logging.info("Stage \"{}\" config:\n".format(stage_name)
                          + pprint.pformat(stage_config, width=120))
-            stage_cmd_args = dict(cmd_args)
-            stage_cmd_args['save_path'] = '{}/{}.zip'.format(
-                cmd_args['save_path'], stage_name)
-            stage_cmd_args['bokeh_name'] = '{}_{}'.format(
-                cmd_args['save_path'], stage_name)
+            stage_save_path = '{}/{}.zip'.format(
+                save_path, stage_name)
+            stage_bokeh_name = '{}_{}'.format(
+                save_path, stage_name)
             if last_save_path:
-                stage_cmd_args['params'] = last_save_path
+                stage_params = last_save_path
+            else:
+                stage_params = params
             last_save_path = '{}/{}{}.zip'.format(
-                cmd_args['save_path'], stage_name,
+                save_path, stage_name,
                 config['training'].get('restart_from', ''))
-            train(stage_config, stage_cmd_args)
+            train(stage_config, stage_save_path, stage_bokeh_name,
+                  stage_params, **kwargs)
     else:
-        train(config, cmd_args)
+        train(config, save_path, bokeh_name, **kwargs)
 
 
-def test(config, cmd_args):
+def test(config, **kwargs):
     raise NotImplementedError()
