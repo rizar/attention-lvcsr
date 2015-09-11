@@ -85,6 +85,9 @@ if __name__ == "__main__":
         help="Perform validation of PER every n epochs")
 
     search_parser.add_argument(
+        "load_path",
+        help="The path to load the model")
+    search_parser.add_argument(
         "--part", default="valid",
         help="Data to recognize with beam search")
     search_parser.add_argument(

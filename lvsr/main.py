@@ -717,10 +717,10 @@ def search(config, cmd_args):
             data.eos_label, data.num_features, data.num_labels,
             character_map=data.character_map,
             name='recognizer', **config["net"])
-        recognizer.load_params(cmd_args['save_path'])
+        recognizer.load_params(cmd_args['load_path'])
     else:
         recognizer, = cPickle.load(
-            open(cmd_args['save_path'])).get_top_bricks()
+            open(cmd_args['load_path'])).get_top_bricks()
     recognizer.init_beam_search(cmd_args['beam_size'])
 
     dataset = data.get_dataset(cmd_args['part'], add_sources=(data.uttid_source,))
