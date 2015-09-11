@@ -1,7 +1,12 @@
+parent: $LVSR/lvsr/configs/prototype.yaml
 data:
     normalization: timit2_norm.pkl
+    recordings_source: recordings
+    labels_source: labels
 net:
-    dec_transition: GatedRecurrent
-    enc_transition: GatedRecurrent
-initialization%extend:
-    - [/recognizer, rec_weights_init, IsotropicGaussian(0.1)]
+    dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+initialization:
+    /recognizer:
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]

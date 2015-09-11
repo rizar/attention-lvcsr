@@ -1,0 +1,43 @@
+parent: $LVSR/lvsr/configs/wsj_jan_baseline.yaml
+net:
+    dims_bidir: [100]
+    post_merge_dims: []
+    subsample: [1]
+    dims_bottom: []
+    prior:
+        type: window_around_median
+        before: 400
+        after: 400
+data:
+    max_length: 200
+regularization:
+    max_norm: 1.0
+stages:
+    pretraining:
+        number: 0
+        net:
+            prior:
+                type: expanding
+                initial_begin: 0
+                initial_end: 160
+                min_speed: 4.8
+                max_speed: 8.8
+        training:
+            num_epochs: 3
+    main:
+        number: 100
+        training:
+            num_epochs: 4
+            restart_from: _best_ll
+    annealing1:
+        number: 200
+        training:
+            num_epochs: 2
+            epsilon: 1.0e-8
+            restart_from: _best_ll
+    annealing2:
+        number: 300
+        training:
+            num_epochs: 2
+            epsilon: 1.0e-10
+            restart_from: _best_ll

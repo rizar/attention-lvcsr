@@ -1,76 +1,91 @@
+import copy
 import os.path
-from StringIO import StringIO
+from collections import OrderedDict
 
+from pykwalify.core import Core
 import yaml
-
-prototype = yaml.safe_load(StringIO(
-"""
-data:
-    batch_size: 10
-    max_length:
-    normalization:
-    sort_k_batches:
-    dataset: TIMIT
-net:
-    dim_dec: 100
-    dims_bidir: [100]
-    dims_bottom: [100]
-    enc_transition: SimpleRecurrent
-    dec_transition: SimpleRecurrent
-    attention_type: content
-    use_states_for_readout: False
-    lm: {}
-regularization:
-    dropout: False
-    noise:
-initialization:
-    - [/recognizer, weights_init, IsotropicGaussian(0.1)]
-    - [/recognizer, biases_init, Constant(0.0)]
-    - [/recognizer, rec_weights_init, Orthogonal()]
-training:
-    gradient_threshold: 100.0
-    scale: 0.01
-    momentum: 0.0
-"""))
 
 
 def read_config(file_):
-    """Reads a config from a file object.
+    """Reads a configuration from YAML file.
 
-    Merge changes from a user-made config into the prototype.
-    Does not allow to create fields non-existing in the prototypes.
-    Interprets merge hints such as e.g. "%extend".
+    Resolves parent links in the configuration.
 
     """
-    config = prototype
-    changes = yaml.safe_load(file_)
-    if 'parent' in changes:
-        with open(os.path.expandvars(changes['parent'])) as src:
+    config = yaml.load(file_)
+    if 'parent' in config:
+        with open(os.path.expandvars(config['parent'])) as src:
+            changes = dict(config)
             config = read_config(src)
-    merge_recursively(config, changes)
+            merge_recursively(config, changes)
     return config
 
 
 def merge_recursively(config, changes):
+    """Merge hierarchy of changes into a configuration."""
     for key, value in changes.items():
-        pure_key = key
-        hint = None
-        if '%' in key:
-            pure_key, hint = key.split('%')
-        if isinstance(value, dict):
-            if hint:
-                raise ValueError
-            if isinstance(config.get(pure_key), dict):
-                merge_recursively(config[pure_key], value)
-            else:
-                config[pure_key] = value
-        elif isinstance(value, list):
-            if hint == 'extend':
-                config[pure_key].extend(value)
-            elif hint is None:
-                config[pure_key] = value
-            else:
-                raise ValueError
+        if isinstance(value, dict) and isinstance(config.get(key), dict):
+            merge_recursively(config[key], value)
         else:
-            config[pure_key] = value
+            config[key] = value
 
+
+def make_config_changes(config, changes):
+    """Apply changes to a configuration.
+
+    Parameters
+    ----------
+    config : dict
+        The configuration.
+    changes : dict
+        A dict of (hierachical path as string, new value) pairs.
+
+    """
+    for path, value in changes:
+        parts = path.split('.')
+        assign_to = config
+        for part in parts[:-1]:
+            assign_to = assign_to[part]
+        assign_to[parts[-1]] = yaml.load(value)
+
+
+class Configuration(dict):
+    """Convenient access to a multi-stage configuration.
+
+    Attributes
+    ----------
+    multi_stage : bool
+        ``True`` if the configuration describes multiple training stages
+    ordered_stages : OrderedDict, optional
+        Configurations for all the training stages in the order of
+        their numbers.
+
+    """
+    def __init__(self, config_path, schema_path, config_changes):
+        with open(config_path, 'rt') as src:
+            config = read_config(src)
+        make_config_changes(config, config_changes)
+
+        self.multi_stage = 'stages' in config
+        if self.multi_stage:
+            ordered_changes = OrderedDict(
+                sorted(config['stages'].items(),
+                       key=lambda (k, v): v['number'],))
+            self.ordered_stages = OrderedDict()
+            for name, changes in ordered_changes.items():
+                current_config = copy.deepcopy(config)
+                del current_config['stages']
+                del changes['number']
+                merge_recursively(current_config, changes)
+                self.ordered_stages[name] = current_config
+
+        # Validate the configuration and the training stages
+        with open(os.path.expandvars(schema_path)) as schema_file:
+            schema = yaml.safe_load(schema_file)
+            core = Core(source_data=config, schema_data=schema)
+            core.validate(raise_exception=True)
+            if self.multi_stage:
+                for stage in self.ordered_stages.values():
+                    core = Core(source_data=config, schema_data=schema)
+                    core.validate(raise_exception=True)
+        super(Configuration, self).__init__(config)
