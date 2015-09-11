@@ -24,29 +24,17 @@ if __name__ == "__main__":
     train_parser = subparsers.add_parser(
         "train", parents=[params_parser],
         help="Train speech model")
-
     test_parser = subparsers.add_parser(
         "test", parents=[params_parser],
         help="Evaluate speech model on a test set")
-
     init_norm_parser = subparsers.add_parser(
         "init_norm", parents=[params_parser])
-
     show_data_parser = subparsers.add_parser(
         "show_data", parents=[params_parser],
-        help="Run ipython notebook to show data")
-
+        help="Run IPython to show data")
     search_parser = subparsers.add_parser(
         "search", parents=[params_parser],
         help="Perform beam search using speech model")
-
-    for parser in [train_parser, test_parser, init_norm_parser,
-                   show_data_parser, search_parser]:
-        # This is a bit ugly and should be done with `parents`, but it works
-        # very strange with nargs. I wasn't able to place config changes
-        # at the end.
-        parser.add_argument(
-            "config_path", help="The configuration path")
 
     train_parser.add_argument(
         "save_path", default="chain",
@@ -104,8 +92,12 @@ if __name__ == "__main__":
     search_parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
+
+    # Adds final positional arguments to all the subparsers
     for parser in [train_parser, test_parser, init_norm_parser,
                    show_data_parser, search_parser]:
+        parser.add_argument(
+            "config_path", help="The configuration path")
         parser.add_argument(
             "config_changes", default=[], action=ParseChanges, nargs='*',
             help="Changes to configuration. [<path>, <value>]")
