@@ -1,44 +1,14 @@
 from theano import tensor
 
 from blocks.bricks import (
-    Initializable, Linear, Brick, NDimensionalSoftmax)
-from blocks.bricks.base import lazy, application
-from blocks.bricks.parallel import Fork
+    Brick, Identity, Initializable, NDimensionalSoftmax, application, lazy)
 from blocks.bricks.recurrent import BaseRecurrent, recurrent
+from blocks.bricks.parallel import Fork, Merge
 from blocks.bricks.sequence_generators import (
-    Readout, AbstractEmitter)
+    AbstractEmitter, SequenceGenerator, Readout, SoftmaxEmitter)
 from blocks.bricks.wrappers import WithExtraDims
-from blocks.utils import dict_union
 
-from lvsr.ops import FSTCostsOp, FSTTransitionOp, MAX_STATES, NOT_STATE
-
-class RecurrentWithFork(Initializable):
-
-    @lazy(allocation=['input_dim'])
-    def __init__(self, recurrent, input_dim, **kwargs):
-        super(RecurrentWithFork, self).__init__(**kwargs)
-        self.recurrent = recurrent
-        self.input_dim = input_dim
-        self.fork = Fork(
-            [name for name in self.recurrent.sequences
-             if name != 'mask'],
-             prototype=Linear())
-        self.children = [recurrent.brick, self.fork]
-
-    def _push_allocation_config(self):
-        self.fork.input_dim = self.input_dim
-        self.fork.output_dims = [self.recurrent.brick.get_dim(name)
-                                 for name in self.fork.output_names]
-
-    @application(inputs=['input_', 'mask'])
-    def apply(self, input_, mask=None, **kwargs):
-        return self.recurrent(
-            mask=mask, **dict_union(self.fork.apply(input_, as_dict=True),
-                                    kwargs))
-
-    @apply.property('outputs')
-    def apply_outputs(self):
-        return self.recurrent.states
+from lvsr.ops import FST, FSTCostsOp, FSTTransitionOp, MAX_STATES, NOT_STATE
 
 
 class FSTTransition(BaseRecurrent, Initializable):
@@ -132,6 +102,36 @@ class ShallowFusionReadout(Readout):
         if self.normalize_tot_weights:
             x = self.softmax.log_probabilities(x, extra_ndim=x.ndim - 2)
         return x
+
+
+class LanguageModel(SequenceGenerator):
+    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
+        # TODO: num_labels should be possible to extract from the FST
+        if type_ != 'fst':
+            raise ValueError("Supports only FST's so far.")
+        fst = FST(path)
+        fst_char_map = dict(fst.fst.isyms.items())
+        del fst_char_map['<eps>']
+        if not len(fst_char_map) == len(nn_char_map):
+            raise ValueError()
+        remap_table = {nn_char_map[character]: fst_code
+                       for character, fst_code in fst_char_map.items()}
+        transition = FSTTransition(fst, remap_table, no_transition_cost)
+
+        # This SequenceGenerator will be used only in a very limited way.
+        # That's why it is sufficient to equip it with a completely
+        # fake readout.
+        dummy_readout = Readout(
+            source_names=['add'], readout_dim=len(remap_table),
+            merge=Merge(input_names=['costs'], prototype=Identity()),
+            post_merge=Identity(),
+            emitter=SoftmaxEmitter())
+        super(LanguageModel, self).__init__(
+            transition=transition,
+            fork=Fork(output_names=[name for name in transition.apply.sequences
+                                    if name != 'mask'],
+                      prototype=Identity()),
+            readout=dummy_readout, **kwargs)
 
 
 class SelectInEachRow(Brick):

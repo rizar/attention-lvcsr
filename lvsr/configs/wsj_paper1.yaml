@@ -1,0 +1,16 @@
+parent: $LVSR/lvsr/configs/wsj_paper.yaml
+data:
+    prepend_eos: False
+stages:
+    pretraining:
+        training:
+            num_epochs: 1
+    main:
+        training:
+            num_epochs: 10
+    annealing1:
+        training:
+            num_epochs: 3
+    annealing2:
+        training:
+            num_epochs: 3

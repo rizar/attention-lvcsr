@@ -1,0 +1,3 @@
+parent: $LVSR/lvsr/configs/wsj_paper1.yaml
+net:
+    use_states_for_readout: False

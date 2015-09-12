@@ -17,23 +17,28 @@ data:
     batch_size: 10
 
 initialization:
-    - [/recognizer, weights_init, IsotropicGaussian(0.01)]
-    - [/recognizer, biases_init, Constant(0.0)]
-    - [/recognizer, rec_weights_init, Orthogonal()]
-    - [/recognizer, initial_states_init, IsotropicGaussian(0.001)]
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.01]
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [0.0]
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.Orthogonal []
+        initial_states_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
 
 net:
-    bottom_activation: Rectifier()
+    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
     dims_bottom: []
 
-    enc_transition: GatedRecurrent
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     dims_bidir: [256, 256, 256, 256]
     subsample: [1, 1, 2, 2]
 
     dims_top: []
 
     embed_outputs: False
-    dec_transition: GatedRecurrent
+    dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     dec_stack: 1
     dim_dec: 256
     attention_type: content_and_conv
@@ -55,7 +60,7 @@ net:
       after: 150
 
     post_merge_dims: [256]
-    post_merge_activation: Maxout(2)
+    post_merge_activation: !!python/object/apply:blocks.bricks.Maxout [2]
 
     use_states_for_readout: True
 

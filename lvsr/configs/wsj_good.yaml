@@ -5,10 +5,10 @@ training:
         - adadelta
     scale: 0.1
     decay_rate: 0.95
-    epsilon: 1e-8
+    epsilon: 1.0e-8
 net:
     use_states_for_readout: True
-    bottom_activation: Rectifier()
+    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
 data:
     preprocess_text: True
     preprocess_features: log_spectrogram
