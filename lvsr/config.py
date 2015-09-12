@@ -86,6 +86,6 @@ class Configuration(dict):
             core.validate(raise_exception=True)
             if self.multi_stage:
                 for stage in self.ordered_stages.values():
-                    core = Core(source_data=config, schema_data=schema)
+                    core = Core(source_data=stage, schema_data=schema)
                     core.validate(raise_exception=True)
         super(Configuration, self).__init__(config)
