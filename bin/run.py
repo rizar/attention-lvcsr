@@ -73,6 +73,9 @@ if __name__ == "__main__":
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins")
     train_parser.add_argument(
+        "--start-stage", default="", type=str,
+        help="The name of the stage to start from")
+    train_parser.add_argument(
         "--test-tag", default=None, type=int,
         help="Tag the batch with test data for debugging?")
     train_parser.add_argument(
