@@ -851,25 +851,24 @@ def show_data(config):
     import IPython; IPython.embed()
 
 
-def train_multistage(config, save_path, bokeh_name, params, **kwargs):
+def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwargs):
     """Run multiple stages of the training procedure."""
     if config.multi_stage:
-        os.mkdir(save_path)
-        last_save_path = None
-        for stage_name, stage_config in config.ordered_stages.items():
+        if not start_stage:
+            os.mkdir(save_path)
+        start_stage = (list(config.ordered_stages).index(start_stage)
+                       if start_stage else 0)
+        stages = list(config.ordered_stages.items())
+        for number in range(start_stage, len(stages)):
+            stage_name, stage_config = stages[number]
             logging.info("Stage \"{}\" config:\n".format(stage_name)
                          + pprint.pformat(stage_config, width=120))
-            stage_save_path = '{}/{}.zip'.format(
-                save_path, stage_name)
-            stage_bokeh_name = '{}_{}'.format(
-                save_path, stage_name)
-            if last_save_path:
-                stage_params = last_save_path
-            else:
-                stage_params = params
-            last_save_path = '{}/{}{}.zip'.format(
-                save_path, stage_name,
-                config['training'].get('restart_from', ''))
+            stage_save_path = '{}/{}.zip'.format(save_path, stage_name)
+            stage_bokeh_name = '{}_{}'.format(save_path, stage_name)
+            if number:
+                stage_params = '{}/{}{}.zip'.format(
+                    save_path, stages[number - 1][0],
+                    stage_config['training'].get('restart_from', ''))
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)
     else:
