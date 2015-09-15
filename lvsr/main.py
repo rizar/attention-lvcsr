@@ -702,7 +702,7 @@ def train(config, save_path, bokeh_name,
 
     # Save the config into the status
     log = TrainingLog()
-    log.status['_config'] = config
+    log.status['_config'] = repr(config)
     main_loop = MainLoop(
         model=model, log=log, algorithm=algorithm,
         data_stream=data.get_stream("train"),
