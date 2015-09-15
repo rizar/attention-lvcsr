@@ -321,6 +321,8 @@ class SpeechRecognizer(Initializable):
     def __setstate__(self, state):
         self.__dict__.update(state)
         # To use bricks used on a GPU first on a CPU later
-        emitter = self.generator.readout.emitter
-        if hasattr(emitter, '_theano_rng'):
+        try:
+            emitter = self.generator.readout.emitter
             del emitter._theano_rng
+        except:
+            pass
