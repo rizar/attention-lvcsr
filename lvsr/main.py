@@ -246,10 +246,9 @@ class Data(object):
                 self.dataset_cache[part] = WSJ(
                     wsj_name_mapping[part], feature_name=self.feature_name)
             elif self.dataset == "WSJnew":
-
                 self.dataset_cache[part] = H5PYAudioDataset(
                     os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
-                    which_sets=(wsj_name_mapping.get(part,part),),
+                    which_sets=(wsj_name_mapping.get(part, part),),
                     sources=(self.recordings_source,
                              self.labels_source) + tuple(add_sources))
         return self.dataset_cache[part]
