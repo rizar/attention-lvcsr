@@ -872,7 +872,7 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)
     else:
-        train(config, save_path, bokeh_name, **kwargs)
+        train(config, save_path, bokeh_name, params, **kwargs)
 
 
 def test(config, **kwargs):
