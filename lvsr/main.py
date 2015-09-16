@@ -717,17 +717,12 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
     data = Data(**config['data'])
 
-    # Try to guess if just parameters or the whole model was given.
-    if params is not None:
-        recognizer = SpeechRecognizer(
-            data.recordings_source, data.labels_source,
-            data.eos_label, data.num_features, data.num_labels,
-            character_map=data.character_map,
-            name='recognizer', **config["net"])
-        recognizer.load_params(load_path)
-    else:
-        recognizer, = cPickle.load(
-            open(load_path)).get_top_bricks()
+    recognizer = SpeechRecognizer(
+        data.recordings_source, data.labels_source,
+        data.eos_label, data.num_features, data.num_labels,
+        character_map=data.character_map,
+        name='recognizer', **config["net"])
+    recognizer.load_params(load_path)
     recognizer.init_beam_search(beam_size)
 
     dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
