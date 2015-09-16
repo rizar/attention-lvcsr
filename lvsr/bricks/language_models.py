@@ -105,10 +105,10 @@ class ShallowFusionReadout(Readout):
 
 
 class LanguageModel(SequenceGenerator):
-    def __init__(self, type_, path, nn_char_map, no_transition_cost=1e12, **kwargs):
-        # TODO: num_labels should be possible to extract from the FST
-        if type_ != 'fst':
-            raise ValueError("Supports only FST's so far.")
+    def __init__(self, path, nn_char_map, no_transition_cost=1e12, **kwargs):
+        # Since we currently support only type, it is ignored.
+        # if type_ != 'fst':
+        #    raise ValueError("Supports only FST's so far.")
         fst = FST(path)
         fst_char_map = dict(fst.fst.isyms.items())
         del fst_char_map['<eps>']
