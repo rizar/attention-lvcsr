@@ -7,7 +7,6 @@ import os
 import cPickle
 import cPickle as pickle
 import sys
-import copy
 
 import numpy
 import theano
@@ -38,7 +37,7 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
-from lvsr.bricks import SpeechRecognizer
+from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
@@ -615,6 +614,9 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
                 stage_params = '{}/{}{}.zip'.format(
                     save_path, stages[number - 1][0],
                     stage_config['training'].get('restart_from', ''))
+            else:
+                stage_params = None
+
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)
     else:
