@@ -177,7 +177,7 @@ class Data(object):
 
         if not part in self.dataset_cache:
             self.dataset_cache[part] = H5PYAudioDataset(
-                os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
+                os.path.join(fuel.config.data_path, "wsj.h5"),
                 which_sets=(wsj_name_mapping.get(part,part),),
                 sources=(self.recordings_source,
                             self.labels_source) + tuple(add_sources))
