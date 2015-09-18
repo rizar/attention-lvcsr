@@ -1,5 +1,5 @@
 data:
-    dataset: WSJnew
+    dataset: WSJ
 
     recordings_source: fbank_dd
     max_length: null

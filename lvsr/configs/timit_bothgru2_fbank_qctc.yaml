@@ -1,4 +1,0 @@
-parent: $LVSR/lvsr/configs/timit_relu250_fbank.yaml
-net:
-    dims_bottom: []
-    birnn_depth: 2
