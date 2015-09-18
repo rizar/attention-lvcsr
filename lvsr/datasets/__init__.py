@@ -127,9 +127,9 @@ class Data(object):
                  add_eos=True, eos_label=None,
                  prepend_eos=True,
                  preprocess_text=False):
-        # We used to support more datasets, but only WSJnew is left after
+        # We used to support more datasets, but only WSJ is left after
         # a cleanup.
-        if not dataset in ('WSJnew'):
+        if not dataset in ('WSJ'):
             raise ValueError()
 
         if normalization:
