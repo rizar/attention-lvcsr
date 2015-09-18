@@ -11,11 +11,8 @@ from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack, Filter,
     FilterSources, Transformer)
 
-import lvsr.datasets.wsj
 from lvsr.datasets.h5py import H5PYAudioDataset
-from lvsr.datasets.timit import TIMIT, TIMIT2
-from lvsr.datasets.wsj import WSJ
-from lvsr.preprocessing import log_spectrogram, Normalization
+from lvsr.preprocessing import log_spectrogram
 
 
 def switch_first_two_axes(batch):
@@ -88,7 +85,8 @@ class ForceCContiguous(Transformer):
 class Data(object):
     """Dataset manager.
 
-    Chooses and tunes a dataset.
+    This class is in charge of accessing different datasets
+    and building preprocessing pipelines.
 
     Parameters
     ----------
@@ -126,11 +124,12 @@ class Data(object):
                  max_length=None, normalization=None,
                  uttid_source='uttids',
                  feature_name='wav', preprocess_features=None,
-                 # Need these options to handle old TIMIT models
                  add_eos=True, eos_label=None,
                  prepend_eos=True,
                  preprocess_text=False):
-        if not dataset in ('TIMIT', 'WSJ', 'WSJnew'):
+        # We used to support more datasets, but only WSJnew is left after
+        # a cleanup.
+        if not dataset in ('WSJnew'):
             raise ValueError()
 
         if normalization:
@@ -157,54 +156,31 @@ class Data(object):
 
     @property
     def num_labels(self):
-        if self.dataset == "TIMIT":
-            return self.get_dataset("train").num_phonemes
         return self.get_dataset("train").num_characters
 
     @property
     def character_map(self):
-        if self.dataset == "WSJnew":
-            return self.get_dataset("train").char2num
-        return None
+        return self.get_dataset("train").char2num
 
     @property
     def num_features(self):
-        # For old datasets
-        if self.dataset in ['TIMIT', 'WSJ']:
-            if self.feature_name == 'wav':
-                return 129
-            elif self.feature_name == 'fbank_and_delta_delta':
-                return 123
         return self.get_dataset("train").num_features
 
     @property
     def eos_label(self):
         if self._eos_label:
             return self._eos_label
-        if self.dataset == "TIMIT":
-            return TIMIT2.eos_label
-        elif self.dataset == "WSJ":
-            return 124
         return self.get_dataset("train").eos_label
 
     def get_dataset(self, part, add_sources=()):
-        timit_name_mapping = {"train": "train", "valid": "dev", "test": "test"}
         wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
 
         if not part in self.dataset_cache:
-            if self.dataset == "TIMIT":
-                self.dataset_cache[part] = TIMIT2(
-                    timit_name_mapping[part], feature_name=self.feature_name)
-            elif self.dataset == "WSJ":
-                self.dataset_cache[part] = WSJ(
-                    wsj_name_mapping[part], feature_name=self.feature_name)
-            elif self.dataset == "WSJnew":
-
-                self.dataset_cache[part] = H5PYAudioDataset(
-                    os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
-                    which_sets=(wsj_name_mapping.get(part,part),),
-                    sources=(self.recordings_source,
-                             self.labels_source) + tuple(add_sources))
+            self.dataset_cache[part] = H5PYAudioDataset(
+                os.path.join(fuel.config.data_path, "WSJ/wsj_new.h5"),
+                which_sets=(wsj_name_mapping.get(part,part),),
+                sources=(self.recordings_source,
+                            self.labels_source) + tuple(add_sources))
         return self.dataset_cache[part]
 
     def get_stream(self, part, batches=True, shuffle=True,
@@ -223,8 +199,6 @@ class Data(object):
             else:
                 stream = Mapping(stream, _AddEosLabelEnd(self.eos_label))
         if self.preprocess_text:
-            if not self.dataset == "WSJ":
-                raise ValueError("text preprocessing only for WSJ")
             stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
         stream = Filter(stream, self.length_filter)
         if self.sort_k_batches and batches:
