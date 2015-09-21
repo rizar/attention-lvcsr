@@ -103,6 +103,8 @@ class Plot(SimpleExtension):
                 channel_set = channel_set_opts.pop('channels')
             channel_set_opts.setdefault('title',
                                         '{} #{}'.format(document, i + 1))
+            channel_set_opts.setdefault('x_axis_label', 'iterations')
+            channel_set_opts.setdefault('y_axis_label', 'value')
             self.p.append(figure(**channel_set_opts))
             for channel in channel_set:
                 self.p_indices[channel] = i
@@ -121,9 +123,7 @@ class Plot(SimpleExtension):
             if key in self.p_indices:
                 if key not in self.plots:
                     fig = self.p[self.p_indices[key]]
-                    fig.line([iteration], [value], legend=key,
-                             x_axis_label='iterations',
-                             y_axis_label='value', name=key,
+                    fig.line([iteration], [value], legend=key, name=key,
                              line_color=self.colors[i % len(self.colors)])
                     i += 1
                     renderer = fig.select(dict(name=key))
