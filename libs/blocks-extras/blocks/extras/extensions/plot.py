@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class Plot(SimpleExtension):
-    """Live plotting of monitoring channels.
+    r"""Live plotting of monitoring channels.
 
     In most cases it is preferable to start the Bokeh plotting server
     manually, so that your plots are stored permanently.
@@ -44,12 +44,19 @@ class Plot(SimpleExtension):
     document : str
         The name of the Bokeh document. Use a different name for each
         experiment if you are storing your plots.
-    channels : list of lists of strings
-        The names of the monitor channels that you want to plot. The
-        channels in a single sublist will be plotted together in a single
-        figure, so use e.g. ``[['test_cost', 'train_cost'],
-        ['weight_norms']]`` to plot a single figure with the training and
-        test cost, and a second figure for the weight norms.
+    channels : list of channel specifications
+        A channel specification is either a list of channel names, or a
+        dict with at least the entry ``channels`` mapping to a list of
+        channel names. The channels in a channel specification will be
+        plotted together in a single figure, so use e.g. ``[['test_cost',
+        'train_cost'], ['weight_norms']]`` to plot a single figure with the
+        training and test cost, and a second figure for the weight norms.
+
+        When the channel specification is a list, a bokeh figure will
+        be created with default arguments. When the channel specification
+        is a dict, the field channels is used to specify the contnts of the
+        figure, and all remaining keys are passed as ``\*\*kwargs`` to
+        the ``figure`` function.
     open_browser : bool, optional
         Whether to try and open the plotting server in a browser window.
         Defaults to ``True``. Should probably be set to ``False`` when
@@ -90,7 +97,15 @@ class Plot(SimpleExtension):
         self.p = []
         self.p_indices = {}
         for i, channel_set in enumerate(channels):
-            self.p.append(figure(title='{} #{}'.format(document, i + 1)))
+            channel_set_opts = {}
+            if isinstance(channel_set, dict):
+                channel_set_opts = channel_set
+                channel_set = channel_set_opts.pop('channels')
+            channel_set_opts.setdefault('title',
+                                        '{} #{}'.format(document, i + 1))
+            channel_set_opts.setdefault('x_axis_label', 'iterations')
+            channel_set_opts.setdefault('y_axis_label', 'value')
+            self.p.append(figure(**channel_set_opts))
             for channel in channel_set:
                 self.p_indices[channel] = i
         if open_browser:
@@ -108,9 +123,7 @@ class Plot(SimpleExtension):
             if key in self.p_indices:
                 if key not in self.plots:
                     fig = self.p[self.p_indices[key]]
-                    fig.line([iteration], [value], legend=key,
-                             x_axis_label='iterations',
-                             y_axis_label='value', name=key,
+                    fig.line([iteration], [value], legend=key, name=key,
                              line_color=self.colors[i % len(self.colors)])
                     i += 1
                     renderer = fig.select(dict(name=key))
