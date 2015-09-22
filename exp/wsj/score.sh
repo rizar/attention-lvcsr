@@ -8,6 +8,11 @@ KL=$KALDI_ROOT/egs/wsj/s5/local
 
 if [ $# -ne 2 ]; then
 	echo "usage: `basename $0` <dir> <part>"
+    echo "you should have following files:"
+    echo "    <dir>/<part>-decoded.out"
+    echo "    <dir>/<part>-decoded-text.out"
+    echo "    <dir>/<part>-groundtruth-characters.txt"
+    echo "    <dir>/<part>-groundtruth-text.txt"
 	exit 1
 fi
 
