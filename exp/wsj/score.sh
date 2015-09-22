@@ -8,9 +8,6 @@ KL=$KALDI_ROOT/egs/wsj/s5/local
 
 if [ $# -ne 2 ]; then
 	echo "usage: `basename $0` <dir> <part>"
-	echo "options:"
-	echo "		--part name					#partition to score"
-	echo "		--beam_serch_opts 'opts'	#opts passed to beam search"
 	exit 1
 fi
 
