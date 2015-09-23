@@ -1,6 +1,7 @@
 To reproduce our Wall Street Journal (WSJ) experiments, please follow the 
 instructions below. All the steps should be done at the kaldi WSJ recipe 
-directory. In order to perform steps 1, 2, 5 you should source `path.sh`
+directory (or you can add symlinks to all the files as some people do). 
+In order to perform steps 1, 2, 5 you should source `path.sh`
 file from the recipe.
 
 1. Compile a Fuel-compatible dataset file in HDF5 format. This step requires 
@@ -19,7 +20,8 @@ file from the recipe.
    (we placed it to `$FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz`) and `<lmsdir>` is a 
    directry to place FST language models (we use `data/lms`).
 
-3. Train the model:
+3. Train the model. You don't need kaldi for training and it doesn't use any 
+   scripts from the recipe.
 
    `$LVSR/bin/run.py train $LVSR/lvsr/configs/wsj_paper6.yaml`
 
