@@ -8,13 +8,13 @@ To reproduce our Wall Street Journal (WSJ) experiments, please follow the instru
    The resulting file `wsj.h5` should be put to $FUEL_DATA_PATH folder. 
 
 2. Compile language model FST's from ARPA-format language models provided with WSJ.
-   This step requires kaldi and pyfst.
+   This step requires kaldi.
 
    `$LVSR/exp/wsj/make_all_wsj_graphs.sh <lmfile> <lmsdir>`
     
-   where `lmfile` is the arpa languge model which goes with WSJ dataset. 
-   (we placed it to `$FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz`) and `lmsdir` is a 
-   directry to place FST language models (we use `$LVSR/lms`).
+   where `<lmfile>` is the arpa languge model which goes with WSJ dataset. 
+   (we placed it to `$FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz`) and `<lmsdir>` is a 
+   directry to place FST language models (we use `data/lms`).
 
 3. Train the model:
 
