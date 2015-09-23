@@ -7,7 +7,11 @@ To reproduce our Wall Street Journal (WSJ) experiments, please follow the instru
 
 2. Compile language model FST's from ARPA-format language models provided with WSJ.
 
-   **TODO**
+   `$LVSR/exp/wsj/make_all_wsj_graphs.sh <lmfile> <lmsdir>`
+    
+   where `lmfile` is the arpa languge model which goes with WSJ dataset. 
+   ($FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz) and `lmsdir` is a directry to place FST
+   language models ($LVSR/lms).
 
 3. Train the model:
 
