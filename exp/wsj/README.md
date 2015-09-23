@@ -1,11 +1,14 @@
 To reproduce our Wall Street Journal (WSJ) experiments, please follow the instruction below:
 
-1. Compile a Fuel-compatible dataset file in HDF5 format. The resulting file `wsj.h5` 
-   should be put to $FUEL_DATA_PATH folder.
-
-   **TODO**
+1. Compile a Fuel-compatible dataset file in HDF5 format. This step requires 
+   kaldi and kaldi-python.
+   ```
+   $LVSR/exp/wsj/write_hdf_dataset.sh
+   ```
+   The resulting file `wsj.h5` should be put to $FUEL_DATA_PATH folder. 
 
 2. Compile language model FST's from ARPA-format language models provided with WSJ.
+   This step requires kaldi and pyfst.
 
    `$LVSR/exp/wsj/make_all_wsj_graphs.sh <lmfile> <lmsdir>`
     
