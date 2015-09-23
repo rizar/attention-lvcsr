@@ -1,4 +1,7 @@
-To reproduce our Wall Street Journal (WSJ) experiments, please follow the instruction below:
+To reproduce our Wall Street Journal (WSJ) experiments, please follow the 
+instructions below. All the steps should be done at the kaldi WSJ recipe 
+directory. In order to perform steps 1, 2, 5 you should source `path.sh`
+file from the recipe.
 
 1. Compile a Fuel-compatible dataset file in HDF5 format. This step requires 
    kaldi and kaldi-python.
