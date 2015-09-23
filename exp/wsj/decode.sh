@@ -16,15 +16,19 @@ function decode {
     [ $LM == nolm ] && COMMON_CMD="--char-discount=0.1"
 
     [ $LM == nolm ] && COMMON_LM_CONF=""
-    [ $LM == trigram ] && COMMON_LM_CONF="$COMMON_LM_CONF net.lm.path 'lms/wsj_trigram_no_initial_eos/LG_pushed_withsyms.fst'"
+    if [ $LM == lm ]
+    then
+        LM_PATH=${LM_PATH:=lms/wsj_trigram_no_initial_eos}
+        COMMON_LM_CONF="$COMMON_LM_CONF net.lm.path '$LM_PATH/LG_pushed_withsyms.fst'"
+    fi
 
     $LVSR/bin/run.py search --part=$PART --beam-size=$BEAM_SIZE\
         $COMMON_CMD\
-        --report $MODEL/reports/${LM}_${BEAM_SIZE}\
+        --report $MODEL/reports/${PART}_${LM}_${BEAM_SIZE}\
         $MODEL/annealing1_best_ll.zip $LVSR/lvsr/configs/$MODEL.yaml\
-        vocabulary 'lms/words.txt' net.prior.before 10\
+        vocabulary $LM_PATH'/words.txt' net.prior.before 10\
         $COMMON_LM_CONF
 }
 
-decode trigram
+decode lm
 decode nolm
