@@ -281,12 +281,12 @@ def get_indices(h5file, subset=None):
         return h5file[subset + '_indices']
 
 def read_raw_text(args):
+    out_file = sys.stdout
+    h5file = None
     try:
-        out_file = sys.stdout
         if args.wxfilename != '-':
             out_file=open(args.wxfilename, 'w')
 
-        h5file = None
         h5file = h5py.File(args.h5file, 'r')
 
         indices = get_indices(h5file, args.subset)
@@ -302,12 +302,12 @@ def read_raw_text(args):
             h5file.close()
 
 def read_text(args):
+    h5file = None
+    out_file = sys.stdout
     try:
-        out_file = sys.stdout
         if args.wxfilename != '-':
             out_file=open(args.wxfilename, 'w')
 
-        h5file = None
         h5file = h5py.File(args.h5file, 'r')
 
         indices = get_indices(h5file, args.subset)

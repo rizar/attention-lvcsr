@@ -53,4 +53,6 @@ Check that `$LVSR` environment variable points to this repository and
 
 5. Score the recognized transcripts:
 
-    **TODO**
+    ```
+    $LVSR/exp/wsj/score.sh <path/to/wsj.h5> <part> wsj_paper6/reports/valid_trigram_200/
+    ```
