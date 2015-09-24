@@ -1,10 +1,12 @@
 #!/bin/bash
 
-LMFILE=$FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz
-WSJDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LMFILE=$1
+LMSDIR=$2
+
+WSJDIR=$LVSR/exp/wsj
 
 
-NDIR=wsj_lms/wsj_dict_no_initial_eos
+NDIR=$LMSDIR/wsj_dict_no_initial_eos
 NLM=$NDIR/lm_dict.arpa.gz
 mkdir -p $NDIR
 gzip -cd $LMFILE | \
@@ -18,14 +20,14 @@ for fst in $NDIR/LG*.fst; do
 	remove_fst_weights.py $fst
 done
 
-NDIR=wsj_lms/wsj_dict_dev93_no_initial_eos
+NDIR=$LMSDIR/wsj_dict_dev93_no_initial_eos
 $WSJDIR/create_graph_form_text.sh $NDIR
 
 for fst in $NDIR/LG*.fst; do
 	remove_fst_weights.py $fst
 done
 
-NDIR=wsj_lms/wsj_unigram_no_initial_eos
+NDIR=$LMSDIR/wsj_unigram_no_initial_eos
 NLM=$NDIR/lm_unigram.arpa.gz
 mkdir -p $NDIR
 gzip -cd $LMFILE | \
@@ -35,7 +37,7 @@ gzip -cd $LMFILE | \
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh $NLM $NDIR
 
-NDIR=wsj_lms/wsj_bigram_no_initial_eos
+NDIR=$LMSDIR/wsj_bigram_no_initial_eos
 NLM=$NDIR/lm_bg.arpa.gz
 mkdir -p $NDIR
 cp $LMFILE $NLM
@@ -43,7 +45,7 @@ cp $LMFILE $NLM
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh $NLM $NDIR
 
-NDIR=wsj_lms/wsj_bigram_nondet_no_initial_eos
+NDIR=$LMSDIR/wsj_bigram_nondet_no_initial_eos
 NLM=$NDIR/lm_bg.arpa.gz
 mkdir -p $NDIR
 cp $LMFILE $NLM
@@ -51,7 +53,7 @@ cp $LMFILE $NLM
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst_nondeterministic.sh $NLM $NDIR
 
-NDIR=wsj_lms/wsj_bigram_nondet_with_initial_eos
+NDIR=$LMSDIR/wsj_bigram_nondet_with_initial_eos
 NLM=$NDIR/lm_bg.arpa.gz
 mkdir -p $NDIR
 cp $LMFILE $NLM
@@ -60,7 +62,7 @@ $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst_nondeterministic.sh --use-initial-eol true $NLM $NDIR
 
 
-NDIR=wsj_lms/wsj_trigram_no_initial_eos
+NDIR=$LMSDIR/wsj_trigram_no_initial_eos
 NLM=$NDIR/lm_tg.arpa.gz
 mkdir -p $NDIR
 cp $FUEL_DATA_PATH/WSJ/lm_tg.arpa.gz $NLM
@@ -68,7 +70,7 @@ cp $FUEL_DATA_PATH/WSJ/lm_tg.arpa.gz $NLM
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst_nondeterministic.sh $NLM $NDIR
 
-NDIR=wsj_lms/wsj_dict_with_initial_eos
+NDIR=$LMSDIR/wsj_dict_with_initial_eos
 NLM=$NDIR/lm_dict.arpa.gz
 mkdir -p $NDIR
 gzip -cd $LMFILE | \
@@ -82,7 +84,7 @@ for fst in $NDIR/LG*.fst; do
 	remove_fst_weights.py $fst
 done
 
-NDIR=wsj_lms/wsj_dict_dev93_with_initial_eos
+NDIR=$LMSDIR/wsj_dict_dev93_with_initial_eos
 $WSJDIR/create_graph_form_text.sh --use-initial-eol true $NDIR
 
 for fst in $NDIR/LG*.fst; do
@@ -90,7 +92,7 @@ for fst in $NDIR/LG*.fst; do
 done
 
 
-NDIR=wsj_lms/wsj_unigram_with_initial_eos
+NDIR=$LMSDIR/wsj_unigram_with_initial_eos
 NLM=$NDIR/lm_unigram.arpa.gz
 mkdir -p $NDIR
 gzip -cd $LMFILE | \
@@ -100,7 +102,7 @@ gzip -cd $LMFILE | \
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh --use-initial-eol true $NLM $NDIR
 
-NDIR=wsj_lms/wsj_bigram_with_initial_eos
+NDIR=$LMSDIR/wsj_bigram_with_initial_eos
 NLM=$NDIR/lm_bg.arpa.gz
 mkdir -p $NDIR
 cp $LMFILE $NLM
@@ -108,7 +110,7 @@ cp $LMFILE $NLM
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh --use-initial-eol true $NLM $NDIR
 
-NDIR=wsj_lms/wsj_trigram_with_initial_eos
+NDIR=$LMSDIR/wsj_trigram_with_initial_eos
 NLM=$NDIR/lm_tg.arpa.gz
 mkdir -p $NDIR
 cp $FUEL_DATA_PATH/WSJ/lm_tg.arpa.gz $NLM

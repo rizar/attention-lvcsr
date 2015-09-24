@@ -18,11 +18,12 @@ to replicate our results on Wall Street Journal (WSJ) dataset
                                                                                                              
 ### Dependencies
 
-- Python packages: pykwalify, toposort, pyyaml, numpy, pandas
+- Python packages: pykwalify, toposort, pyyaml, numpy, pandas, pyfst
 - [kaldi](https://github.com/kaldi-asr/kaldi)
 - [kaldi-python](https://github.com/janchorowski/kaldi-python)
 
-Given that you have the dataset in HDF5 format, the models can be trained without Kaldi.
+Given that you have the dataset in HDF5 format, the models can be trained 
+without Kaldi.
                                                                                                              
 ### Subtrees                                                                                                 
                                                                                                              

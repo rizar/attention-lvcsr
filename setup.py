@@ -12,5 +12,5 @@ setup(
     packages=find_packages(exclude=['examples', 'docs', 'tests']),
     zip_safe=False,
     install_requires=['numpy', 'pykwalify', 'toposort', 'pyyaml',
-                      'picklable-itertools', 'pandas']
+                      'picklable-itertools', 'pandas', 'pyfst']
 )

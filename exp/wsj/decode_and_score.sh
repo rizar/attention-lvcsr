@@ -48,7 +48,4 @@ cat $dir/tmp | sort | $KL/wer_ref_filter > $dir/$part-groundtruth-text.txt
 
 rm $dir/tmp
 
-$LVSR/bin/decoded_chars_to_words.py $lexicon $dir/$part-decoded.out - | $KL/wer_hyp_filter > $dir/$part-decoded-text.out
-
-compute-wer --text --mode=all ark:$dir/$part-groundtruth-characters.txt ark:$dir/$part-decoded.out $dir/$part-characters.errs > $dir/$part-characters.wer
-compute-wer --text --mode=all ark:$dir/$part-groundtruth-text.txt ark:$dir/$part-decoded-text.out $dir/$part-text.errs > $dir/$part-text.wer
+$LVSR/exp/wsj/score.sh $dir $part
