@@ -13,7 +13,7 @@ import kaldi_io, kaldi_argparse
 from fuel.datasets.hdf5 import H5PYDataset
 
 
-def get_parser(datasets = {}):
+def get_parser(datasets={}):
     parser = kaldi_argparse.KaldiArgumentParser(description="""Exchange data between Kaldi and Fuel's hdf5 dataset""", )
     parser.add_argument("h5file")
     subparsers = parser.add_subparsers(help="action")
