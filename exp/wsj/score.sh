@@ -28,6 +28,6 @@ $LVSR/bin/extract_for_kaldi.sh $report > $dir/tmp
 #$LVSR/bin/decoded_chars_to_words.py $lexicon $dir/tmp - |\
 $KL/wer_hyp_filter $dir/tmp > $dir/$part-decoded-text.out
 
-echo compute-wer
+# Score
 compute-wer --text --mode=all ark:$dir/$part-groundtruth-text.txt ark:$dir/$part-decoded-text.out $dir/$part-text.errs > $dir/$part-text.wer
 cat $dir/$part-text.wer
