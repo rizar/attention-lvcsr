@@ -1,12 +1,21 @@
 To reproduce our Wall Street Journal (WSJ) experiments, please follow the 
 instructions below. All the steps should be done at the kaldi WSJ recipe 
 [directory](https://github.com/kaldi-asr/kaldi/tree/master/egs/wsj/s5) 
-(or you can add symlinks to all the files as some people do). 
-In order to perform steps 1, 2, 5 you should source `path.sh`
-file from the recipe.
+(or you can add symlinks to all the files (`local`, `steps`, `utils`, etc) 
+as some people do). In order to perform steps 1, 2, 5 you should source 
+`path.sh` file from the recipe before you sourced `$LVSR/env.sh`.
+
+.. note:
+   Check that `$LVSR` environment variable points to this repository and
+   `$LD_LIBRARY_PATH` includes a path to openfst library.
 
 1. Compile a Fuel-compatible dataset file in HDF5 format. This step requires 
    kaldi and kaldi-python.
+   
+   First, run prepare data part from the WSJ recipe. You'll get all
+   `*.scp` files which link waves and text.
+   
+   Then, run
    ```
    $LVSR/exp/wsj/write_hdf_dataset.sh
    ```

@@ -1,4 +1,6 @@
 #!/bin/bash
+# This script follow the kaldi recipe for WSJ but it writes data into an HDF5
+# file in Fuel format.
 
 set -e
 
