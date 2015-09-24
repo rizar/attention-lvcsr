@@ -56,3 +56,6 @@ Check that `$LVSR` environment variable points to this repository and
     ```
     $LVSR/exp/wsj/score.sh <path/to/wsj.h5> <part> wsj_paper6/reports/valid_trigram_200/
     ```
+    This script produces `<part>-text.wer` and `<part>-text.errs` files in the 
+    corresponding directory. The first one contains WER and the second one 
+    the report of `compute-wer` kadli script.
