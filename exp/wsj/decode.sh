@@ -23,6 +23,6 @@ fi
 $LVSR/bin/run.py search --part=$PART --beam-size=$BEAM_SIZE\
     $COMMON_CMD\
     --report $MODEL/reports/${PART}_${LM}_${BEAM_SIZE}\
-    $MODEL/annealing1_best_ll.zip $LVSR/lvsr/configs/$MODEL.yaml\
+    $MODEL/annealing1_best_ll.zip $LVSR/exp/wsj/configs/$MODEL.yaml\
     vocabulary $LM_PATH'/words.txt' net.prior.before 10\
     $COMMON_LM_CONF

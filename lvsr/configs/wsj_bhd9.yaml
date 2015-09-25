@@ -1,6 +1,0 @@
-parent: $LVSR/lvsr/configs/wsj_jan_baseline.yaml
-initialization:
-    /recognizer:
-        weights_init:
-            !!python/object:blocks.initialization.Uniform {width: 0.1}
-
