@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Learn to reverse the words in a text."""
+"""Train or apply an Attention-Based fully neural speech recognizer."""
 import logging
 import argparse
 import pprint

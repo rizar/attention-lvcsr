@@ -1,5 +1,12 @@
 #!/bin/bash
 
+#
+# This script is for repository maintenance only. It checks if all
+# subtrees used in the repo have their SHAs reachable from a branch
+# of their respective repositories.
+#
+
+
 set -e
 
 STREEMAINTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -20,7 +27,7 @@ for stree in libs/*; do
 	bad_strees+=($stree)
 	printf "${RED}Cannot find the SHA1 ${stree_sha} for subtree $stree.${NC}"
 	echo "Please git fetch it and rerun this script."
-    else 
+    else
 	already_on=`git branch --contains ${stree_sha}`
 	if [ -n "${already_on}" ]; then
 	    already_on=`echo ${already_on} | tr '\n' ' '`

@@ -1,4 +1,11 @@
 #!/usr/bin/env python
+
+"""
+Print the conffiguration yaml formed by including parent configs and
+applying command line chenges.
+"""
+
+
 from lvsr.config import prototype, read_config
 from argparse import ArgumentParser
 

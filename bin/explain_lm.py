@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+explain_lm FST UTT
+
+Explain the cost assigned to an utternace  UTT by the fst FST.
+"""
+
 import sys
 
 from lvsr.ops import FST

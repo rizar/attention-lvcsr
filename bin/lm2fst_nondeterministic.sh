@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+#
+# Create a nondeterministic characters-to-words FST from an ARPA LM file.
+#
+
+
 set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
