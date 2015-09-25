@@ -15,7 +15,7 @@ COMMON_LM_CONF="net.lm.weight 0.5 net.lm.no_transition_cost 20"
 [ $LM == nolm ] && COMMON_CMD="--char-discount=0.1"
 
 [ $LM == nolm ] && COMMON_LM_CONF=""
-if [ ! $LM == lm ]
+if [ $LM != nolm ]
 then
     COMMON_LM_CONF="$COMMON_LM_CONF net.lm.path '$LM_PATH/LG_pushed_withsyms.fst'"
 fi
