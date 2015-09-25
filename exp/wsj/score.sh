@@ -6,14 +6,14 @@ KL=$KALDI_ROOT/egs/wsj/s5/local
 
 . $KU/parse_options.sh
 
-if [ $# -ne 3 ]; then
-	echo "usage: `basename $0` <dataset> <part> <dir>"
+if [ $# -ne 2 ]; then
+	echo "usage: `basename $0` <part> <dir>"
 	exit 1
 fi
 
-dataset=$1
-part=$2
-dir=$3
+dataset=$FUEL_DATA_PATH/wsj.h5
+part=$1
+dir=$2
 
 report=$dir/report.txt
 #lexicon=data/lms/wsj_dict_no_initial_eos/lexicon.txt
@@ -31,3 +31,4 @@ $KL/wer_hyp_filter $dir/tmp > $dir/$part-decoded-text.out
 
 # Score
 compute-wer --text --mode=all ark:$dir/$part-groundtruth-text.txt ark:$dir/$part-decoded-text.out $dir/$part-text.errs > $dir/$part-text.wer
+cat $dir/$part-text.wer
