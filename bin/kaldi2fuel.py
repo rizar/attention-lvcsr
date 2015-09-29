@@ -82,12 +82,12 @@ Note: this has to be performed after each source addition.
     parser_adddata.set_defaults(func=add_sets)
 
     parser_add_attr = subparsers.add_parser(
-        'add_attr', help="Add attribute to a dataset")
+        'add_attr', help="Add attribute to an h5py dataset")
     parser_add_attr.add_argument(
         "--type", default="BaseFloatVector",
         help="Kaldi reader type, the value type can be later changed via the "
              "--transform argument.")
-    parser_add_attr.add_argument("dataset")
+    parser_add_attr.add_argument("sourcename")
     parser_add_attr.add_argument("attr")
     parser_add_attr.add_argument("rxfilename")
     parser_add_attr.set_defaults(func=add_attr)
@@ -198,7 +198,8 @@ def add_attr(args):
     with kaldi_reader(args.rxfilename) as data_iter:
         with h5py.File(args.h5file, 'a') as h5file:
             for name, data in data_iter:
-                h5file[args.dataset].attrs['{}_{}'.format(args.attr, name)] = data
+                attr_name = '{}_{}'.format(args.attr, name)
+                h5file[args.sourcename].attrs[attr_name] = data
 
 
 def read_data(args):
