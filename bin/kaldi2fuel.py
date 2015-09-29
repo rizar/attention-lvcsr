@@ -83,6 +83,10 @@ Note: this has to be performed after each source addition.
 
     parser_add_attr = subparsers.add_parser(
         'add_attr', help="Add attribute to a dataset")
+    parser_add_attr.add_argument(
+        "--type", default="BaseFloatVector",
+        help="Kaldi reader type, the value type can be later changed via the "
+             "--transform argument.")
     parser_add_attr.add_argument("dataset")
     parser_add_attr.add_argument("attr")
     parser_add_attr.add_argument("rxfilename")
