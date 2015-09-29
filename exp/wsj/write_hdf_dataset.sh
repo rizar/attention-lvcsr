@@ -98,6 +98,8 @@ compute-global-cmvn-stats.py \
 	"scp:utils/filter_scp.pl data/$main_train_set/wav.scp tmp_fbank40.scp|" \
 	ark:tmp_fbank_dd_cmvn_stats
 
+$LVSR/bin/kaldi2fuel.py $h5f add_attr $main_train_set cmvn ark:tmp_fbank_dd_cmvn_stats
+
 apply-global-cmvn.py --global-stats=ark:tmp_fbank_dd_cmvn_stats ark:tmp_fbank40.ark ark:- | \
 	$LVSR/bin/kaldi2fuel.py $h5f add ark:- fbank_dd
 
