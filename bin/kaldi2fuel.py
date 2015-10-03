@@ -82,7 +82,7 @@ Note: this has to be performed after each source addition.
     parser_adddata.set_defaults(func=add_sets)
 
     parser_add_attr = subparsers.add_parser(
-        'add_attr', help="Add attribute to an h5py dataset")
+        'add_attr', help="Add attribute to a data source")
     parser_add_attr.add_argument(
         "--type", default="BaseFloatVector",
         help="Kaldi reader type, the value type can be later changed via the "
