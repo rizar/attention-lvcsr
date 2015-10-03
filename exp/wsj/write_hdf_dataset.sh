@@ -101,6 +101,8 @@ compute-global-cmvn-stats.py \
 apply-global-cmvn.py --global-stats=ark:tmp_fbank_dd_cmvn_stats ark:tmp_fbank40.ark ark:- | \
 	$LVSR/bin/kaldi2fuel.py $h5f add ark:- fbank_dd
 
+$LVSR/bin/kaldi2fuel.py $h5f add_attr fbank_dd cmvn ark:tmp_fbank_dd_cmvn_stats
+
 for dt in ${datasets[*]}
 do
 	cat data/$dt/utt2spk
