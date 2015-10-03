@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+#
+# Create an FST that accepts all words occuring in a given text file.
+# All words are assumed to be equally probable, thie resulting FST will
+# not be an unigram language model.
+#
+
+
 set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils

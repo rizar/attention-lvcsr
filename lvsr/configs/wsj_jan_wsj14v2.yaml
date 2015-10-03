@@ -1,6 +1,0 @@
-parent: $LVSR/lvsr/configs/wsj_jan_new.yaml
-net:
-    dims_bidir: [256, 256, 256]
-    subsample: [1, 1, 2]
-    dec_stack: 2
-    dim_dec: 512

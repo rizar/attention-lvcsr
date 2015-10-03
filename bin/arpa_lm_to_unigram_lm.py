@@ -1,7 +1,13 @@
 #!/usr/bin/env python
 
+"""
+Extract the unigram section from a language model in ARPA format.
+"""
+
+
 import argparse
 import sys
+
 
 def main(args):
     in_f = sys.stdin

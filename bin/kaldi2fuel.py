@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+This script excnages data between a Fuel's HDF5 dataset and Kaldi's archives.
+"""
+
 import sys
 
 import numpy

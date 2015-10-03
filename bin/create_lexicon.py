@@ -1,5 +1,13 @@
 #!/usr/bin/env python
+"""
+Read an LM in ARPA format wnd write the following files:
+- words.txt containing words and their numerical ids
+- characters.txt containing characters and their ids
+- lexicon.txt spelling out each word into characters
+"""
+
 import sys
+
 
 def main(filename):
     chars = {'<eps>': 0, '<spc>': 1, '#0': 2}
@@ -29,7 +37,7 @@ def main(filename):
             if line.startswith('\\2-grams') or line.startswith('\\end'):
                 break
             line = line.split()
-            if len(line) not in [2,3]:
+            if len(line) not in [2, 3]:
                 # max robustness to junk, please note that you may or may not
                 # have a backoff-weight
                 continue
@@ -44,7 +52,6 @@ def main(filename):
                 if char not in chars:
                     chars[char] = len(chars)
                     f_characters.write("{} {}\n".format(char, chars[char]))
-
 
 
 if __name__ == '__main__':

@@ -23,7 +23,7 @@ $LVSR/bin/kaldi2fuel.py $dataset read_raw_text --subset $part kaldi_text $dir/tm
 cat $dir/tmp | sort | $KL/wer_ref_filter > $dir/$part-groundtruth-text.txt
 
 # Filter decoded
-$LVSR/bin/extract_for_kaldi.sh $report | sed -e 's/<noise>/<NOISE>/g' | \
+$LVSR/exp/wsj/extract_for_kaldi.sh $report | sed -e 's/<noise>/<NOISE>/g' | \
 	sed -e 's/ QUOTE/ "QUOTE/g' | sed -e 's/ UNQUOTE/ "UNQUOTE/g' > $dir/tmp
 # Seems we don't need it
 #$LVSR/bin/decoded_chars_to_words.py $lexicon $dir/tmp - |\

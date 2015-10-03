@@ -1,0 +1,5 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper1.yaml
+net:
+    dims_bidir: [320, 320, 320, 320]
+    post_merge_dims: [320]
+    dim_dec: 320

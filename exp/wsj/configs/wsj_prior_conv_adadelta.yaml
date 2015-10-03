@@ -1,0 +1,8 @@
+parent: $LVSR/exp/wsj/configs/wsj_prior_conv.yaml
+training:
+    rules: 
+        - momentum
+        - adadelta
+    scale: 0.1
+    decay_rate: 0.95
+    epsilon: 1e-8
