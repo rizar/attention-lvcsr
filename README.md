@@ -20,7 +20,7 @@ to replicate our results on Wall Street Journal (WSJ) dataset
 
 - Python packages: pykwalify, toposort, pyyaml, numpy, pandas, pyfst
 - [kaldi](https://github.com/kaldi-asr/kaldi)
-- [kaldi-python](https://github.com/janchorowski/kaldi-python)
+- [kaldi-python](https://github.com/dmitriy-serdyuk/kaldi-python)
 
 Given that you have the dataset in HDF5 format, the models can be trained
 without Kaldi and PyFst
