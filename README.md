@@ -23,7 +23,7 @@ to replicate our results on Wall Street Journal (WSJ) dataset
 - [kaldi-python](https://github.com/janchorowski/kaldi-python)
 
 Given that you have the dataset in HDF5 format, the models can be trained 
-without Kaldi.
+without Kaldi and PyFST.
                                                                                                              
 ### Subtrees                                                                                                 
                                                                                                              
