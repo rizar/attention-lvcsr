@@ -8,7 +8,7 @@ from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import Bidirectional
 from blocks.bricks.sequence_generators import (
-    AbstractFeedback, LookupFeedback)
+    AbstractFeedback, LookupFeedback, AbstractEmitter)
 from blocks.utils import dict_union, check_theano_variable
 
 logger = logging.getLogger(__name__)
@@ -103,3 +103,41 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
         return super(LookupFeedback, self).get_dim(name)
 
 
+class RewardRegressionEmitter(AbstractEmitter):
+
+    REWARD_MATRIX = 'reward_matrix'
+
+    @application
+    def cost(self, readouts, outputs):
+        if readouts.ndim == 3:
+            # The default reward matrix is built assuming that
+            # outputs is the groundtruth sequence
+            temp_shape = (readouts.shape[0] * readouts.shape[1], -1)
+            reward_matrix = (-1 * tensor.ones_like(readouts)).reshape(temp_shape)
+            reward_matrix[tensor.arange(reward_matrix.shape[0]),
+                          outputs.flatten()] = 0
+            reward_matrix.reshape(readouts.shape)
+            reward_matrix.tag.name = self.REWARD_MATRIX
+            # Go head and substitute the reward matrix if you
+            # need a different one
+            return (readouts - reward_matrix) ** 2
+        return readouts[tensor.arange(readouts.shape[0]), outputs]
+
+    @application
+    def emit(self, readouts):
+        # As a generator, acts greedily
+        return readouts.argmax(axis=1)
+
+    @application
+    def costs(self, readouts):
+        return -readouts
+
+    @application
+    def initial_outputs(self, batch_size):
+        # As long as we do not use the previous character, can be anything
+        return tensor.zeros((batch_size,), dtype='int64')
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return 0
+        return super(RewardRegressionEmitter, self).get_dim(name)

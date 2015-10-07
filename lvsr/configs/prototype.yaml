@@ -8,6 +8,8 @@ net:
     dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     attention_type: content
     use_states_for_readout: False
+    criterion:
+        name: log_likelihood
     lm: {}
 regularization:
     dropout: False

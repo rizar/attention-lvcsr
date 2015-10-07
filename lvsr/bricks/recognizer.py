@@ -11,7 +11,8 @@ from blocks.bricks.recurrent import (
     BaseRecurrent, RecurrentStack)
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout,
-    SoftmaxEmitter, LookupFeedback)
+    SoftmaxEmitter, LookupFeedback,
+    RewardRegressionEmitter)
 from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
@@ -49,6 +50,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 criterion,
                  lm=None, character_map=None,
                  subsample=None,
                  dims_top=None,
@@ -61,7 +63,7 @@ class SpeechRecognizer(Initializable):
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
-                 energy_normalizer=None,  # softmax is th edefault set in SequenceContentAndConvAttention
+                 energy_normalizer=None,  # softmax is the default set in SequenceContentAndConvAttention
                  **kwargs):
         if bottom_activation is None:
             bottom_activation = Tanh()
@@ -143,9 +145,13 @@ class SpeechRecognizer(Initializable):
         if lm:
             # In case we use LM it is Readout that is responsible
             # for normalization.
+            if criterion['name'] != 'log_likelihood':
+                raise ValueError('LM integration only for log-likelihood')
             emitter = LMEmitter()
-        else:
+        if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
+        else:
+            emitter = RewardRegressionEmitter(name="emitter")
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])

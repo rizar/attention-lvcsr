@@ -203,7 +203,7 @@ def train(config, save_path, bokeh_name,
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
     cost = batch_cost / batch_size
-    cost.name = "sequence_log_likelihood"
+    cost.name = "sequence_total_cost"
     logger.info("Cost graph is built")
 
     # Fetch variables useful for debugging.
@@ -397,10 +397,10 @@ def train(config, save_path, bokeh_name,
     track_the_best_per = TrackTheBest(
         per_monitoring.record_name(per)).set_conditions(
             before_first_epoch=True, after_epoch=True)
-    track_the_best_likelihood = TrackTheBest(
+    track_the_best_cost = TrackTheBest(
         validation.record_name(cost)).set_conditions(
             before_first_epoch=True, after_epoch=True)
-    extensions += [track_the_best_likelihood, track_the_best_per]
+    extensions += [track_the_best_cost, track_the_best_per]
     extensions.append(AdaptiveClipping(
         algorithm.total_gradient_norm.name,
         clipping, train_conf['gradient_threshold'],
@@ -443,7 +443,7 @@ def train(config, save_path, bokeh_name,
             (root_path + "_best" + extension,))
         .add_condition(
             ['after_epoch'],
-            OnLogRecord(track_the_best_likelihood.notification_name),
+            OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar(),
         Printing(every_n_batches=1,

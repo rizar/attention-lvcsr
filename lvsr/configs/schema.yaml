@@ -57,6 +57,9 @@ map:
                 type: str
             use_states_for_readout:
                 type: bool
+            criterion:
+                map:
+                    name: str
             lm:
                 type: any
             prior:
