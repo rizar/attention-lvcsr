@@ -59,7 +59,8 @@ map:
                 type: bool
             criterion:
                 map:
-                    name: str
+                    name:
+                        type: str
             lm:
                 type: any
             prior:

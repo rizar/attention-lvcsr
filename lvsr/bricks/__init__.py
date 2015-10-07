@@ -114,13 +114,16 @@ class RewardRegressionEmitter(AbstractEmitter):
             # outputs is the groundtruth sequence
             temp_shape = (readouts.shape[0] * readouts.shape[1], -1)
             reward_matrix = (-1 * tensor.ones_like(readouts)).reshape(temp_shape)
-            reward_matrix[tensor.arange(reward_matrix.shape[0]),
-                          outputs.flatten()] = 0
-            reward_matrix.reshape(readouts.shape)
+            reward_matrix = tensor.set_subtensor(
+                reward_matrix[
+                    tensor.arange(reward_matrix.shape[0]),
+                    outputs.flatten()],
+                0)
+            reward_matrix = reward_matrix.reshape(readouts.shape)
             reward_matrix.tag.name = self.REWARD_MATRIX
             # Go head and substitute the reward matrix if you
             # need a different one
-            return (readouts - reward_matrix) ** 2
+            return ((readouts - reward_matrix) ** 2).sum(axis=-1)
         return readouts[tensor.arange(readouts.shape[0]), outputs]
 
     @application

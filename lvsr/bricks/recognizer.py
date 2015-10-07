@@ -11,15 +11,15 @@ from blocks.bricks.recurrent import (
     BaseRecurrent, RecurrentStack)
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout,
-    SoftmaxEmitter, LookupFeedback,
-    RewardRegressionEmitter)
+    SoftmaxEmitter, LookupFeedback)
 from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
 from blocks.serialization import load_parameter_values
 
-from lvsr.bricks import Encoder, OneOfNFeedback, InitializableSequence
+from lvsr.bricks import (
+    Encoder, OneOfNFeedback, InitializableSequence, RewardRegressionEmitter)
 from lvsr.bricks.attention import SequenceContentAndConvAttention
 from lvsr.bricks.language_models import (
     LanguageModel, LMEmitter, ShallowFusionReadout)
@@ -150,8 +150,10 @@ class SpeechRecognizer(Initializable):
             emitter = LMEmitter()
         if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
-        else:
+        elif criterion['name'] == 'mse_reward':
             emitter = RewardRegressionEmitter(name="emitter")
+        else:
+            raise ValueError("Unknown criterion {}".format(criterion['name']))
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
