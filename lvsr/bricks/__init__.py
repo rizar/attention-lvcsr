@@ -118,7 +118,7 @@ class RewardRegressionEmitter(AbstractEmitter):
                 reward_matrix[
                     tensor.arange(reward_matrix.shape[0]),
                     outputs.flatten()],
-                0)
+                1)
             reward_matrix = reward_matrix.reshape(readouts.shape)
             reward_matrix.tag.name = self.REWARD_MATRIX
             # Go head and substitute the reward matrix if you
