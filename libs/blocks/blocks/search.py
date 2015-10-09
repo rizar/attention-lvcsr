@@ -295,10 +295,20 @@ class BeamSearch(object):
         all_costs = numpy.zeros_like(all_outputs, dtype=config.floatX)
 
         done = []
+        min_cost = 1000
 
         for i in range(max_length):
             done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
             done = done[:self.beam_size]
+            if done:
+                current_best_cost = done[0][1][-1] - char_discount * len(done[0][1])
+                if current_best_cost < min_cost:
+                    min_cost = current_best_cost
+                    patience = 30
+                else:
+                    patience -= 1
+                    if patience == 0:
+                        break
 
             if len(states.values()[0].flatten()) == 0:
                 break
