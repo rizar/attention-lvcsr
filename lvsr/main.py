@@ -615,7 +615,7 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
                     save_path, stages[number - 1][0],
                     stage_config['training'].get('restart_from', ''))
             else:
-                stage_params = None
+                stage_params = params
 
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)
