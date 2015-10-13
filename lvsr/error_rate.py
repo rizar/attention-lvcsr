@@ -1,5 +1,12 @@
 import numpy
 
+COPY = 0
+INSERTION = 1
+DELETION = 2
+SUBSTITUTION = 3
+
+INFINITY = 10 ** 9
+
 def _edit_distance_matrix(y, y_hat):
     """Returns the matrix of edit distances.
 
@@ -8,29 +15,42 @@ def _edit_distance_matrix(y, y_hat):
     dist : numpy.ndarray
         dist[i, j] is the edit distance between the first
         i characters of y and the first j characters of y_hat.
+    action : numpy.ndarray
+        action[i, j] is the action applied to y_hat[j - 1]  in a chain of
+        optimal actions transducing y_hat[:j] into y[:i].
 
     """
-    plen, tlen = len(y_hat), len(y)
-
-    dist = [[0 for i in range(tlen+1)] for x in range(plen+1)]
-    for i in xrange(plen+1):
+    dist = numpy.zeros((len(y) + 1, len(y_hat) + 1), dtype='int64')
+    action = dist.copy()
+    for i in xrange(len(y) + 1):
         dist[i][0] = i
-    for j in xrange(tlen+1):
+    for j in xrange(len(y_hat) + 1):
         dist[0][j] = j
 
-    for i in xrange(plen):
-        for j in xrange(tlen):
-            if y_hat[i] != y[j]:
+    for i in xrange(1, len(y) + 1):
+        for j in xrange(1, len(y_hat) + 1):
+            if y[i - 1] != y_hat[j - 1]:
                 cost = 1
             else:
                 cost = 0
-            dist[i+1][j+1] = min(
-                dist[i][j+1] + 1, #  deletion
-                dist[i+1][j] + 1, #  insertion
-                dist[i][j] + cost #  substitution
-                )
+            insertion_dist = dist[i - 1][j] + 1
+            deletion_dist = dist[i][j - 1] + 1
+            substitution_dist = dist[i - 1][j - 1] + 1 if cost else INFINITY
+            copy_dist = dist[i - 1][j - 1] if not cost else INFINITY
+            best = min(insertion_dist, deletion_dist,
+                       substitution_dist, copy_dist)
 
-    return numpy.array(dist).T
+            dist[i][j] = best
+            if best == insertion_dist:
+                action[i][j] = action[i - 1][j]
+            if best == deletion_dist:
+                action[i][j] = DELETION
+            if best == substitution_dist:
+                action[i][j] = SUBSTITUTION
+            if best == copy_dist:
+                action[i][j] = COPY
+
+    return dist, action
 
 
 def edit_distance(y, y_hat):
@@ -79,7 +99,7 @@ def optimistic_error_matrix(y, y_hat, alphabet):
         optimistic estimate of your future error rate.
 
     """
-    dist = _edit_distance_matrix(y, y_hat)
+    dist, _  = _edit_distance_matrix(y, y_hat)
 
     best = numpy.zeros((len(y_hat), len(alphabet)), dtype='int64')
     for j in range(len(y_hat)):
