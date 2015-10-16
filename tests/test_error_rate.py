@@ -3,7 +3,8 @@ from numpy.testing import assert_equal
 from lvsr.error_rate import (
     _edit_distance_matrix,
     optimistic_error_matrix,
-    pessimistic_accumulated_reward)
+    pessimistic_accumulated_reward,
+    per_character_reward)
 
 
 def test_edit_distance_matrix():
@@ -64,4 +65,17 @@ def test_pessimistic_accumulated_reward():
                 [ 1, -2, -2,  0],
                 [ 0,  2, -3, -1],
                 [-4, -4, -4, -4]]))
+
+
+def test_per_character_reward():
+    assert_equal(per_character_reward('abc', 'cab', 'abc'),
+            numpy.array([[ 1, -1, -1],
+                  [ 1,  2, -1],
+                  [ -1,  1, -1],
+                  [ -1,  -1, -1]]))
+    assert_equal(per_character_reward('abc', 'abc', 'abc'),
+        numpy.array([[ 1, -1, -1],
+            [-1,  1, -1],
+            [-1, -1,  1],
+            [-1, -1, -1]]))
 

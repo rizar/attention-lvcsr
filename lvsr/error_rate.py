@@ -103,6 +103,13 @@ def pessimistic_accumulated_reward(y, y_hat, alphabet):
     # out of the best ones. That makes the reward estimate pessimistic.
     return pess_acc_char_reward
 
+def per_character_reward(y, y_hat, alphabet):
+    y_hat_indices = [alphabet.find(c) for c in y_hat]
+    reward = pessimistic_accumulated_reward(y, y_hat, alphabet)
+    reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
+    return reward
+
+
 
 def optimistic_error_matrix(y, y_hat, alphabet):
     """Optimistic error estimate.
