@@ -1,7 +1,8 @@
 import numpy
-from numpy.testing import assert_equal
+from numpy.testing import assert_equal, assert_allclose
 from lvsr.error_rate import (
     _edit_distance_matrix,
+    wer,
     optimistic_error_matrix,
     pessimistic_accumulated_reward,
     per_character_reward)
@@ -79,3 +80,6 @@ def test_per_character_reward():
             [-1, -1,  1],
             [-1, -1, -1]]))
 
+
+def test_wer():
+    assert_allclose(wer('abc', 'adc'), 0.333333, rtol=1e-4)

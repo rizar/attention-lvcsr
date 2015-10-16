@@ -69,7 +69,7 @@ def edit_distance(y, y_hat):
     word into the other.
 
     """
-    return _edit_distance_matrix(y, y_hat)[-1][-1]
+    return _edit_distance_matrix(y, y_hat)[0][-1, -1]
 
 
 def wer(y, y_hat):
