@@ -7,6 +7,7 @@ SUBSTITUTION = 3
 
 INFINITY = 10 ** 9
 
+
 def _edit_distance_matrix(y, y_hat):
     """Returns the matrix of edit distances.
 
@@ -14,10 +15,10 @@ def _edit_distance_matrix(y, y_hat):
     -------
     dist : numpy.ndarray
         dist[i, j] is the edit distance between the first
-        i characters of y and the first j characters of y_hat.
     action : numpy.ndarray
         action[i, j] is the action applied to y_hat[j - 1]  in a chain of
         optimal actions transducing y_hat[:j] into y[:i].
+        i characters of y and the first j characters of y_hat.
 
     """
     dist = numpy.zeros((len(y) + 1, len(y_hat) + 1), dtype='int64')
@@ -75,6 +76,34 @@ def wer(y, y_hat):
     return edit_distance(y, y_hat) / float(len(y))
 
 
+def pessimistic_accumulated_reward(y, y_hat, alphabet):
+    dist, _,  = _edit_distance_matrix(y, y_hat)
+
+    # Optimistic edit distance for every y_hat prefix
+    optim_dist = dist.min(axis=0)
+    pess_acc_reward = dist.argmin(axis=0) - optim_dist
+
+    # Optimistic edit distance for every y_hat prefix plus a character
+    optim_dist_char = numpy.tile(
+        optim_dist[:, None], [1, len(alphabet)]) + 1
+    pess_acc_char_reward = numpy.tile(
+        pess_acc_reward[:, None], [1, len(alphabet)]) - 1
+    for i in range(len(y)):
+        for j in range(len(y_hat)):
+            for c in range(len(alphabet)):
+                # We consider appending a character c to y_hat
+                # after the character y_hat[j] and aligning to y[i].
+                # This means the first j characters of y_hat must
+                # produce the first i character of y.
+                cand_dist = dist[i, j] + (0 if alphabet[c] == y[i] else 1)
+                if cand_dist < optim_dist_char[j, c]:
+                    optim_dist_char[j, c] = cand_dist
+                    pess_acc_char_reward[j, c] = i + 1 - cand_dist
+    # Note, that each character j to the minimal i
+    # out of the best ones. That makes the reward estimate pessimistic.
+    return pess_acc_char_reward
+
+
 def optimistic_error_matrix(y, y_hat, alphabet):
     """Optimistic error estimate.
 
@@ -97,19 +126,25 @@ def optimistic_error_matrix(y, y_hat, alphabet):
         c] is defined as best[j, c] - best[j - 1], that indicates if
         continuing y_hat[:j+1] with the character number c decreases the
         optimistic estimate of your future error rate.
+    optimistic_action : numpy.ndarray
 
     """
-    dist, _  = _edit_distance_matrix(y, y_hat)
+    dist, action  = _edit_distance_matrix(y, y_hat)
 
     best = numpy.zeros((len(y_hat), len(alphabet)), dtype='int64')
+    optimistic_action = best.copy()
     for j in range(len(y_hat)):
         for c in range(len(alphabet)):
             best[j, c] = dist[:, j].min() + 1
+            optimistic_action[j, c] = DELETION
 
     for i in range(len(y)):
         for j in range(len(y_hat)):
             for c in range(len(alphabet)):
                 cost = 1 - (y[i] == alphabet[c])
-                best[j, c] = min(best[j, c], dist[i, j] + cost)
+                candidate_dist = dist[i, j] + cost
+                if candidate_dist < best[j, c]:
+                    best[j, c] = candidate_dist
+                    optimistic_action[j, c] = COPY if cost else SUBSTITUTION
 
-    return dist.min(axis=0)[:-1, None] - best
+    return dist.min(axis=0)[:-1, None] - best, optimistic_action
