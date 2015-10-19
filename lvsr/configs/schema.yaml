@@ -27,6 +27,9 @@ map:
                 type: bool
             add_bos:
                 type: int
+            # legacy, not supported any more
+            prepend_eos:
+                type: bool
     net:
         map:
             dim_dec:

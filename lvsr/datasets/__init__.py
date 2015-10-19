@@ -46,9 +46,9 @@ class _AddLabel(object):
         if self.append:
             # Not using `list.append` to avoid having weird mutable
             # example objects.
-            example[1] = example[1] + self.times * [self.label]
+            example[1] = numpy.hstack([example[1], self.times * [self.label]])
         else:
-            example[1] = self.times * [self.label] + example[1]
+            example[1] = numpy.hstack([self.times * [self.label], example[1]])
         return example
 
 
@@ -125,8 +125,10 @@ class Data(object):
                  uttid_source='uttids',
                  feature_name='wav', preprocess_features=None,
                  add_eos=True, eos_label=None,
-                 add_bos=0,
+                 add_bos=0, prepend_eos=False,
                  preprocess_text=False):
+        assert not prepend_eos
+
         # We used to support more datasets, but only WSJ is left after
         # a cleanup.
         if not dataset in ('WSJ'):

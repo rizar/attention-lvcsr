@@ -654,7 +654,7 @@ def init_norm(config, save_path):
 def show_data(config):
     data = Data(**config['data'])
     stream = data.get_stream("train")
-    data = next(stream.get_epoch_iterator(as_dict=True))
+    batch = next(stream.get_epoch_iterator(as_dict=True))
     import IPython; IPython.embed()
 
 
