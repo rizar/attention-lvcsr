@@ -313,19 +313,6 @@ class BeamSearch(object):
             if len(states.values()[0].flatten()) == 0:
                 break
 
-            # stop only when we have at least self.beam_size sequences,
-            # that are all cheaper than we can possibly obtain by extending
-            # other ones
-            if (len(done) >= self.beam_size):
-                optimistic_future_cost = (all_costs[-1, :].min() -
-                                          char_discount * max_length)
-                last_in_done = done[self.beam_size - 1][1]
-                # note: done is sorted by the cost with char discount subtracted
-                last_in_done_cost = (last_in_done[-1] -
-                                     char_discount * len(last_in_done))
-                if last_in_done_cost < optimistic_future_cost:
-                    break
-
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
             if large_contexts.values()[0].shape[1] != states.values()[0].shape[0]:
@@ -357,7 +344,7 @@ class BeamSearch(object):
             if ignore_first_eol and i == 0:
                 mask[:] = 1
 
-            for idx in numpy.where(mask==0)[0]:
+            for idx in range(all_outputs.shape[1]):
                 done.append((all_outputs[:, idx], all_costs[:, idx]))
 
             unfinished = numpy.where(mask==1)[0]
