@@ -34,22 +34,22 @@ def apply_preprocessing(preprocessing, example):
     return (numpy.asarray(preprocessing(recording)), label)
 
 
-class _AddEosLabelEnd(object):
+class _AddLabel(object):
 
-    def __init__(self, eos_label):
-        self.eos_label = eos_label
-
-    def __call__(self, example):
-        return (example[0], list(example[1]) + [self.eos_label]) + tuple(example[2:])
-
-
-class _AddEosLabelBeginEnd(object):
-
-    def __init__(self, eos_label):
-        self.eos_label = eos_label
+    def __init__(self, label, append=True, times=1):
+        self.label = label
+        self.append = append
+        self.times = times
 
     def __call__(self, example):
-        return (example[0], [self.eos_label] + list(example[1]) + [self.eos_label]) + tuple(example[2:])
+        example = list(example)
+        if self.append:
+            # Not using `list.append` to avoid having weird mutable
+            # example objects.
+            example[1] = example[1] + self.times * [self.label]
+        else:
+            example[1] = self.times * [self.label] + example[1]
+        return example
 
 
 class _LengthFilter(object):
@@ -111,10 +111,10 @@ class Data(object):
         Now supports only `log_spectrogram` value.
     add_eos : bool
         Add end of sequence symbol.
+    add_bos : int
+        Add this many beginning-of-sequence tokens.
     eos_label : int
         Label to use for eos symbol.
-    prepend_eos : bool
-        Old option.
     preprocess_text : bool
         Preprocess text for WSJ.
 
@@ -125,7 +125,7 @@ class Data(object):
                  uttid_source='uttids',
                  feature_name='wav', preprocess_features=None,
                  add_eos=True, eos_label=None,
-                 prepend_eos=True,
+                 add_bos=0,
                  preprocess_text=False):
         # We used to support more datasets, but only WSJ is left after
         # a cleanup.
@@ -147,16 +147,16 @@ class Data(object):
         self.max_length = max_length
         self.add_eos = add_eos
         self._eos_label = eos_label
+        self.add_bos = add_bos
         self.preprocess_text = preprocess_text
         self.preprocess_features = preprocess_features
-        self.prepend_eos = prepend_eos
         self.dataset_cache = {}
 
         self.length_filter = _LengthFilter(self.max_length)
 
     @property
     def num_labels(self):
-        return self.get_dataset("train").num_characters
+        return self.get_dataset("train").num_characters + 1
 
     @property
     def character_map(self):
@@ -171,6 +171,14 @@ class Data(object):
         if self._eos_label:
             return self._eos_label
         return self.get_dataset("train").eos_label
+
+    @property
+    def bos_label(self):
+        return self.num_labels - 1
+
+    def decode(self, labels):
+        return [self.character_map[label] for label in labels
+                if label not in [self.bos_label, self.eos_label]]
 
     def get_dataset(self, part, add_sources=()):
         wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
@@ -194,10 +202,9 @@ class Data(object):
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
         if self.add_eos:
-            if self.prepend_eos:
-                stream = Mapping(stream, _AddEosLabelBeginEnd(self.eos_label))
-            else:
-                stream = Mapping(stream, _AddEosLabelEnd(self.eos_label))
+            stream = Mapping(stream, _AddLabel(self.eos_label))
+        if self.add_bos:
+            stream = Mapping(stream, _AddLabel(self.bos_label, append=False, times=self.add_bos))
         if self.preprocess_text:
             stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
         stream = Filter(stream, self.length_filter)

@@ -58,11 +58,11 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, dataset, **kwargs):
+    def __init__(self, recognizer, data, **kwargs):
         self.recognizer = recognizer
         # Will only be used to decode generated outputs,
         # which is necessary for correct scoring.
-        self.dataset = dataset
+        self.data = data
         kwargs.setdefault('name', 'per')
         kwargs.setdefault('requires', [self.recognizer.single_recording,
                                        self.recognizer.single_transcription])
@@ -78,11 +78,11 @@ class PhonemeErrorRate(MonitoredQuantity):
         if self.num_examples > 10 and self.mean_error > 0.8:
             self.mean_error = 1
             return
-        groundtruth = self.dataset.decode(transcription)
+        groundtruth = self.data.decode(transcription)
         try:
             outputs, search_costs = self.recognizer.beam_search(
                 recording, char_discount=0.1)
-            recognized = self.dataset.decode(outputs[0])
+            recognized = self.data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
             error = 1.0
@@ -418,7 +418,7 @@ def train(config, save_path, bokeh_name,
             after_training=False)
     extensions.append(validation)
     recognizer.init_beam_search(10)
-    per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
+    per = PhonemeErrorRate(recognizer, data)
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(
@@ -557,7 +557,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         if decode_only and number not in decode_only:
             continue
         print("Utterance {} ({})".format(number, data[2]), file=print_to)
-        groundtruth = dataset.decode(data[1])
+        groundtruth = data.decode(data[1])
         groundtruth_text = dataset.pretty_print(data[1])
         costs_groundtruth, weights_groundtruth = (
             recognizer.analyze(data[0], data[1], data[1])[:2])
@@ -578,7 +578,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         outputs, search_costs = recognizer.beam_search(
             data[0], char_discount=char_discount)
         took = time.time() - before
-        recognized = dataset.decode(outputs[0])
+        recognized = data.decode(outputs[0])
         recognized_text = dataset.pretty_print(outputs[0])
         costs_recognized, weights_recognized = (
             recognizer.analyze(data[0], data[1], outputs[0])[:2])
