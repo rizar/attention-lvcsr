@@ -1,6 +1,12 @@
 parent: $LVSR/exp/wsj/configs/wsj_good.yaml
 data:
-    dataset: WSJ
+    dataset: wsj.h5
+
+    name_mapping:
+        train: train_si284
+        valid: test_dev93
+        test:  test_eval92
+
     normalization: ""
     recordings_source: fbank_dd
     labels_source: characters

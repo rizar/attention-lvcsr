@@ -15,6 +15,14 @@ map:
                 type: str
             dataset:
                 type: str
+            name_mapping:
+                map:
+                    train:
+                        type: str
+                    valid:
+                        type: str
+                    test:
+                        type: str
             recordings_source:
                 type: str
             labels_source:

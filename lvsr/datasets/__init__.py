@@ -119,7 +119,8 @@ class Data(object):
         Preprocess text for WSJ.
 
     """
-    def __init__(self, dataset, recordings_source, labels_source,
+    def __init__(self, dataset, name_mapping,
+                 recordings_source, labels_source,
                  batch_size, sort_k_batches=None,
                  max_length=None, normalization=None,
                  uttid_source='uttids',
@@ -129,16 +130,12 @@ class Data(object):
                  preprocess_text=False):
         assert not prepend_eos
 
-        # We used to support more datasets, but only WSJ is left after
-        # a cleanup.
-        if not dataset in ('WSJ'):
-            raise ValueError()
-
         if normalization:
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
 
         self.dataset = dataset
+        self.name_mapping = name_mapping
         self.recordings_source = recordings_source
         self.labels_source = labels_source
         self.uttid_source = uttid_source
@@ -154,7 +151,6 @@ class Data(object):
         self.preprocess_text = preprocess_text
         self.preprocess_features = preprocess_features
         self.dataset_cache = {}
-
         self.length_filter = _LengthFilter(self.max_length)
 
     @property
@@ -197,12 +193,9 @@ class Data(object):
         return self.dataset_cache[key]
 
     def _get_dataset(self, part, add_sources=()):
-        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93",
-                            "test": "test_eval92"}
-
         return H5PYAudioDataset(
-            os.path.join(fuel.config.data_path, "wsj.h5"),
-            which_sets=(wsj_name_mapping.get(part, part),),
+            os.path.join(fuel.config.data_path,  self.dataset),
+            which_sets=(self.name_mapping.get(part, part), ),
             sources=(self.recordings_source,
                      self.labels_source) + tuple(add_sources))
 
