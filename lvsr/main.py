@@ -157,7 +157,7 @@ def train(config, save_path, bokeh_name,
         **config["net"])
     for brick_path, attribute_dict in sorted(
             config['initialization'].items(),
-            key=lambda (k, v): -k.count('/')):
+            key=lambda (k, v): k.count('/')):
         for attribute, value in attribute_dict.items():
             brick, = Selector(recognizer).select(brick_path).bricks
             setattr(brick, attribute, value)
