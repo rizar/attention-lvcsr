@@ -37,6 +37,7 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
+from lvsr.bricks import RewardRegressionEmitter
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
@@ -338,6 +339,15 @@ def train(config, save_path, bokeh_name,
         stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
         stats.name = name + '_stats'
         observables.append(stats)
+    if config['net']['criterion']['name'] == 'mse_reward':
+        gain_mse_loss, = VariableFilter(
+            theano_name=RewardRegressionEmitter.GAIN_MSE_LOSS)(regularized_cg)
+        observables.append(gain_mse_loss)
+    primary_observables = [
+        regularized_cost, algorithm.total_gradient_norm,
+        algorithm.total_step_norm, clipping.threshold,
+        max_recording_length,
+        max_attended_length, max_attended_mask_length]
 
     def attach_aggregation_schemes(variables):
         # Aggregation specification has to be factored out as a separate
@@ -368,10 +378,7 @@ def train(config, save_path, bokeh_name,
         #CodeVersion(['lvsr']),
         ]
     extensions.append(TrainingDataMonitoring(
-        [observables[0], algorithm.total_gradient_norm,
-            algorithm.total_step_norm, clipping.threshold,
-            max_recording_length,
-            max_attended_length, max_attended_mask_length], after_batch=True))
+        primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
         attach_aggregation_schemes(observables),
         prefix="average", every_n_batches=10)
@@ -411,25 +418,28 @@ def train(config, save_path, bokeh_name,
         FinishAfter(after_n_batches=train_conf['num_batches'],
                     after_n_epochs=train_conf['num_epochs'])
         .add_condition(["after_batch"], _gradient_norm_is_none),
-        # Live plotting: requires launching `bokeh-server`
-        # and allows to see what happens online.
-        Plot(bokeh_name
-             if bokeh_name
+        ]
+    channels = [
+        # Plot 1: training and validation costs
+        [average_monitoring.record_name(regularized_cost),
+        validation.record_name(cost)],
+        # Plot 2: gradient norm,
+        [average_monitoring.record_name(algorithm.total_gradient_norm),
+        average_monitoring.record_name(clipping.threshold)],
+        # Plot 3: phoneme error rate
+        [per_monitoring.record_name(per)],
+        # Plot 4: training and validation mean weight entropy
+        [average_monitoring._record_name('weights_entropy_per_label'),
+        validation._record_name('weights_entropy_per_label')],
+        # Plot 5: training and validation monotonicity penalty
+        [average_monitoring._record_name('weights_penalty_per_recording'),
+        validation._record_name('weights_penalty_per_recording')]]
+    if config['net']['criterion']['name'] == 'mse_reward':
+        channels[0].append(average_monitoring.record_name(gain_mse_loss))
+    extensions += [
+        Plot(bokeh_name if bokeh_name
              else os.path.basename(save_path),
-             [# Plot 1: training and validation costs
-             [average_monitoring.record_name(regularized_cost),
-             validation.record_name(cost)],
-             # Plot 2: gradient norm,
-             [average_monitoring.record_name(algorithm.total_gradient_norm),
-             average_monitoring.record_name(clipping.threshold)],
-             # Plot 3: phoneme error rate
-             [per_monitoring.record_name(per)],
-             # Plot 4: training and validation mean weight entropy
-             [average_monitoring._record_name('weights_entropy_per_label'),
-             validation._record_name('weights_entropy_per_label')],
-             # Plot 5: training and validation monotonicity penalty
-             [average_monitoring._record_name('weights_penalty_per_recording'),
-             validation._record_name('weights_penalty_per_recording')]],
+             channels,
              every_n_batches=10,
              server_url=bokeh_server),
         Checkpoint(save_path,

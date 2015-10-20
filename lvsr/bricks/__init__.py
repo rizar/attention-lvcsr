@@ -105,25 +105,41 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
 
 class RewardRegressionEmitter(AbstractEmitter):
 
+    GAIN_MATRIX = 'gain_matrix'
     REWARD_MATRIX = 'reward_matrix'
+    GAIN_MSE_LOSS = 'gain_mse_loss'
+    REWARD_MSE_LOSS = 'reward_mse_loss'
 
     @application
-    def cost(self, readouts, outputs):
+    def cost(self, application_call, readouts, outputs):
         if readouts.ndim == 3:
-            # The default reward matrix is built assuming that
+            temp_shape = (readouts.shape[0] * readouts.shape[1], readouts.shape[2])
+            correct_mask = tensor.zeros(temp_shape)
+            correct_mask = tensor.set_subtensor(
+                correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
+            correct_mask = correct_mask.reshape(readouts.shape)
+
+            # The default gain matrix is built assuming that
             # outputs is the groundtruth sequence
-            temp_shape = (readouts.shape[0] * readouts.shape[1], -1)
-            reward_matrix = (-1 * tensor.ones_like(readouts)).reshape(temp_shape)
-            reward_matrix = tensor.set_subtensor(
-                reward_matrix[
-                    tensor.arange(reward_matrix.shape[0]),
-                    outputs.flatten()],
-                1)
-            reward_matrix = reward_matrix.reshape(readouts.shape)
-            reward_matrix.tag.name = self.REWARD_MATRIX
-            # Go head and substitute the reward matrix if you
+            gain_matrix = -1 * tensor.ones_like(readouts)
+            gain_matrix += 2 * correct_mask
+            gain_matrix.name = self.GAIN_MATRIX
+            # Go head and substitute the gain matrix if you
             # need a different one
-            return ((readouts - reward_matrix) ** 2).sum(axis=-1)
+
+            reward_matrix = tensor.arange(readouts.shape[0])[:, None, None]
+            reward_matrix = tensor.tile(
+                reward_matrix, (1, readouts.shape[1], readouts.shape[2]))
+            reward_matrix = reward_matrix + 2 * correct_mask - 1
+            reward_matrix.name = self.REWARD_MATRIX
+
+            gain_mse_loss = ((readouts - gain_matrix) ** 2).sum(axis=-1)
+            gain_mse_loss.name = self.GAIN_MSE_LOSS
+            reward_mse_loss = ((readouts.cumsum(axis=0) - reward_matrix) ** 2).sum(axis=-1)
+            reward_mse_loss.name = self.REWARD_MSE_LOSS
+
+            application_call.add_auxiliary_variable(gain_mse_loss)
+            return reward_mse_loss
         return readouts[tensor.arange(readouts.shape[0]), outputs]
 
     @application
