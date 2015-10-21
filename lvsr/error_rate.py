@@ -76,7 +76,7 @@ def wer(y, y_hat):
     return edit_distance(y, y_hat) / float(len(y))
 
 
-def pessimistic_accumulated_reward(y, y_hat, alphabet):
+def reward_matrix(y, y_hat, alphabet):
     dist, _,  = _edit_distance_matrix(y, y_hat)
 
     # Optimistic edit distance for every y_hat prefix
@@ -103,54 +103,9 @@ def pessimistic_accumulated_reward(y, y_hat, alphabet):
     # out of the best ones. That makes the reward estimate pessimistic.
     return pess_acc_char_reward
 
-def per_character_reward(y, y_hat, alphabet):
+def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
     y_hat_indices = [alphabet.find(c) for c in y_hat]
-    reward = pessimistic_accumulated_reward(y, y_hat, alphabet)
+    reward = (given_reward_matrix if given_reward_matrix is not None
+              else reward_matrix(y, y_hat, alphabet))
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
     return reward
-
-
-def optimistic_error_matrix(y, y_hat, alphabet):
-    """Optimistic error estimate.
-
-    Parameters
-    ----------
-    y : str
-        The groundtruth.
-    y_hat : str
-        The recognition candidate.
-    alphabet : iterable
-
-    Returns
-    -------
-    errors : numpy.ndarray
-        A matrix of a shape (len(y_hat) + 1, num_characters).  Let best[j]
-        be the least possible edit distance that you can get by optimally
-        continuing y_hat[:j+1] (not adding any characters is also allowed).
-        Let best[j, c] be the least you can get by continuing the
-        concatenation of y_hat[j+1] and the character number c. errors[j,
-        c] is defined as best[j, c] - best[j - 1], that indicates if
-        continuing y_hat[:j+1] with the character number c decreases the
-        optimistic estimate of your future error rate.
-    optimistic_action : numpy.ndarray
-
-    """
-    dist, action  = _edit_distance_matrix(y, y_hat)
-
-    best = numpy.zeros((len(y_hat), len(alphabet)), dtype='int64')
-    optimistic_action = best.copy()
-    for j in range(len(y_hat)):
-        for c in range(len(alphabet)):
-            best[j, c] = dist[:, j].min() + 1
-            optimistic_action[j, c] = DELETION
-
-    for i in range(len(y)):
-        for j in range(len(y_hat)):
-            for c in range(len(alphabet)):
-                cost = 1 - (y[i] == alphabet[c])
-                candidate_dist = dist[i, j] + cost
-                if candidate_dist < best[j, c]:
-                    best[j, c] = candidate_dist
-                    optimistic_action[j, c] = COPY if cost else SUBSTITUTION
-
-    return dist.min(axis=0)[:-1, None] - best, optimistic_action
