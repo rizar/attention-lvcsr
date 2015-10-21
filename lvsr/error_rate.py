@@ -104,8 +104,8 @@ def reward_matrix(y, y_hat, alphabet):
     return pess_acc_char_reward
 
 def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
-    y_hat_indices = [alphabet.find(c) for c in y_hat]
-    reward = (given_reward_matrix if given_reward_matrix is not None
+    y_hat_indices = [alphabet.index(c) for c in y_hat]
+    reward = (given_reward_matrix.copy() if given_reward_matrix is not None
               else reward_matrix(y, y_hat, alphabet))
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
     return reward
