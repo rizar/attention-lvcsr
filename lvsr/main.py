@@ -37,7 +37,7 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
-from lvsr.bricks import RewardRegressionEmitter
+from lvsr.bricks import OTHER_LOSS
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
@@ -325,6 +325,10 @@ def train(config, save_path, bokeh_name,
             # when nans are encountered.
             [RemoveNotFinite(0.0)]))
 
+    # Sometimes there are a few competing losses
+    other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
+
+
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
     observables = regularized_cg.outputs
@@ -339,10 +343,7 @@ def train(config, save_path, bokeh_name,
         stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
         stats.name = name + '_stats'
         observables.append(stats)
-    if config['net']['criterion']['name'] == 'mse_reward':
-        gain_mse_loss, = VariableFilter(
-            theano_name=RewardRegressionEmitter.GAIN_MSE_LOSS)(regularized_cg)
-        observables.append(gain_mse_loss)
+    observables.extend(other_losses)
     primary_observables = [
         regularized_cost, algorithm.total_gradient_norm,
         algorithm.total_step_norm, clipping.threshold,
@@ -434,8 +435,8 @@ def train(config, save_path, bokeh_name,
         # Plot 5: training and validation monotonicity penalty
         [average_monitoring._record_name('weights_penalty_per_recording'),
         validation._record_name('weights_penalty_per_recording')]]
-    if config['net']['criterion']['name'] == 'mse_reward':
-        channels[0].append(average_monitoring.record_name(gain_mse_loss))
+    for loss in other_losses:
+        channels[0].append(average_monitoring.record_name(loss))
     extensions += [
         Plot(bokeh_name if bokeh_name
              else os.path.basename(save_path),

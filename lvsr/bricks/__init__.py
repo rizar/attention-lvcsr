@@ -2,6 +2,7 @@ import logging
 import numpy
 from theano import tensor
 
+from blocks.roles import VariableRole, add_role
 from blocks.bricks import (
     Initializable, Linear, Sequence, Tanh)
 from blocks.bricks.base import lazy, application
@@ -103,12 +104,23 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
         return super(LookupFeedback, self).get_dim(name)
 
 
+class OtherLoss(VariableRole):
+    pass
+
+
+OTHER_LOSS = OtherLoss()
+
+
 class RewardRegressionEmitter(AbstractEmitter):
 
     GAIN_MATRIX = 'gain_matrix'
     REWARD_MATRIX = 'reward_matrix'
     GAIN_MSE_LOSS = 'gain_mse_loss'
     REWARD_MSE_LOSS = 'reward_mse_loss'
+
+    def __init__(self, criterion, **kwargs):
+        self.criterion = criterion
+        super(RewardRegressionEmitter, self).__init__(**kwargs)
 
     @application
     def cost(self, application_call, readouts, outputs):
@@ -133,13 +145,32 @@ class RewardRegressionEmitter(AbstractEmitter):
             reward_matrix = reward_matrix + 2 * correct_mask - 1
             reward_matrix.name = self.REWARD_MATRIX
 
-            gain_mse_loss = ((readouts - gain_matrix) ** 2).sum(axis=-1)
-            gain_mse_loss.name = self.GAIN_MSE_LOSS
-            reward_mse_loss = ((readouts.cumsum(axis=0) - reward_matrix) ** 2).sum(axis=-1)
-            reward_mse_loss.name = self.REWARD_MSE_LOSS
+            predicted_gains = readouts.reshape(temp_shape)[
+                tensor.arange(temp_shape[0]), outputs.flatten()]
+            predicted_gains = predicted_gains.reshape(outputs.shape)
+            predicted_gains = tensor.concatenate([
+                tensor.zeros((1, outputs.shape[1])), predicted_gains[1:]])
 
+            predicted_rewards = predicted_gains.cumsum(axis=0)
+            predicted_rewards = readouts + predicted_rewards[:, :, None]
+
+            gain_mse_loss_matrix = ((readouts - gain_matrix) ** 2).sum(axis=-1)
+            reward_mse_loss_matrix = ((predicted_rewards - reward_matrix) ** 2).sum(axis=-1)
+
+            gain_mse_loss = gain_mse_loss_matrix.sum()
+            gain_mse_loss.name = self.GAIN_MSE_LOSS
+            reward_mse_loss = reward_mse_loss_matrix.sum()
+            reward_mse_loss.name = self.REWARD_MSE_LOSS
             application_call.add_auxiliary_variable(gain_mse_loss)
-            return reward_mse_loss
+
+            if self.criterion == 'mse_gain':
+                add_role(reward_mse_loss, OTHER_LOSS)
+                application_call.add_auxiliary_variable(reward_mse_loss)
+                return gain_mse_loss_matrix
+            else:
+                add_role(gain_mse_loss, OTHER_LOSS)
+                application_call.add_auxiliary_variable(gain_mse_loss)
+                return reward_mse_loss_matrix
         return readouts[tensor.arange(readouts.shape[0]), outputs]
 
     @application

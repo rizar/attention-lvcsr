@@ -150,8 +150,8 @@ class SpeechRecognizer(Initializable):
             emitter = LMEmitter()
         if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
-        elif criterion['name'] == 'mse_reward':
-            emitter = RewardRegressionEmitter(name="emitter")
+        elif criterion['name'].startswith('mse'):
+            emitter = RewardRegressionEmitter(criterion['name'], name="emitter")
         else:
             raise ValueError("Unknown criterion {}".format(criterion['name']))
         readout_config = dict(
