@@ -8,12 +8,15 @@ except ImportError:
 import numpy
 import theano
 import itertools
-from theano import Op
+from theano import tensor, Op
 from fuel.utils import do_not_pickle_attributes
 from picklable_itertools.extras import equizip
 from collections import defaultdict, deque
 
 from toposort import toposort_flatten
+
+from lvsr.error_rate import reward_matrix, gain_matrix
+
 
 EPSILON = 0
 MAX_STATES = 7
@@ -227,3 +230,46 @@ class FSTCostsOp(Op):
         weights = theano.tensor.as_tensor_variable(weights)
         return theano.Apply(self,
             [states, weights], [theano.tensor.matrix()])
+
+
+class RewardOp(Op):
+    __props__ = ()
+
+    def __init__(self, eos_label, alphabet_size):
+        """Computes matrices of rewards and gains."""
+        self.eos_label = eos_label
+        self.alphabet_size = alphabet_size
+
+    def perform(self, node, inputs, output_storage):
+        groundtruth, recognized = inputs
+        if (groundtruth.ndim != 2 or recognized.ndim != 2
+                or groundtruth.shape[1] != recognized.shape[1]):
+            raise ValueError
+        batch_size = groundtruth.shape[1]
+        all_rewards = numpy.zeros(
+            recognized.shape + (self.alphabet_size,), dtype='int64')
+        all_gains = numpy.zeros(
+            groundtruth.shape + (self.alphabet_size,), dtype='int64')
+        alphabet = list(range(self.alphabet_size))
+        for index in range(batch_size):
+            y = list(groundtruth[:, index])
+            y_hat = list(recognized[:, index])
+            eos_pos = y.index(self.eos_label)
+            y = y[:eos_pos + 1]
+            rewards = reward_matrix(y, y_hat, alphabet)
+            # pass freshly computed rewards to gain_matrix to speed things up
+            # a bit
+            gains = gain_matrix(y, y_hat, alphabet,
+                                given_reward_matrix=rewards)
+            all_rewards[:, index, :] = rewards[:-1]
+            all_gains[:, index, :] = gains[:-1]
+
+        output_storage[0][0] = all_rewards
+        output_storage[1][0] = all_gains
+
+
+    def make_node(self, groundtruth, recognized):
+        recognized = tensor.as_tensor_variable(recognized)
+        groundtruth = tensor.as_tensor_variable(groundtruth)
+        return theano.Apply(
+            self, [groundtruth, recognized], [tensor.ltensor3(), tensor.ltensor3()])
