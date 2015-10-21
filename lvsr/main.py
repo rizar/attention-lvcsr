@@ -590,6 +590,30 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
+def sample(config, params, load_path, part):
+    data = Data(**config['data'])
+
+    recognizer = SpeechRecognizer(
+        data.recordings_source, data.labels_source,
+        data.eos_label, data.num_features, data.num_labels,
+        character_map=data.character_map,
+        name='recognizer', **config["net"])
+    recognizer.load_params(load_path)
+
+    dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
+    stream = data.get_stream(part, batches=False, shuffle=False,
+                                add_sources=(data.uttid_source,))
+    it = stream.get_epoch_iterator()
+
+    print_to = sys.stdout
+    for number, data in enumerate(it):
+        print("Utterance {} ({})".format(number, data[2]), file=print_to)
+        groundtruth_text = dataset.pretty_print(data[1])
+        print("Groundtruth:", groundtruth_text, file=print_to)
+        sample = recognizer.sample(data[0])['outputs'][:, 0]
+        recognized_text = dataset.pretty_print(sample)
+        print("Recognized:", recognized_text, file=print_to)
+
 
 def init_norm(config, save_path):
     config['data']['normalization'] = None

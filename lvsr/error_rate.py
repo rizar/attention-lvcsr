@@ -64,7 +64,7 @@ def edit_distance(y, y_hat):
     y_hat : str
         The recognition candidate.
 
-    the minimum number of symbol edits (i.e. insertions,
+   the minimum number of symbol edits (i.e. insertions,
     deletions or substitutions) required to change one
     word into the other.
 
@@ -108,7 +108,6 @@ def per_character_reward(y, y_hat, alphabet):
     reward = pessimistic_accumulated_reward(y, y_hat, alphabet)
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
     return reward
-
 
 
 def optimistic_error_matrix(y, y_hat, alphabet):

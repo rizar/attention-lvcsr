@@ -217,6 +217,7 @@ class SpeechRecognizer(Initializable):
                              self.labels, self.labels_mask]
         self.single_recording = tensor.matrix(self.recordings_source)
         self.single_transcription = tensor.lvector(self.labels_source)
+        self.n_steps = tensor.lscalar('n_steps')
 
     def push_initialization_config(self):
         super(SpeechRecognizer, self).push_initialization_config()
@@ -247,7 +248,7 @@ class SpeechRecognizer(Initializable):
             input_=self.bottom.apply(recordings))
         encoded = self.top.apply(encoded)
         return self.generator.generate(
-            n_steps=recordings.shape[0], batch_size=recordings.shape[1],
+            n_steps=self.n_steps, batch_size=recordings.shape[1],
             attended=encoded,
             attended_mask=encoded_mask,
             as_dict=True)
@@ -320,6 +321,18 @@ class SpeechRecognizer(Initializable):
             ignore_first_eol=self.data_prepend_eos,
             char_discount=char_discount)
         return outputs, search_costs
+
+    def init_generate(self):
+        generated = self.get_generate_graph()
+        self._do_generate = theano.function(
+            [self.recordings, self.n_steps], generated)
+
+    def sample(self, recording, n_steps=None):
+        if not hasattr(self, '_do_generate'):
+            self.init_generate()
+        batch = recording[:, None, :]
+        return self._do_generate(
+            batch, n_steps if n_steps is not None else recording.shape[0] / 3)
 
     def __getstate__(self):
         state = dict(self.__dict__)

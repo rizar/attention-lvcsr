@@ -53,6 +53,9 @@ if __name__ == "__main__":
     search_parser = subparsers.add_parser(
         "search", parents=[params_parser],
         help="Perform beam search using speech model")
+    sample_parser = subparsers.add_parser(
+        "sample", parents=[params_parser],
+        help="Sample from the model")
 
     train_parser.add_argument(
         "save_path", default="chain",
@@ -91,12 +94,13 @@ if __name__ == "__main__":
         "--per-epochs", type=int, default=2,
         help="Perform validation of PER every n epochs")
 
-    search_parser.add_argument(
-        "load_path",
-        help="The path to load the model")
-    search_parser.add_argument(
-        "--part", default="valid",
-        help="Data to recognize with beam search")
+    for parser in [search_parser, sample_parser]:
+        parser.add_argument(
+            "load_path",
+            help="The path to load the model")
+        parser.add_argument(
+            "--part", default="valid",
+            help="Data to recognize with beam search")
     search_parser.add_argument(
         "--beam-size", default=10, type=int,
         help="Beam size")
@@ -123,7 +127,7 @@ if __name__ == "__main__":
 
     # Adds final positional arguments to all the subparsers
     for parser in [train_parser, test_parser, init_norm_parser,
-                   show_data_parser, search_parser]:
+                   show_data_parser, search_parser, sample_parser]:
         parser.add_argument(
             "config_path", help="The configuration path")
         parser.add_argument(
@@ -143,6 +147,7 @@ if __name__ == "__main__":
     init_norm_parser.set_defaults(func='init_norm')
     show_data_parser.set_defaults(func='show_data')
     search_parser.set_defaults(func='search')
+    sample_parser.set_defaults(func='sample')
     args = root_parser.parse_args().__dict__
 
     logging.basicConfig(
