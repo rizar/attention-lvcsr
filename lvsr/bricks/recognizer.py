@@ -306,9 +306,10 @@ class SpeechRecognizer(Initializable):
         """
         self.beam_size = beam_size
         generated = self.get_generate_graph()
+        cg = ComputationGraph(generated.values())
+        cg = cg.replace({self.n_steps: 3})
         samples, = VariableFilter(
-            applications=[self.generator.generate], name="outputs")(
-            ComputationGraph(generated['outputs']))
+            applications=[self.generator.generate], name="outputs")(cg)
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
