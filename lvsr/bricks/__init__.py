@@ -124,12 +124,6 @@ class RewardRegressionEmitter(AbstractEmitter):
     def __init__(self, criterion, eos_label, alphabet_size, **kwargs):
         self.criterion = criterion
         self.reward_op = RewardOp(eos_label, alphabet_size)
-        # Here we use a rather non-standard trick for Blocks:
-        # this brick adds an additional input to the computation graph.
-        # In order for the computation graph built by this brick
-        # to be used, this input should be provided, or this variable
-        # should be substituted.
-        self.groundtruth = tensor.lmatrix(self.GROUNDTRUTH)
         super(RewardRegressionEmitter, self).__init__(**kwargs)
 
     @application
@@ -141,7 +135,10 @@ class RewardRegressionEmitter(AbstractEmitter):
                 correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
             correct_mask = correct_mask.reshape(readouts.shape)
 
-            reward_matrix, gain_matrix = self.reward_op(self.groundtruth, outputs)
+            groundtruth = outputs.copy()
+            groundtruth.name = self.GROUNDTRUTH
+
+            reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)
             gain_matrix.name = self.GAIN_MATRIX
             reward_matrix.name = self.REWARD_MATRIX
 

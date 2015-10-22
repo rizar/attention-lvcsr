@@ -247,12 +247,13 @@ class SpeechRecognizer(Initializable):
             attended=encoded, attended_mask=encoded_mask)
 
     @application
-    def generate(self, recordings):
+    def generate(self, recordings, n_steps=None):
         encoded, encoded_mask = self.encoder.apply(
             input_=self.bottom.apply(recordings))
         encoded = self.top.apply(encoded)
         return self.generator.generate(
-            n_steps=self.n_steps, batch_size=recordings.shape[1],
+            n_steps=n_steps if n_steps is not None else self.n_steps,
+            batch_size=recordings.shape[1],
             attended=encoded,
             attended_mask=encoded_mask,
             as_dict=True)
@@ -262,27 +263,20 @@ class SpeechRecognizer(Initializable):
         param_values = load_parameter_values(path)
         SpeechModel(generated['outputs']).set_parameter_values(param_values)
 
-    def get_generate_graph(self):
-        result = self.generate(self.recordings)
-        return result
+    def get_generate_graph(self, n_steps=None):
+        return self.generate(self.recordings, n_steps)
 
     def get_cost_graph(self, batch=True):
         if batch:
             cost =  self.cost(
                 self.recordings, self.recordings_mask,
                 self.labels, self.labels_mask)
-            labels = self.labels
         else:
             recordings = self.single_recording[:, None, :]
-            labels = tensor.unbroadcast(self.single_transcription[:, None], 1)
             cost = self.cost(
                 recordings, tensor.ones_like(recordings[:, :, 0]),
-                labels, None)
-        cost_cg = ComputationGraph(cost)
-        groundtruth, = VariableFilter(
-            theano_name=RewardRegressionEmitter.GROUNDTRUTH)(cost_cg)
-        cost_cg = cost_cg.replace({groundtruth: labels})
-        return cost_cg
+                self.labels, None)
+        return ComputationGraph(cost)
 
     def analyze(self, recording, transcription):
         """Compute cost and aligment for a recording/transcription pair."""
@@ -316,9 +310,8 @@ class SpeechRecognizer(Initializable):
 
         """
         self.beam_size = beam_size
-        generated = self.get_generate_graph()
+        generated = self.get_generate_graph(3)
         cg = ComputationGraph(generated.values())
-        cg = cg.replace({self.n_steps: 3})
         samples, = VariableFilter(
             applications=[self.generator.generate], name="outputs")(cg)
         self._beam_search = BeamSearch(beam_size, samples)
