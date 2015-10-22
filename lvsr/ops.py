@@ -250,7 +250,7 @@ class RewardOp(Op):
         all_rewards = numpy.zeros(
             recognized.shape + (self.alphabet_size,), dtype='int64')
         all_gains = numpy.zeros(
-            groundtruth.shape + (self.alphabet_size,), dtype='int64')
+            recognized.shape + (self.alphabet_size,), dtype='int64')
         alphabet = list(range(self.alphabet_size))
         for index in range(batch_size):
             y = list(groundtruth[:, index])

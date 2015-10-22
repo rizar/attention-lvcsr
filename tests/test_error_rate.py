@@ -127,3 +127,7 @@ def test_reward_op():
         [-1, -1, -1, -1, -1, -1, -1]]])
     assert_equal(gains, gains_should_be)
 
+    # Test different lengths
+    result = op([[4]], [[1], [2]])
+    for r in result:
+        r.eval()
