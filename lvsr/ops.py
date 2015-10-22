@@ -9,6 +9,7 @@ import numpy
 import theano
 import itertools
 from theano import tensor, Op
+from theano.gradient import disconnected_type
 from fuel.utils import do_not_pickle_attributes
 from picklable_itertools.extras import equizip
 from collections import defaultdict, deque
@@ -267,6 +268,8 @@ class RewardOp(Op):
         output_storage[0][0] = all_rewards
         output_storage[1][0] = all_gains
 
+    def grad(self, *args, **kwargs):
+        return disconnected_type(), disconnected_type()
 
     def make_node(self, groundtruth, recognized):
         recognized = tensor.as_tensor_variable(recognized)
