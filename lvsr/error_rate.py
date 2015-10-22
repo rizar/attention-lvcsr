@@ -82,23 +82,23 @@ def reward_matrix(y, y_hat, alphabet):
 
     # Optimistic edit distance for every y_hat prefix
     optim_dist = dist.min(axis=0)
-    pess_acc_reward = dist.argmin(axis=0) - optim_dist
+    pess_reward = dist.argmin(axis=0) - optim_dist
 
     # Optimistic edit distance for every y_hat prefix plus a character
     optim_dist_char = numpy.tile(
         optim_dist[:, None], [1, len(alphabet)]) + 1
-    pess_acc_char_reward = numpy.tile(
-        pess_acc_reward[:, None], [1, len(alphabet)]) - 1
+    pess_char_reward = numpy.tile(
+        pess_reward[:, None], [1, len(alphabet)]) - 1
     for i in range(len(y)):
         for j in range(len(y_hat)):
             c = y_alphabet_indices[i]
             cand_dist = dist[i, j]
             if cand_dist < optim_dist_char[j, c]:
                 optim_dist_char[j, c] = cand_dist
-                pess_acc_char_reward[j, c] = i + 1 - cand_dist
+                pess_char_reward[j, c] = i + 1 - cand_dist
     # Note, that each character j to the minimal i
     # out of the best ones. That makes the reward estimate pessimistic.
-    return pess_acc_char_reward
+    return pess_char_reward
 
 def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
     y_hat_indices = [alphabet.index(c) for c in y_hat]
