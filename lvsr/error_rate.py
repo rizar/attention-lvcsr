@@ -78,6 +78,7 @@ def wer(y, y_hat):
 
 def reward_matrix(y, y_hat, alphabet):
     dist, _,  = _edit_distance_matrix(y, y_hat)
+    y_alphabet_indices = [alphabet.index(c) for c in y]
 
     # Optimistic edit distance for every y_hat prefix
     optim_dist = dist.min(axis=0)
@@ -90,15 +91,11 @@ def reward_matrix(y, y_hat, alphabet):
         pess_acc_reward[:, None], [1, len(alphabet)]) - 1
     for i in range(len(y)):
         for j in range(len(y_hat)):
-            for c in range(len(alphabet)):
-                # We consider appending a character c to y_hat
-                # after the character y_hat[j] and aligning to y[i].
-                # This means the first j characters of y_hat must
-                # produce the first i character of y.
-                cand_dist = dist[i, j] + (0 if alphabet[c] == y[i] else 1)
-                if cand_dist < optim_dist_char[j, c]:
-                    optim_dist_char[j, c] = cand_dist
-                    pess_acc_char_reward[j, c] = i + 1 - cand_dist
+            c = y_alphabet_indices[i]
+            cand_dist = dist[i, j]
+            if cand_dist < optim_dist_char[j, c]:
+                optim_dist_char[j, c] = cand_dist
+                pess_acc_char_reward[j, c] = i + 1 - cand_dist
     # Note, that each character j to the minimal i
     # out of the best ones. That makes the reward estimate pessimistic.
     return pess_acc_char_reward
