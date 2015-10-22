@@ -82,6 +82,8 @@ class SpeechRecognizer(Initializable):
         self.dec_transition = dec_transition
         self.dec_stack = dec_stack
 
+        self.criterion = criterion
+
         bottom_activation = bottom_activation
         post_merge_activation = post_merge_activation
 
@@ -151,7 +153,9 @@ class SpeechRecognizer(Initializable):
         if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
         elif criterion['name'].startswith('mse'):
-            emitter = RewardRegressionEmitter(criterion['name'], name="emitter")
+            emitter = RewardRegressionEmitter(
+                criterion['name'], eos_label, num_phonemes,
+                name="emitter")
         else:
             raise ValueError("Unknown criterion {}".format(criterion['name']))
         readout_config = dict(
@@ -264,20 +268,27 @@ class SpeechRecognizer(Initializable):
 
     def get_cost_graph(self, batch=True):
         if batch:
-            return self.cost(
+            cost =  self.cost(
                 self.recordings, self.recordings_mask,
                 self.labels, self.labels_mask)
-        recordings = self.single_recording[:, None, :]
-        labels = self.single_transcription[:, None]
-        return self.cost(
-            recordings, tensor.ones_like(recordings[:, :, 0]),
-            labels, None)
+            labels = self.labels
+        else:
+            recordings = self.single_recording[:, None, :]
+            labels = tensor.unbroadcast(self.single_transcription[:, None], 1)
+            cost = self.cost(
+                recordings, tensor.ones_like(recordings[:, :, 0]),
+                labels, None)
+        cost_cg = ComputationGraph(cost)
+        groundtruth, = VariableFilter(
+            theano_name=RewardRegressionEmitter.GROUNDTRUTH)(cost_cg)
+        cost_cg = cost_cg.replace({groundtruth: labels})
+        return cost_cg
 
     def analyze(self, recording, transcription):
         """Compute cost and aligment for a recording/transcription pair."""
         if not hasattr(self, "_analyze"):
-            cost = self.get_cost_graph(batch=False)
-            cg = ComputationGraph(cost)
+            cg = self.get_cost_graph(batch=False)
+            cost = cg.outputs[0]
             energies = VariableFilter(
                 bricks=[self.generator], name="energies")(cg)
             energies_output = [energies[0][:, 0, :] if energies

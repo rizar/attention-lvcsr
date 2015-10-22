@@ -12,6 +12,8 @@ from blocks.bricks.sequence_generators import (
     AbstractFeedback, LookupFeedback, AbstractEmitter)
 from blocks.utils import dict_union, check_theano_variable
 
+from lvsr.ops import RewardOp
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,9 +119,17 @@ class RewardRegressionEmitter(AbstractEmitter):
     REWARD_MATRIX = 'reward_matrix'
     GAIN_MSE_LOSS = 'gain_mse_loss'
     REWARD_MSE_LOSS = 'reward_mse_loss'
+    GROUNDTRUTH = 'groundtruth'
 
-    def __init__(self, criterion, **kwargs):
+    def __init__(self, criterion, eos_label, alphabet_size, **kwargs):
         self.criterion = criterion
+        self.reward_op = RewardOp(eos_label, alphabet_size)
+        # Here we use a rather non-standard trick for Blocks:
+        # this brick adds an additional input to the computation graph.
+        # In order for the computation graph built by this brick
+        # to be used, this input should be provided, or this variable
+        # should be substituted.
+        self.groundtruth = tensor.lmatrix(self.GROUNDTRUTH)
         super(RewardRegressionEmitter, self).__init__(**kwargs)
 
     @application
@@ -131,18 +141,8 @@ class RewardRegressionEmitter(AbstractEmitter):
                 correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
             correct_mask = correct_mask.reshape(readouts.shape)
 
-            # The default gain matrix is built assuming that
-            # outputs is the groundtruth sequence
-            gain_matrix = -1 * tensor.ones_like(readouts)
-            gain_matrix += 2 * correct_mask
+            reward_matrix, gain_matrix = self.reward_op(self.groundtruth, outputs)
             gain_matrix.name = self.GAIN_MATRIX
-            # Go head and substitute the gain matrix if you
-            # need a different one
-
-            reward_matrix = tensor.arange(readouts.shape[0])[:, None, None]
-            reward_matrix = tensor.tile(
-                reward_matrix, (1, readouts.shape[1], readouts.shape[2]))
-            reward_matrix = reward_matrix + 2 * correct_mask - 1
             reward_matrix.name = self.REWARD_MATRIX
 
             predicted_gains = readouts.reshape(temp_shape)[
@@ -150,7 +150,6 @@ class RewardRegressionEmitter(AbstractEmitter):
             predicted_gains = predicted_gains.reshape(outputs.shape)
             predicted_gains = tensor.concatenate([
                 tensor.zeros((1, outputs.shape[1])), predicted_gains[1:]])
-
             predicted_rewards = predicted_gains.cumsum(axis=0)
             predicted_rewards = readouts + predicted_rewards[:, :, None]
 

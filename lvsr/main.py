@@ -199,7 +199,8 @@ def train(config, save_path, bokeh_name,
         recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
         theano.config.compute_test_value = 'warn'
 
-    batch_cost = recognizer.get_cost_graph().sum()
+    cg = recognizer.get_cost_graph()
+    batch_cost = cg.outputs[0].sum().sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
@@ -326,8 +327,8 @@ def train(config, save_path, bokeh_name,
             [RemoveNotFinite(0.0)]))
 
     # Sometimes there are a few competing losses
-    other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
-
+    # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
+    other_losses = []
 
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
