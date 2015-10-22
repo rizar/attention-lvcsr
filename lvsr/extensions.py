@@ -3,10 +3,16 @@ from __future__ import print_function
 import subprocess
 import pkgutil
 import math
+import logging
 
 from theano.scan_module.scan_op import Scan
 
 from blocks.extensions import TrainingExtension, SimpleExtension
+from blocks.filter import VariableFilter
+from blocks.utils import shared_floatx_zeros
+
+logger = logging.getLogger(__name__)
+
 
 class CGStatistics(SimpleExtension):
 
@@ -78,3 +84,25 @@ class AdaptiveClipping(TrainingExtension):
         threshold = (confidence * threshold +
                      (1 - confidence) * self.initial_threshold)
         self.clipping_rule.threshold.set_value(threshold)
+
+
+class LogInputs(SimpleExtension):
+
+    def __init__(self, inputs_name, data, **kwargs):
+        self.accumulator = shared_floatx_zeros((2, 2), dtype='int64')
+        self.dataset = data.get_dataset('train')
+        self.inputs_name = inputs_name
+        kwargs.setdefault('before_training', True)
+        kwargs.setdefault('after_batch', True)
+        super(LogInputs, self).__init__(**kwargs)
+
+    def do(self, callback_name, *args):
+        if callback_name == 'before_training':
+            inputs, = VariableFilter(theano_name=self.inputs_name)(
+                self.main_loop.model)
+            self.main_loop.algorithm.updates.append(
+                (self.accumulator, inputs))
+        elif callback_name == 'after_batch':
+            inputs = self.accumulator.get_value()
+            for input_ in inputs.transpose():
+                logger.debug(self.dataset.pretty_print(input_))
