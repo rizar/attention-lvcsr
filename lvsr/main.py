@@ -37,7 +37,7 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
-from lvsr.bricks import OTHER_LOSS
+from lvsr.bricks import OTHER_LOSS, RewardRegressionEmitter
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
@@ -201,6 +201,15 @@ def train(config, save_path, bokeh_name,
         theano.config.compute_test_value = 'warn'
 
     cg = recognizer.get_cost_graph()
+
+    # Use predictions as inputs
+    samples = recognizer.generate(
+        recognizer.recordings, recognizer.labels.shape[0] + 10)['outputs']
+    cg = cg.replace({recognizer.labels: samples})
+    groundtruth, = VariableFilter(
+        theano_name=RewardRegressionEmitter.GROUNDTRUTH)(cg)
+    cg = cg.replace({groundtruth: recognizer.labels})
+
     batch_cost = cg.outputs[0].sum().sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
@@ -218,9 +227,9 @@ def train(config, save_path, bokeh_name,
     energies, = VariableFilter(
         applications=[r.generator.readout.readout], name="output_0")(
                 cost_cg)
-    bottom_output, = VariableFilter(
+    bottom_output = VariableFilter(
         applications=[r.bottom.apply], name="output")(
-                cost_cg)
+                cost_cg)[-1]
     attended, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended")(
                 cost_cg)
@@ -459,7 +468,7 @@ def train(config, save_path, bokeh_name,
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar(),
-        LogInputs(recognizer.labels.name, data),
+        LogInputs(samples, data),
         Printing(every_n_batches=1,
                     attribute_filter=PrintingFilterList()
                     )]

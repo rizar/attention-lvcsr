@@ -88,20 +88,18 @@ class AdaptiveClipping(TrainingExtension):
 
 class LogInputs(SimpleExtension):
 
-    def __init__(self, inputs_name, data, **kwargs):
+    def __init__(self, inputs, data, **kwargs):
         self.accumulator = shared_floatx_zeros((2, 2), dtype='int64')
         self.dataset = data.get_dataset('train')
-        self.inputs_name = inputs_name
+        self.inputs = inputs
         kwargs.setdefault('before_training', True)
         kwargs.setdefault('after_batch', True)
         super(LogInputs, self).__init__(**kwargs)
 
     def do(self, callback_name, *args):
         if callback_name == 'before_training':
-            inputs, = VariableFilter(theano_name=self.inputs_name)(
-                self.main_loop.model)
             self.main_loop.algorithm.updates.append(
-                (self.accumulator, inputs))
+                (self.accumulator, self.inputs))
         elif callback_name == 'after_batch':
             inputs = self.accumulator.get_value()
             for input_ in inputs.transpose():
