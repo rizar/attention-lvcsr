@@ -68,9 +68,9 @@ class Configuration(dict):
 
         self.multi_stage = 'stages' in config
         if self.multi_stage:
+            stages = [(k, v) for k, v in config['stages'].items() if v]
             ordered_changes = OrderedDict(
-                sorted(config['stages'].items(),
-                       key=lambda (k, v): v['number'],))
+                sorted(stages, key=lambda (k, v): v['number'],))
             self.ordered_stages = OrderedDict()
             for name, changes in ordered_changes.items():
                 current_config = copy.deepcopy(config)
