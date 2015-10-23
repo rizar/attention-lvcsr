@@ -145,6 +145,8 @@ def train(config, save_path, bokeh_name,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
 
+    train_conf = config['training']
+
     data = Data(**config['data'])
 
     # Build the main brick and initialize all parameters.
@@ -199,7 +201,15 @@ def train(config, save_path, bokeh_name,
         recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
         theano.config.compute_test_value = 'warn'
 
-    cg = recognizer.get_cost_graph(explore=True)
+    prediction = None
+    prediction_mask = None
+    explore_conf = train_conf.get('exploration')
+    if explore_conf:
+        prediction = recognizer.get_generate_graph(
+            n_steps=recognizer.labels.shape[0] + 10)['outputs']
+        prediction_mask = tensor.ones_like(prediction).astype(floatX)
+    cg = recognizer.get_cost_graph(
+        batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
         applications=[recognizer.cost], name='labels')(cg)
     labels_mask, = VariableFilter(
@@ -292,7 +302,6 @@ def train(config, save_path, bokeh_name,
                     width=120))
 
     # Define the training algorithm.
-    train_conf = config['training']
     clipping = StepClipping(train_conf['gradient_threshold'])
     clipping.threshold.name = "gradient_norm_threshold"
     rule_names = train_conf.get('rules', ['momentum'])
@@ -543,7 +552,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         groundtruth = dataset.decode(data[1])
         groundtruth_text = dataset.pretty_print(data[1])
         costs_groundtruth, weights_groundtruth = (
-            recognizer.analyze(data[0], data[1])[:2])
+            recognizer.analyze(data[0], data[1], data[1])[:2])
         weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
             weights_groundtruth)
         total_nll += costs_groundtruth.sum()
@@ -564,7 +573,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         recognized = dataset.decode(outputs[0])
         recognized_text = dataset.pretty_print(outputs[0])
         costs_recognized, weights_recognized = (
-            recognizer.analyze(data[0], outputs[0])[:2])
+            recognizer.analyze(data[0], data[1], outputs[0])[:2])
         weight_std_recognized, mono_penalty_recognized = weight_statistics(
             weights_recognized)
         error = min(1, wer(groundtruth, recognized))

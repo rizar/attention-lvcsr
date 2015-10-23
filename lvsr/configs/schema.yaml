@@ -114,6 +114,8 @@ map:
             rules:
                 sequence:
                     - type: str
+            exploration:
+                type: bool
             restart_from:
                 type: str
     stages:

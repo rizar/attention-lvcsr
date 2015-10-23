@@ -269,32 +269,44 @@ class SpeechRecognizer(Initializable):
         return self.generate(self.recordings, self.recordings_mask if use_mask else None,
                              n_steps)
 
-    def get_cost_graph(self, batch=True, explore=False):
+    def get_cost_graph(self, batch=True,
+                       prediction=None, prediction_mask=None):
         if batch:
-            self.generator.readout.emitter.groundtruth = self.labels
-            if explore:
-                samples = self.get_generate_graph(
-                    n_steps=self.labels.shape[0] + 10)['outputs']
-                mask = tensor.ones_like(samples, dtype=theano.config.floatX)
-            else:
-                samples = self.labels
-                mask = self.labels_mask
-            cost =  self.cost(
-                self.recordings, self.recordings_mask,
-                samples, mask)
+            recordings = self.recordings
+            recordings_mask = self.recordings_mask
+            groundtruth = self.labels
+            groundtruth_mask = self.labels_mask
         else:
             recordings = self.single_recording[:, None, :]
-            labels = self.single_transcription[:, None]
-            self.generator.readout.emitter.groundtruth = labels
-            cost = self.cost(
-                recordings, tensor.ones_like(recordings[:, :, 0]),
-                labels, None)
-        return ComputationGraph(cost)
+            recordings_mask = tensor.ones_like(recordings[:, :, 0])
+            groundtruth = self.single_transcription[:, None]
+            groundtruth_mask = None
+        if not prediction:
+            prediction = groundtruth
+        if not prediction_mask:
+            prediction_mask = groundtruth_mask
+        cost = self.cost(recordings, recordings_mask,
+                         prediction, prediction_mask)
+        cost_cg = ComputationGraph(cost)
+        placeholder, = VariableFilter(theano_name='groundtruth')(cost_cg)
+        cost_cg = cost_cg.replace({placeholder: groundtruth})
+        return cost_cg
 
-    def analyze(self, recording, transcription):
-        """Compute cost and aligment for a recording/transcription pair."""
+
+    def analyze(self, recording, groundtruth, prediction=None):
+        """Compute cost and aligment."""
+        input_values = [recording, groundtruth]
+        if prediction:
+            input_values.append(prediction)
         if not hasattr(self, "_analyze"):
-            cg = self.get_cost_graph(batch=False)
+            input_variables = [self.single_recording, self.single_transcription]
+            prediction_variable = tensor.lvector('prediction')
+            if prediction:
+                input_variables.append(prediction_variable)
+                cg = self.get_cost_graph(
+                    batch=False, prediction=prediction_variable[:, None])
+            else:
+                cg = self.get_cost_graph(batch=False)
             cost = cg.outputs[0]
             energies = VariableFilter(
                 bricks=[self.generator], name="energies")(cg)
@@ -312,9 +324,9 @@ class SpeechRecognizer(Initializable):
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
-                [self.single_recording, self.single_transcription],
+                input_variables,
                 [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output)
-        return self._analyze(recording, transcription)
+        return self._analyze(*input_values)
 
     def init_beam_search(self, beam_size):
         """Compile beam search and set the beam size.

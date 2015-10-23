@@ -136,8 +136,7 @@ class RewardRegressionEmitter(AbstractEmitter):
                 correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
             correct_mask = correct_mask.reshape(readouts.shape)
 
-            groundtruth = self.groundtruth if hasattr(self, 'groundtruth') else outputs
-            groundtruth = groundtruth.copy()
+            groundtruth = outputs.copy()
             groundtruth.name = self.GROUNDTRUTH
 
             reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)
