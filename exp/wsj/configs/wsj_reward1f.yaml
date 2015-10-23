@@ -1,0 +1,7 @@
+# A config to continue wsj_reward1 with another exploration strategy
+parent: $LVSR/exp/wsj/configs/wsj_reward1.yaml
+stages:
+    pretraining: null
+    main:
+        training:
+            num_epochs: 2
