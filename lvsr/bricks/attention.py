@@ -191,15 +191,15 @@ class SequenceContentAndConvAttention(GenericSequenceAttention, Initializable):
     @application
     def compute_weights(self, energies, attended_mask):
         if self.energy_normalizer == 'softmax':
-            logger.info("Using softmax attention weights normalization")
+            logger.debug("Using softmax attention weights normalization")
             energies = energies - energies.max(axis=0)
             unnormalized_weights = tensor.exp(energies)
         elif self.energy_normalizer == 'logistic':
-            logger.info("Using smoothfocus (logistic sigm) "
+            logger.debug("Using smoothfocus (logistic sigm) "
                         "attention weights normalization")
             unnormalized_weights = tensor.nnet.sigmoid(energies)
         elif self.energy_normalizer == 'relu':
-            logger.info("Using ReLU attention weights normalization")
+            logger.debug("Using ReLU attention weights normalization")
             unnormalized_weights = tensor.maximum(energies/1000., 0.0)
         else:
             raise Exception("Unknown energey_normalizer: {}"
