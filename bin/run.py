@@ -8,6 +8,8 @@ from picklable_itertools.extras import equizip
 from lvsr.config import Configuration
 
 logger = logging.getLogger(__name__)
+# DEBUG from pykwalify is a way too verbose
+logging.getLogger('pykwalify').setLevel(logging.INFO)
 
 
 class ParseChanges(argparse.Action):
