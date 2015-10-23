@@ -255,8 +255,13 @@ class RewardOp(Op):
         for index in range(batch_size):
             y = list(groundtruth[:, index])
             y_hat = list(recognized[:, index])
-            eos_pos = y.index(self.eos_label)
-            y = y[:eos_pos + 1]
+            try:
+                eos_pos = y.index(self.eos_label)
+                y = y[:eos_pos + 1]
+            except:
+                # Sometimes groundtruth is in fact also a prediction
+                # and in this case it might not have EOS label
+                pass
             rewards = reward_matrix(y, y_hat, alphabet)
             # pass freshly computed rewards to gain_matrix to speed things up
             # a bit

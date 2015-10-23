@@ -235,7 +235,8 @@ class SpeechRecognizer(Initializable):
             global_push_initialization_config(self,
                                               {'initial_states_init': self.initial_states_init})
 
-    @application
+    @application(inputs=['recordings', 'recordings_mask',
+                         'labels', 'labels_mask'])
     def cost(self, recordings, recordings_mask, labels, labels_mask):
         bottom_processed = self.bottom.apply(recordings)
         encoded, encoded_mask = self.encoder.apply(
@@ -247,9 +248,10 @@ class SpeechRecognizer(Initializable):
             attended=encoded, attended_mask=encoded_mask)
 
     @application
-    def generate(self, recordings, n_steps=None):
+    def generate(self, recordings, recordings_mask, n_steps=None):
         encoded, encoded_mask = self.encoder.apply(
-            input_=self.bottom.apply(recordings))
+            input_=self.bottom.apply(recordings),
+            mask=recordings_mask)
         encoded = self.top.apply(encoded)
         return self.generator.generate(
             n_steps=n_steps if n_steps is not None else self.n_steps,
@@ -263,19 +265,30 @@ class SpeechRecognizer(Initializable):
         param_values = load_parameter_values(path)
         SpeechModel(generated['outputs']).set_parameter_values(param_values)
 
-    def get_generate_graph(self, n_steps=None):
-        return self.generate(self.recordings, n_steps)
+    def get_generate_graph(self, use_mask=True, n_steps=None):
+        return self.generate(self.recordings, self.recordings_mask if use_mask else None,
+                             n_steps)
 
-    def get_cost_graph(self, batch=True):
+    def get_cost_graph(self, batch=True, explore=False):
         if batch:
+            self.generator.readout.emitter.groundtruth = self.labels
+            if explore:
+                samples = self.get_generate_graph(
+                    n_steps=self.labels.shape[0] + 10)['outputs']
+                mask = tensor.ones_like(samples, dtype=theano.config.floatX)
+            else:
+                samples = self.labels
+                mask = self.labels_mask
             cost =  self.cost(
                 self.recordings, self.recordings_mask,
-                self.labels, self.labels_mask)
+                samples, mask)
         else:
             recordings = self.single_recording[:, None, :]
+            labels = self.single_transcription[:, None]
+            self.generator.readout.emitter.groundtruth = labels
             cost = self.cost(
                 recordings, tensor.ones_like(recordings[:, :, 0]),
-                self.labels, None)
+                labels, None)
         return ComputationGraph(cost)
 
     def analyze(self, recording, transcription):
@@ -310,7 +323,7 @@ class SpeechRecognizer(Initializable):
 
         """
         self.beam_size = beam_size
-        generated = self.get_generate_graph(3)
+        generated = self.get_generate_graph(use_mask=False, n_steps=3)
         cg = ComputationGraph(generated.values())
         samples, = VariableFilter(
             applications=[self.generator.generate], name="outputs")(cg)
@@ -328,7 +341,7 @@ class SpeechRecognizer(Initializable):
         return outputs, search_costs
 
     def init_generate(self):
-        generated = self.get_generate_graph()
+        generated = self.get_generate_graph(use_mask=False)
         self._do_generate = theano.function(
             [self.recordings, self.n_steps], generated)
 

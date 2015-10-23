@@ -1,5 +1,6 @@
 import logging
 import numpy
+import theano
 from theano import tensor
 
 from blocks.roles import VariableRole, add_role
@@ -135,7 +136,8 @@ class RewardRegressionEmitter(AbstractEmitter):
                 correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
             correct_mask = correct_mask.reshape(readouts.shape)
 
-            groundtruth = outputs.copy()
+            groundtruth = self.groundtruth if hasattr(self, 'groundtruth') else outputs
+            groundtruth = groundtruth.copy()
             groundtruth.name = self.GROUNDTRUTH
 
             reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)

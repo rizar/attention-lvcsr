@@ -37,7 +37,6 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
-from lvsr.bricks import OTHER_LOSS, RewardRegressionEmitter
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
@@ -200,15 +199,11 @@ def train(config, save_path, bokeh_name,
         recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
         theano.config.compute_test_value = 'warn'
 
-    cg = recognizer.get_cost_graph()
-
-    # Use predictions as inputs
-    samples = recognizer.generate(
-        recognizer.recordings, recognizer.labels.shape[0] + 10)['outputs']
-    cg = cg.replace({recognizer.labels: samples})
-    groundtruth, = VariableFilter(
-        theano_name=RewardRegressionEmitter.GROUNDTRUTH)(cg)
-    cg = cg.replace({groundtruth: recognizer.labels})
+    cg = recognizer.get_cost_graph(explore=True)
+    labels, = VariableFilter(
+        applications=[recognizer.cost], name='labels')(cg)
+    labels_mask, = VariableFilter(
+        applications=[recognizer.cost], name='labels_mask')(cg)
 
     batch_cost = cg.outputs[0].sum().sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
@@ -246,7 +241,7 @@ def train(config, save_path, bokeh_name,
                                           "max_attended_mask_length")
     max_attended_length = named_copy(attended.shape[0],
                                      "max_attended_length")
-    max_num_phonemes = named_copy(r.labels.shape[0],
+    max_num_phonemes = named_copy(labels.shape[0],
                                   "max_num_phonemes")
     min_energy = named_copy(energies.min(), "min_energy")
     max_energy = named_copy(energies.max(), "max_energy")
@@ -254,11 +249,11 @@ def train(config, save_path, bokeh_name,
                                "mean_attended")
     mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                     "mean_bottom_output")
-    weights_penalty = named_copy(monotonicity_penalty(weights, r.labels_mask),
+    weights_penalty = named_copy(monotonicity_penalty(weights, labels_mask),
                                  "weights_penalty")
-    weights_entropy = named_copy(entropy(weights, r.labels_mask),
+    weights_entropy = named_copy(entropy(weights, labels_mask),
                                  "weights_entropy")
-    mask_density = named_copy(r.labels_mask.mean(),
+    mask_density = named_copy(labels_mask.mean(),
                               "mask_density")
     cg = ComputationGraph([
         cost, weights_penalty, weights_entropy,
@@ -334,7 +329,8 @@ def train(config, save_path, bokeh_name,
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
             # when nans are encountered.
-            [RemoveNotFinite(0.0)]))
+            [RemoveNotFinite(0.0)]),
+        on_unused_sources='warn')
 
     # Sometimes there are a few competing losses
     # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
@@ -372,7 +368,7 @@ def train(config, save_path, bokeh_name,
                                             'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
                 result.append(named_copy(aggregation.mean(
-                    var, recognizer.labels_mask.sum()), 'weights_entropy_per_label'))
+                    var, labels_mask.sum()), 'weights_entropy_per_label'))
             else:
                 result.append(var)
         return result
@@ -468,7 +464,7 @@ def train(config, save_path, bokeh_name,
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar(),
-        LogInputs(samples, data),
+        LogInputs(labels, data),
         Printing(every_n_batches=1,
                     attribute_filter=PrintingFilterList()
                     )]
@@ -490,6 +486,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
     data = Data(**config['data'])
 
+    logger.info("Recognizer initialization started")
     recognizer = SpeechRecognizer(
         data.recordings_source, data.labels_source,
         data.eos_label, data.num_features, data.num_labels,
@@ -497,6 +494,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         name='recognizer', **config["net"])
     recognizer.load_params(load_path)
     recognizer.init_beam_search(beam_size)
+    logger.info("Recognizer is initialized")
 
     dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
     stream = data.get_stream(part, batches=False, shuffle=False,
