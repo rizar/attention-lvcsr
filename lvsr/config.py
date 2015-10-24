@@ -80,12 +80,13 @@ class Configuration(dict):
                 self.ordered_stages[name] = current_config
 
         # Validate the configuration and the training stages
-        with open(os.path.expandvars(schema_path)) as schema_file:
-            schema = yaml.safe_load(schema_file)
-            core = Core(source_data=config, schema_data=schema)
-            core.validate(raise_exception=True)
-            if self.multi_stage:
-                for stage in self.ordered_stages.values():
-                    core = Core(source_data=stage, schema_data=schema)
-                    core.validate(raise_exception=True)
+        if schema_path:
+	        with open(os.path.expandvars(schema_path)) as schema_file:
+    	        schema = yaml.safe_load(schema_file)
+        	    core = Core(source_data=config, schema_data=schema)
+            	core.validate(raise_exception=True)
+	            if self.multi_stage:
+    	            for stage in self.ordered_stages.values():
+        	            core = Core(source_data=stage, schema_data=schema)
+            	        core.validate(raise_exception=True)
         super(Configuration, self).__init__(config)

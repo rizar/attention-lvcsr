@@ -42,6 +42,10 @@ map:
         map:
             dim_dec:
                 type: int
+            dim_matcher:
+                type: int
+            dim_output_embedding:
+                type: int
             dims_bidir:
                 sequence:
                     - type: int

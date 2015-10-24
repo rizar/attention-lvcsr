@@ -116,6 +116,7 @@ class SwitchOffLengthFilter(SimpleExtension):
         self.length_filter.max_length = None
         self.main_loop.log.current_row['length_filter_switched'] = True
 
+
 class LoadLog(TrainingExtension):
     """Loads a the log from the checkoint.
 
@@ -152,7 +153,7 @@ class LoadLog(TrainingExtension):
 
 
 def train(config, save_path, bokeh_name,
-          params, bokeh_server, test_tag, use_load_ext,
+          params, bokeh_server, no_bokeh, test_tag, use_load_ext,
           load_log, fast_start, validation_epochs, validation_batches,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
@@ -261,7 +262,7 @@ def train(config, save_path, bokeh_name,
         criterion_related_observables.append(
             named_copy(gain_matrix.max(), 'max_gain'))
 
-    batch_cost = cg.outputs[0].sum().sum()
+    batch_cost = cg.outputs[0].sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
@@ -507,12 +508,14 @@ def train(config, save_path, bokeh_name,
         validation._record_name('weights_penalty_per_recording')]]
     for loss in other_losses:
         channels[0].append(average_monitoring.record_name(loss))
+    if not no_bokeh:
+        extensions += [
+            Plot(bokeh_name if bokeh_name
+                 else os.path.basename(save_path),
+                 channels,
+                 every_n_batches=10,
+                 server_url=bokeh_server),]
     extensions += [
-        Plot(bokeh_name if bokeh_name
-             else os.path.basename(save_path),
-             channels,
-             every_n_batches=10,
-             server_url=bokeh_server),
         Checkpoint(save_path,
                    before_first_epoch=not fast_start, after_epoch=True,
                    every_n_batches=train_conf.get('save_every_n_batches'),
@@ -531,9 +534,6 @@ def train(config, save_path, bokeh_name,
         extensions.append(
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
-
-    extensions.append(Printing(every_n_batches=1,
-                               attribute_filter=PrintingFilterList()))
 
     # Save the config into the status
     log = TrainingLog()
