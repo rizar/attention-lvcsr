@@ -63,6 +63,9 @@ def test_gain_matrix():
             [-1,  1, -1],
             [-1, -1,  1],
             [-1, -1, -1]]))
+    # Two more interesting examples:
+    # gain_matrix('xxxxxxxy', 'aaaaaaaaa', 'abxyz')
+    # gain_matrix('abcwwdef', 'abcdef', 'abcdefww')
 
 
 def test_wer():
