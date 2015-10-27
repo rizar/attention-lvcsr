@@ -313,7 +313,7 @@ def train(config, save_path, bokeh_name,
         logger.info("Using AdaDelta for training")
         core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
     max_norm_rules = []
-    if reg_config.get('max_norm', False):
+    if reg_config.get('max_norm', False) > 0:
         logger.info("Apply MaxNorm")
         maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
         if reg_config.get('max_norm_exclude_lookup', False):
