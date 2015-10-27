@@ -1,4 +1,0 @@
-parent: $LVSR/lvsr/configs/wsj_jan_new.yaml
-net:
-    dec_stack: 2
-    dim_dec: 512

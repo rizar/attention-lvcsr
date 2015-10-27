@@ -1,5 +1,10 @@
 #!/usr/bin/env python
 
+"""
+Extract the unigram section from an ARPA language model and remove unigram
+weights, yielding an unweighted dictionary LM.
+"""
+
 import argparse
 import sys
 

@@ -1,0 +1,12 @@
+parent: $LVSR/exp/wsj/configs/wsj_bhd4.yaml
+
+net:
+  energy_normalizer: logistic
+
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object:blocks.initialization.Uniform {width: 0.1}
+    /recognizer/generator/att_trans/conv_att/energy_comp:
+        weights_init:
+            !!python/object/apply:blocks.initialization.Constant [0.]

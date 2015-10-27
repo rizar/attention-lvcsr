@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+#
+# Create a deterministic characters-to-words FST from an ARPA LM file.
+# This script produces two variants of the FST, with and without pushing
+# FST weights towards the starting state.
+#
+
 set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils

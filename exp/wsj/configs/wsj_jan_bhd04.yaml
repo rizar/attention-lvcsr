@@ -1,0 +1,24 @@
+parent: $LVSR/exp/wsj/configs/wsj_jan_wsj11v2.yaml
+
+net:
+    prior:
+      # params for type: expanding, which is the default!
+      initial_begin: 0
+      initial_end: 200
+      max_speed: 1.2
+      min_speed: 2.2
+
+      type: window_around_mean
+      #type: window_around_median
+      #type: expanding
+      #type: window_based_on_length_ratio
+      before: 150
+      after: 150
+
+initialization:
+    /recognizer:
+        weights_init:
+          !!python/object:blocks.initialization.Uniform {width: 0.1}
+    /recognizer/generator/att_trans/conv_att/energy_comp:
+        weights_init:
+          !!python/object/apply:blocks.initialization.Constant [0.]

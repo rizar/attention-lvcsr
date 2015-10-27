@@ -1,0 +1,25 @@
+parent: $LVSR/lvsr/configs/prototype.yaml
+data:
+    dataset: WSJ
+    normalization: wsj_norm.pkl
+    recordings_source: recordings
+    labels_source: labels
+net:
+    dim_dec: 250
+    dims_bidir: [250]
+    dims_bottom: [250]
+    attention_type: content_and_conv
+    conv_n: 100
+    prior:
+        initial_begin: 0
+        initial_end: 200
+        min_speed: 6
+        max_speed: 11
+    dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+training:
+    scale: 0.004
+initialization:
+    /recognizer:
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.1]

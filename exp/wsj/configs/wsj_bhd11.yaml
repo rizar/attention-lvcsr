@@ -1,0 +1,8 @@
+parent: $LVSR/exp/wsj/configs/wsj_bhd4.yaml
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object:blocks.initialization.Uniform {width: 0.1}
+regularization:
+    max_norm: 0
+

@@ -1,4 +1,7 @@
 #!/bin/bash
+# This script follow the kaldi recipe for WSJ but it writes data into an HDF5
+# file in Fuel format. We use `kaldi2fuel.py` utility to write into HDF5 file,
+# run `kaldi2fuel.py --help` for details.
 
 set -e
 
@@ -15,8 +18,8 @@ main_train_set=${datasets[0]}
 echo "Normalizing with respect to: $main_train_set" >&2
 
 #
-# kaldi_text is the text form Kaldi - it has some normalizations, more normalizations are needed for scoring
-#
+# kaldi_text is the text form Kaldi - it has some normalizations, more
+# normalizations are needed for scoring.
 
 for ds in ${datasets[*]}
 do
@@ -97,6 +100,8 @@ compute-global-cmvn-stats.py \
 
 apply-global-cmvn.py --global-stats=ark:tmp_fbank_dd_cmvn_stats ark:tmp_fbank40.ark ark:- | \
 	$LVSR/bin/kaldi2fuel.py $h5f add ark:- fbank_dd
+
+$LVSR/bin/kaldi2fuel.py $h5f add_attr fbank_dd cmvn ark:tmp_fbank_dd_cmvn_stats
 
 for dt in ${datasets[*]}
 do

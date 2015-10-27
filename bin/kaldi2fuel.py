@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+"""
+This script excnages data between a Fuel's HDF5 dataset and Kaldi's archives.
+"""
+
 import sys
 
 import numpy
@@ -13,7 +17,7 @@ import kaldi_io, kaldi_argparse
 from fuel.datasets.hdf5 import H5PYDataset
 
 
-def get_parser(datasets = {}):
+def get_parser(datasets={}):
     parser = kaldi_argparse.KaldiArgumentParser(description="""Exchange data between Kaldi and Fuel's hdf5 dataset""", )
     parser.add_argument("h5file")
     subparsers = parser.add_subparsers(help="action")
@@ -81,6 +85,17 @@ Note: this has to be performed after each source addition.
     parser_adddata.add_argument("sets", nargs="*", help="Subset definitions", default="")
     parser_adddata.set_defaults(func=add_sets)
 
+    parser_add_attr = subparsers.add_parser(
+        'add_attr', help="Add attribute to a data source")
+    parser_add_attr.add_argument(
+        "--type", default="BaseFloatVector",
+        help="Kaldi reader type, the value type can be later changed via the "
+             "--transform argument.")
+    parser_add_attr.add_argument("sourcename")
+    parser_add_attr.add_argument("attr")
+    parser_add_attr.add_argument("rxfilename")
+    parser_add_attr.set_defaults(func=add_attr)
+
     parser.add_standard_arguments()
     return parser
 
@@ -106,15 +121,14 @@ def add_from_iter(args, data_iter, peeked_val):
     with h5py.File(args.h5file, 'a') as h5file:
 
         if 'uttids' in h5file:
-            has_uttids=True
+            has_uttids = True
             uttids = h5file['uttids']
         else:
-            has_uttids=False
+            has_uttids = False
             uttids = h5file.create_dataset("uttids", (0,),
                                            dtype=h5py.special_dtype(vlen=unicode),
                                            maxshape=(None,))
             uttids.dims[0].label = 'batch'
-
 
         if has_uttids:
             num_utts = uttids.shape[0]
@@ -181,6 +195,15 @@ def add_from_iter(args, data_iter, peeked_val):
         if has_uttids:
             if utt_num != uttids.shape[0]-1:
                 raise Exception("Too few values provided: got {}, expected: {}".format(utt_num+1, uttids.shape[0]))
+
+
+def add_attr(args):
+    kaldi_reader = getattr(kaldi_io, "Sequential{}Reader".format(args.type))
+    with kaldi_reader(args.rxfilename) as data_iter:
+        with h5py.File(args.h5file, 'a') as h5file:
+            for name, data in data_iter:
+                attr_name = '{}_{}'.format(args.attr, name)
+                h5file[args.sourcename].attrs[attr_name] = data
 
 
 def read_data(args):
@@ -257,7 +280,7 @@ def add_sets(args):
             # but this would cause incompatibility with Kaldi, which keeps utterances sorted by uttid!
             #
             h5file[indices_name] = numpy.array(idxs)
-            indices_ref =  h5file[indices_name].ref
+            indices_ref = h5file[indices_name].ref
             split_dict[name] = {source : (-1, -1, indices_ref) for source in sources}
 
         h5file.attrs['split'] = H5PYDataset.create_split_array(split_dict)
@@ -274,19 +297,21 @@ def read_symbols(args):
     value_map.sort(order=('val',))
     numpy.savetxt(out_file, value_map, fmt="%s %d")
 
+
 def get_indices(h5file, subset=None):
     if subset is None:
         return range(h5file['uttids'].shape[0])
     else:
         return h5file[subset + '_indices']
 
+
 def read_raw_text(args):
+    out_file = sys.stdout
+    h5file = None
     try:
-        out_file = sys.stdout
         if args.wxfilename != '-':
             out_file=open(args.wxfilename, 'w')
 
-        h5file = None
         h5file = h5py.File(args.h5file, 'r')
 
         indices = get_indices(h5file, args.subset)
@@ -302,12 +327,12 @@ def read_raw_text(args):
             h5file.close()
 
 def read_text(args):
+    h5file = None
+    out_file = sys.stdout
     try:
-        out_file = sys.stdout
         if args.wxfilename != '-':
             out_file=open(args.wxfilename, 'w')
 
-        h5file = None
         h5file = h5py.File(args.h5file, 'r')
 
         indices = get_indices(h5file, args.subset)

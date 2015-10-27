@@ -10,7 +10,8 @@ def test_permutation():
         if shape[0] != shape[1]:
             assert_raises(ValueError, PermutationMatrix().generate, rng, shape)
             assert_raises(ValueError,
-                          PermutationMatrix(rng.permutation(shape[0])).generate,
+                          PermutationMatrix(
+                              rng.permutation(shape[0])).generate,
                           rng, shape)
         else:
             W = PermutationMatrix().generate(rng, shape)

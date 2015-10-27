@@ -114,3 +114,5 @@ map:
                 type: str
     stages:
         type: any
+    vocabulary:
+        type: str

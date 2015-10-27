@@ -3,6 +3,7 @@
 import argparse
 import sys
 
+
 def main(args):
     lexicon = {}
     spc = args.spc
@@ -29,7 +30,7 @@ def main(args):
             line = line.strip().split()
             uttid = line[0]
             text = ''.join(line[1:]).split(spc)
-            words = [lexicon.get(w,w) for w in text]
+            words = [lexicon.get(w, w) for w in text]
             o_f.write("{} {}\n".format(uttid, ' '.join(words)))
 
     finally:
@@ -38,12 +39,14 @@ def main(args):
         if o_f != sys.stdout:
             o_f.close()
 
-if __name__=='__main__':
-    parser = argparse.ArgumentParser(description="Extract the unigram section from a language model")
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description="Extract the unigram section from a language model")
     parser.add_argument("lexicon")
     parser.add_argument("in_file", default='-', nargs='?')
     parser.add_argument("out_file", default='-', nargs='?')
     parser.add_argument("--spc", default='<spc>',
-                        help='tha space token')
+                        help='the space token')
     args = parser.parse_args()
     main(args)

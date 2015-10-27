@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Learn to reverse the words in a text."""
+"""Train or apply an Attention-Based fully neural speech recognizer."""
 import logging
 import argparse
 import pprint
@@ -72,6 +72,9 @@ if __name__ == "__main__":
     train_parser.add_argument(
         "--fast-start", default=False, action="store_true",
         help="Skip initial validation cost and PER computatoins")
+    train_parser.add_argument(
+        "--start-stage", default="", type=str,
+        help="The name of the stage to start from")
     train_parser.add_argument(
         "--test-tag", default=None, type=int,
         help="Tag the batch with test data for debugging?")

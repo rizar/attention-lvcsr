@@ -1,8 +1,0 @@
-parent: $LVSR/lvsr/configs/timit_bothgru_cumsum_250.yaml
-net:
-    attention_type: content_and_conv
-    conv_n: 100
-    bottom_activation: relu
-data:
-    feature_name: fbank_and_delta_delta
-    normalization: timit_delta_norm.pkl

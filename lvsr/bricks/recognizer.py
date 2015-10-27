@@ -278,9 +278,10 @@ class SpeechRecognizer(Initializable):
                 applications=[self.encoder.apply], roles=[OUTPUT],
                 name="encoded")(cg)
             ctc_matrix_output = []
-            if len(self.generator.readout.source_names) == 1:
-                ctc_matrix_output = [
-                    self.generator.readout.readout(weighted_averages=states)[:, 0, :]]
+            # Temporarily disabled for compatibility with LM code
+            # if len(self.generator.readout.source_names) == 1:
+            #    ctc_matrix_output = [
+            #        self.generator.readout.readout(weighted_averages=states)[:, 0, :]]
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
@@ -321,6 +322,8 @@ class SpeechRecognizer(Initializable):
     def __setstate__(self, state):
         self.__dict__.update(state)
         # To use bricks used on a GPU first on a CPU later
-        emitter = self.generator.readout.emitter
-        if hasattr(emitter, '_theano_rng'):
+        try:
+            emitter = self.generator.readout.emitter
             del emitter._theano_rng
+        except:
+            pass
