@@ -37,6 +37,7 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
+from lvsr.bricks import RewardRegressionEmitter
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
@@ -214,6 +215,15 @@ def train(config, save_path, bokeh_name,
         applications=[recognizer.cost], name='labels')(cg)
     labels_mask, = VariableFilter(
         applications=[recognizer.cost], name='labels_mask')(cg)
+    criterion_related_observables = []
+    gain_matrix = VariableFilter(
+        theano_name=RewardRegressionEmitter.GAIN_MATRIX)(cg)
+    if len(gain_matrix):
+        gain_matrix, = gain_matrix
+        criterion_related_observables.append(
+            named_copy(gain_matrix.min(), 'min_gain'))
+        criterion_related_observables.append(
+            named_copy(gain_matrix.max(), 'max_gain'))
 
     batch_cost = cg.outputs[0].sum().sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
@@ -365,6 +375,7 @@ def train(config, save_path, bokeh_name,
         algorithm.total_step_norm, clipping.threshold,
         max_recording_length,
         max_attended_length, max_attended_mask_length]
+    primary_observables += criterion_related_observables
 
     def attach_aggregation_schemes(variables):
         # Aggregation specification has to be factored out as a separate
