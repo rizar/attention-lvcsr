@@ -664,7 +664,7 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
                          + pprint.pformat(stage_config, width=120))
             stage_save_path = '{}/{}.zip'.format(save_path, stage_name)
             stage_bokeh_name = '{}_{}'.format(save_path, stage_name)
-            if number:
+            if number and not params:
                 stage_params = '{}/{}{}.zip'.format(
                     save_path, stages[number - 1][0],
                     stage_config['training'].get('restart_from', ''))
