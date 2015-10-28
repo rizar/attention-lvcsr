@@ -94,11 +94,11 @@ $LVSR/bin/kaldi2fuel.py $h5f add_text --applymap tmp_chars.txt tmp_chars_all cha
 compute-fbank-feats --use-energy=true --num-mel-bins=40 "scp:tmp_convert_all_wav.scp" 	"ark:-" | \
 	add-deltas ark:- ark,scp:tmp_fbank40.ark,tmp_fbank40.scp
 
-compute-global-cmvn-stats.py \
+scripts/compute-global-cmvn-stats.py \
 	"scp:utils/filter_scp.pl data/$main_train_set/wav.scp tmp_fbank40.scp|" \
 	ark:tmp_fbank_dd_cmvn_stats
 
-apply-global-cmvn.py --global-stats=ark:tmp_fbank_dd_cmvn_stats ark:tmp_fbank40.ark ark:- | \
+scripts/apply-global-cmvn.py --global-stats=ark:tmp_fbank_dd_cmvn_stats ark:tmp_fbank40.ark ark:- | \
 	$LVSR/bin/kaldi2fuel.py $h5f add ark:- fbank_dd
 
 $LVSR/bin/kaldi2fuel.py $h5f add_attr fbank_dd cmvn ark:tmp_fbank_dd_cmvn_stats
