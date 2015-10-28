@@ -43,7 +43,7 @@ from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
 from lvsr.extensions import (
-    CGStatistics, AdaptiveClipping, LogInputs)
+    CGStatistics, AdaptiveClipping, LogInputsGains)
 from lvsr.error_rate import wer
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel
@@ -484,10 +484,9 @@ def train(config, save_path, bokeh_name,
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar(),
-        LogInputs(labels, data),
+        LogInputsGains(labels, cg, recognizer.generator.readout.emitter, data),
         Printing(every_n_batches=1,
-                    attribute_filter=PrintingFilterList()
-                    )]
+                 attribute_filter=PrintingFilterList())]
 
     # Save the config into the status
     log = TrainingLog()

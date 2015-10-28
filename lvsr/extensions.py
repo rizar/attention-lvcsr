@@ -4,11 +4,13 @@ import subprocess
 import pkgutil
 import math
 import logging
+from picklable_itertools.extras import equizip
 
 from theano.scan_module.scan_op import Scan
 
 from blocks.extensions import TrainingExtension, SimpleExtension
 from blocks.filter import VariableFilter
+from blocks.roles import INPUT
 from blocks.utils import shared_floatx_zeros
 
 logger = logging.getLogger(__name__)
@@ -104,3 +106,32 @@ class LogInputs(SimpleExtension):
             inputs = self.accumulator.get_value()
             for input_ in inputs.transpose():
                 logger.debug(self.dataset.pretty_print(input_))
+
+
+class LogInputsGains(SimpleExtension):
+    def __init__(self, inputs, cg, reward_emitter, data, **kwargs):
+        self.input_accumulator = shared_floatx_zeros((2, 2), dtype='int64')
+        self.gain_accumulator = shared_floatx_zeros((2, 2))
+        self.dataset = data.get_dataset('train')
+        self.inputs = inputs
+
+        gains, _ = VariableFilter(applications=[reward_emitter.cost],
+                                roles=[INPUT])(cg.variables)
+        self.gains = gains
+        kwargs.setdefault('before_training', True)
+        kwargs.setdefault('after_batch', True)
+        super(LogInputsGains, self).__init__(**kwargs)
+
+    def do(self, callback_name, *args):
+        if callback_name == 'before_training':
+            self.main_loop.algorithm.updates.append(
+                (self.input_accumulator, self.inputs))
+            self.main_loop.algorithm.updates.append(
+                (self.gain_accumulator, self.gains))
+        elif callback_name == 'after_batch':
+            inputs = self.input_accumulator.get_value()
+            gains = self.gain_accumulator.get_value()
+            for input_, gain in equizip(inputs.transpose(), gains.transpose()):
+                pretty_input = self.dataset.pretty_print(input_)
+                logger.debug(" ".join(pretty_input))
+                logger.debug(("%0.2f" * gain.shape[0]) % gain)
