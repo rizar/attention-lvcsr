@@ -41,7 +41,7 @@ Check that `$LVSR` environment variable points to this repository and
 4. Decode the model on the validation and training datasets. 
 
    ```
-   $LVSR/exp/wsj/decode.sh wsj_paper6 <beam-size>
+   $LVSR/exp/wsj/decode.sh wsj_paper6 <part> <beam-size>
    ```
 
    We typically use beam size 200 to get the best performance. However, with beam size 
@@ -50,6 +50,7 @@ Check that `$LVSR` environment variable points to this repository and
    model option, beam size and subset there are alignment images and 
    `report.txt` which contains transcripts, approximate CER and WER and other 
    auxiliary information.
+   <part> specifies the dataset to decode. For example it can take on the value 'valid'
 
 5. Score the recognized transcripts:
 
