@@ -295,7 +295,6 @@ def train(config, save_path, bokeh_name,
         noise_subjects = [p for p in cg.parameters if p not in attention_params]
         regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
     regularized_cost = regularized_cg.outputs[0]
-    regularized_weights_penalty = regularized_cg.outputs[1]
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
@@ -340,7 +339,6 @@ def train(config, save_path, bokeh_name,
                         maxnorm_subjects)]
     algorithm = GradientDescent(
         cost=regularized_cost +
-            reg_config.get("penalty_coof", .0) * regularized_weights_penalty / batch_size +
             reg_config.get("decay", .0) *
             l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
         parameters=params.values(),
@@ -681,6 +679,8 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
                     stage_config['training'].get('restart_from', ''))
             else:
                 stage_params = params
+                # Avoid loading the params twice
+                params = None
 
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)
