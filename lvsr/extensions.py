@@ -123,7 +123,7 @@ class LogInputsGains(SimpleExtension):
             applications=[reward_emitter.cost],
             roles=[INPUT], name='readouts')(cg.variables)
         self.reward, = VariableFilter(
-            name=reward_emitter.GAIN_MATRIX)(cg.variables)
+            theano_name=reward_emitter.GAIN_MATRIX)(cg.variables)
         kwargs.setdefault('before_training', True)
         kwargs.setdefault('after_batch', True)
         super(LogInputsGains, self).__init__(**kwargs)
