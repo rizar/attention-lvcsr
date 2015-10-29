@@ -115,7 +115,7 @@ class LogInputsGains(SimpleExtension):
     def __init__(self, inputs, cg, reward_emitter, data, **kwargs):
         self.input_accumulator = shared_floatx_zeros((2, 2), dtype='int64')
         self.gain_accumulator = shared_floatx_zeros((2, 2, 2))
-        self.reward_accumulator = shared_floatx_zeros((2, 2, 2))
+        self.reward_accumulator = shared_floatx_zeros((2, 2, 2), dtype='int64')
         self.dataset = data.get_dataset('train')
         self.inputs = inputs
 
