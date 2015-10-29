@@ -43,7 +43,7 @@ from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
 from lvsr.extensions import (
-    CGStatistics, AdaptiveClipping, LogInputs)
+    CGStatistics, AdaptiveClipping, LogInputsGains)
 from lvsr.error_rate import wer
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel
@@ -188,20 +188,6 @@ def train(config, save_path, bokeh_name,
         return result
     logger.info(pprint.pformat(show_init_scheme(recognizer)))
 
-    if params:
-        logger.info("Load parameters from " + params)
-        recognizer.load_params(params)
-
-    if test_tag:
-        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
-        __stream = data.get_stream("train")
-        __data = next(__stream.get_epoch_iterator(as_dict=True))
-        recognizer.recordings.tag.test_value = __data[data.recordings_source]
-        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
-        recognizer.labels.tag.test_value = __data[data.labels_source]
-        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
-        theano.config.compute_test_value = 'warn'
-
     prediction = None
     prediction_mask = None
     explore_conf = train_conf.get('exploration')
@@ -303,11 +289,11 @@ def train(config, save_path, bokeh_name,
     # because of some bug a parameter is not in the computation
     # graph.
     model = SpeechModel(regularized_cost)
-    params = model.get_parameter_dict()
+    parameters = model.get_parameter_dict()
     logger.info("Parameters:\n" +
                 pprint.pformat(
-                    [(key, params[key].get_value().shape) for key
-                        in sorted(params.keys())],
+                    [(key, parameters[key].get_value().shape) for key
+                        in sorted(parameters.keys())],
                     width=120))
 
     # Define the training algorithm.
@@ -329,10 +315,10 @@ def train(config, save_path, bokeh_name,
             maxnorm_subjects = [v for v in maxnorm_subjects
                                 if not isinstance(get_brick(v), LookupTable)]
         logger.info("Parameters covered by MaxNorm:\n"
-                    + pprint.pformat([name for name, p in params.items()
+                    + pprint.pformat([name for name, p in parameters.items()
                                         if p in maxnorm_subjects]))
         logger.info("Parameters NOT covered by MaxNorm:\n"
-                    + pprint.pformat([name for name, p in params.items()
+                    + pprint.pformat([name for name, p in parameters.items()
                                         if not p in maxnorm_subjects]))
         max_norm_rules = [
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
@@ -341,13 +327,27 @@ def train(config, save_path, bokeh_name,
         cost=regularized_cost +
             reg_config.get("decay", .0) *
             l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
-        parameters=params.values(),
+        parameters=parameters.values(),
         step_rule=CompositeRule(
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
             # when nans are encountered.
             [RemoveNotFinite(0.0)]),
         on_unused_sources='warn')
+
+    if params:
+        logger.info("Load parameters from " + params)
+        recognizer.load_params(params)
+
+    if test_tag:
+        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
+        __stream = data.get_stream("train")
+        __data = next(__stream.get_epoch_iterator(as_dict=True))
+        recognizer.recordings.tag.test_value = __data[data.recordings_source]
+        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
+        recognizer.labels.tag.test_value = __data[data.labels_source]
+        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
+        theano.config.compute_test_value = 'warn'
 
     # Sometimes there are a few competing losses
     # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
@@ -359,7 +359,7 @@ def train(config, save_path, bokeh_name,
     observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
         clipping.threshold]
-    for name, param in params.items():
+    for name, param in parameters.items():
         num_elements = numpy.product(param.get_value().shape)
         norm = param.norm(2) / num_elements ** 0.5
         grad_norm = algorithm.gradients[param].norm(2) / num_elements ** 0.5
@@ -482,10 +482,9 @@ def train(config, save_path, bokeh_name,
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar(),
-        LogInputs(labels, data),
+        LogInputsGains(labels, cg, recognizer.generator.readout.emitter, data),
         Printing(every_n_batches=1,
-                    attribute_filter=PrintingFilterList()
-                    )]
+                 attribute_filter=PrintingFilterList())]
 
     # Save the config into the status
     log = TrainingLog()
