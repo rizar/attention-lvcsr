@@ -110,7 +110,7 @@ class LogInputs(SimpleExtension):
 
 
 class LogInputsGains(SimpleExtension):
-    MAX_LEGTH = 200
+    MAX_LENGTH = 200
 
     def __init__(self, inputs, cg, reward_emitter, data, **kwargs):
         self.input_accumulator = shared_floatx_zeros((2, 2), dtype='int64')
@@ -123,7 +123,7 @@ class LogInputsGains(SimpleExtension):
             applications=[reward_emitter.cost],
             roles=[INPUT], name='readouts')(cg.variables)
         self.reward, = VariableFilter(
-            name=reward_emitter.REWARD_MATRIX)(cg.variables)
+            name=reward_emitter.GAIN_MATRIX)(cg.variables)
         kwargs.setdefault('before_training', True)
         kwargs.setdefault('after_batch', True)
         super(LogInputsGains, self).__init__(**kwargs)
@@ -146,8 +146,8 @@ class LogInputsGains(SimpleExtension):
                 pretty_input = self.dataset.pretty_print(input_)
                 gain_used = gain[numpy.arange(gain.shape[0]), input_]
                 reward_used = reward[numpy.arange(reward.shape[0]), input_]
-                logger.debug((("   %s") % tuple(pretty_input))[:self.MAX_LEGTH])
+                logger.debug((("   %s") % tuple(pretty_input))[:self.MAX_LENGTH])
                 logger.debug((("%+0.1f" * gain.shape[0])
-                              % tuple(gain_used))[:self.MAX_LEGTH])
+                              % tuple(gain_used))[:self.MAX_LENGTH])
                 logger.debug((("%+0.1f" * reward_used.shape[0])
-                              % tuple(reward_used))[:self.MAX_LEGTH])
+                              % tuple(reward_used))[:self.MAX_LENGTH])
