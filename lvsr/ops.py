@@ -262,7 +262,7 @@ class RewardOp(Op):
                 # Sometimes groundtruth is in fact also a prediction
                 # and in this case it might not have EOS label
                 pass
-            rewards = reward_matrix(y, y_hat, alphabet)
+            rewards = reward_matrix(y, y_hat, alphabet, self.eos_label)
             # pass freshly computed rewards to gain_matrix to speed things up
             # a bit
             gains = gain_matrix(y, y_hat, alphabet,
