@@ -146,7 +146,8 @@ class LogInputsGains(SimpleExtension):
                 pretty_input = self.dataset.pretty_print(input_)
                 gain_used = gain[numpy.arange(gain.shape[0]), input_]
                 reward_used = reward[numpy.arange(reward.shape[0]), input_]
-                logger.debug((("   %s") % tuple(pretty_input))[:self.MAX_LENGTH])
+                logger.debug((("   %s" * len(pretty_input))
+                              % tuple(pretty_input))[:self.MAX_LENGTH])
                 logger.debug((("%+0.1f" * gain.shape[0])
                               % tuple(gain_used))[:self.MAX_LENGTH])
                 logger.debug((("%+0.1f" * reward_used.shape[0])
