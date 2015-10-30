@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+#
+# The purpose of the script is to add a <bol> token to an
+# existing dataset. One might want to do this
+# because generating one from scratch takes quite a bit of time.
 
 import sys
 import tables
