@@ -12,13 +12,26 @@ class H5PYAudioDataset(H5PYDataset):
         self.num_characters = len(self.num2char)
         self.eos_label = self.char2num['<eol>']
 
+    def decode_raw(self, labels):
+        return [self.num2char[label] for label in labels]
+
     def decode(self, labels):
-        return [self.num2char[label] for label in labels
-                if label != self.eos_label]
+        return [ind for ind in self.decode_raw(labels)
+                if ind != self.eos_label]
 
     def pretty_print(self, labels):
         labels = self.decode(labels)
-        labels = ''.join((' ' if chr_=='<spc>' else chr_ for chr_ in labels))
+        labels = ''.join((' ' if chr_ == '<spc>' else chr_ for chr_ in labels))
+        return labels
+
+    def monospace_print(self, labels):
+        labels = self.decode_raw(labels)
+
+        labels = ('_' if label == '<spc>' else label for label in labels)
+        labels = ('~' if label == '<noise>' else label for label in labels)
+        labels = ('$' if label == '<eol>' else label
+                  for label in labels)
+        labels = ''.join((chr_ for chr_ in labels))
         return labels
 
 

@@ -143,7 +143,7 @@ class LogInputsGains(SimpleExtension):
             for input_, gain, reward in equizip(inputs.transpose(),
                                         gains.transpose(1, 0, 2),
                                         rewards.transpose(1, 0, 2)):
-                pretty_input = self.dataset.pretty_print(input_)
+                pretty_input = self.dataset.monospace_print(input_)
                 gain_used = gain[numpy.arange(gain.shape[0]), input_]
                 reward_used = reward[numpy.arange(reward.shape[0]), input_]
                 logger.debug((("   %s" * len(pretty_input))
