@@ -11,6 +11,7 @@ class H5PYAudioDataset(H5PYDataset):
         self.num_features = self._file_handle[self.sources[0] + '_shapes'][0][1]
         self.num_characters = len(self.num2char)
         self.eos_label = self.char2num['<eol>']
+        self.bos_label = self.char2num['<bol>']
 
     def decode(self, labels, keep_eos=False):
         return [self.num2char[label] for label in labels

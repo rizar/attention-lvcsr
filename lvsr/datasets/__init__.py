@@ -158,7 +158,7 @@ class Data(object):
 
     @property
     def num_labels(self):
-        return self.get_dataset("train").num_characters + 1
+        return self.get_dataset("train").num_characters
 
     @property
     def character_map(self):
@@ -176,7 +176,7 @@ class Data(object):
 
     @property
     def bos_label(self):
-        return self.num_labels - 1
+        return self.get_dataset('train').bos_label
 
     def decode(self, labels):
         return [self.character_map[label] for label in labels
