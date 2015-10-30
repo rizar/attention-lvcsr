@@ -33,5 +33,3 @@ class H5PYAudioDataset(H5PYDataset):
                   for label in labels)
         labels = ''.join((chr_ for chr_ in labels))
         return labels
-
-
