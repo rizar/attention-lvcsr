@@ -22,6 +22,7 @@ class H5PYAudioDataset(H5PYDataset):
         labels = ''.join((' ' if chr_ == '<spc>' else chr_ for chr_ in labels))
         return labels
 
+
     def monospace_print(self, labels):
         labels = self.decode(labels, keep_eos=True)
 

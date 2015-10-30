@@ -179,8 +179,10 @@ class Data(object):
         return self.get_dataset('train').bos_label
 
     def decode(self, labels):
-        return [self.character_map[label] for label in labels
-                if label not in [self.bos_label, self.eos_label]]
+        return self.get_dataset('train').decode(labels)
+
+    def pretty_print(self, labels):
+        return self.get_dataset('train').pretty_print(labels)
 
     def get_dataset(self, part, add_sources=()):
         wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}

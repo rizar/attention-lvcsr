@@ -513,7 +513,6 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     recognizer.init_beam_search(beam_size)
     logger.info("Recognizer is initialized")
 
-    dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
     stream = data.get_stream(part, batches=False, shuffle=False,
                                 add_sources=(data.uttid_source,))
     it = stream.get_epoch_iterator()
@@ -553,14 +552,14 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                     else vocabulary['<UNK>'] for word in words]
         return words
 
-    for number, data in enumerate(it):
+    for number, example in enumerate(it):
         if decode_only and number not in decode_only:
             continue
-        print("Utterance {} ({})".format(number, data[2]), file=print_to)
-        groundtruth = data.decode(data[1])
-        groundtruth_text = dataset.pretty_print(data[1])
+        print("Utterance {} ({})".format(number, example[2]), file=print_to)
+        groundtruth = data.decode(example[1])
+        groundtruth_text = data.pretty_print(example[1])
         costs_groundtruth, weights_groundtruth = (
-            recognizer.analyze(data[0], data[1], data[1])[:2])
+            recognizer.analyze(example[0], example[1], example[1])[:2])
         weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
             weights_groundtruth)
         total_nll += costs_groundtruth.sum()
@@ -576,12 +575,12 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
         before = time.time()
         outputs, search_costs = recognizer.beam_search(
-            data[0], char_discount=char_discount)
+            example[0], char_discount=char_discount)
         took = time.time() - before
         recognized = data.decode(outputs[0])
-        recognized_text = dataset.pretty_print(outputs[0])
+        recognized_text = data.pretty_print(outputs[0])
         costs_recognized, weights_recognized = (
-            recognizer.analyze(data[0], data[1], outputs[0])[:2])
+            recognizer.analyze(example[0], example[1], outputs[0])[:2])
         weight_std_recognized, mono_penalty_recognized = weight_statistics(
             weights_recognized)
         error = min(1, wer(groundtruth, recognized))
@@ -602,7 +601,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                 alignments_path, "{}.recognized.png".format(number)))
 
         if decoded_file is not None:
-            print("{} {}".format(data[2], ' '.join(recognized)), file=decoded_file)
+            print("{} {}".format(example[2], ' '.join(recognized)), file=decoded_file)
 
         print("Decoding took:", took, file=print_to)
         print("Beam search cost:", search_costs[0], file=print_to)
