@@ -168,6 +168,16 @@ def train(config, save_path, bokeh_name,
             brick.push_initialization_config()
     recognizer.initialize()
 
+    if test_tag:
+        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
+        __stream = data.get_stream("train")
+        __data = next(__stream.get_epoch_iterator(as_dict=True))
+        recognizer.recordings.tag.test_value = __data[data.recordings_source]
+        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
+        recognizer.labels.tag.test_value = __data[data.labels_source]
+        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
+        theano.config.compute_test_value = 'warn'
+
     # Separate attention_params to be handled differently
     # when regularization is applied
     attention = recognizer.generator.transition.attention
@@ -194,7 +204,12 @@ def train(config, save_path, bokeh_name,
     if explore_conf:
         prediction = recognizer.get_generate_graph(
             n_steps=recognizer.labels.shape[0] + 10)['outputs']
-        prediction_mask = tensor.ones_like(prediction).astype(floatX)
+        prediction_mask = tensor.lt(
+            tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
+            1).astype(floatX)
+        prediction_mask = tensor.roll(prediction_mask, 1, 0)
+        prediction_mask = tensor.set_subtensor(
+            prediction_mask[0, :], tensor.ones_like(prediction_mask[0, :]))
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
@@ -338,16 +353,6 @@ def train(config, save_path, bokeh_name,
     if params:
         logger.info("Load parameters from " + params)
         recognizer.load_params(params)
-
-    if test_tag:
-        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
-        __stream = data.get_stream("train")
-        __data = next(__stream.get_epoch_iterator(as_dict=True))
-        recognizer.recordings.tag.test_value = __data[data.recordings_source]
-        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
-        recognizer.labels.tag.test_value = __data[data.labels_source]
-        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
-        theano.config.compute_test_value = 'warn'
 
     # Sometimes there are a few competing losses
     # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)

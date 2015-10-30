@@ -76,7 +76,7 @@ def wer(y, y_hat):
     return edit_distance(y, y_hat) / float(len(y))
 
 
-def reward_matrix(y, y_hat, alphabet):
+def reward_matrix(y, y_hat, alphabet, eos_label=None):
     dist, _,  = _edit_distance_matrix(y, y_hat)
     y_alphabet_indices = [alphabet.index(c) for c in y]
 
@@ -96,6 +96,9 @@ def reward_matrix(y, y_hat, alphabet):
             if cand_dist < optim_dist_char[j, c]:
                 optim_dist_char[j, c] = cand_dist
                 pess_char_reward[j, c] = -cand_dist
+    for j in range(len(y_hat)):
+        if eos_label:
+            pess_char_reward[j, eos_label] = -dist[len(y), j]
     # Note, that each character j to the minimal i
     # out of the best ones. That makes the reward estimate pessimistic.
     return pess_char_reward
@@ -105,4 +108,6 @@ def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
     reward = (given_reward_matrix.copy() if given_reward_matrix is not None
               else reward_matrix(y, y_hat, alphabet))
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
+    reward = numpy.maximum(-3, reward)
+    reward = numpy.minimum(0, reward)
     return reward
