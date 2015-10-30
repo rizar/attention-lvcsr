@@ -267,15 +267,19 @@ class RewardOp(Op):
                 y_hat_trunc = y_hat[:y_hat_eos_pos + 1]
             else:
                 y_hat_trunc = y_hat
-            rewards = reward_matrix(y, y_hat_trunc, alphabet, self.eos_label)
+            rewards_trunc = reward_matrix(
+                y, y_hat_trunc, alphabet, self.eos_label)
             # pass freshly computed rewards to gain_matrix to speed things up
             # a bit
-            gains = gain_matrix(y, y_hat, alphabet,
-                                given_reward_matrix=rewards)
-            curr_gains = numpy.ones((len(y_hat), len(alphabet))) * -1000
-            curr_gains[:(gains.shape[0]), :] = gains
-            all_rewards[:, index, :] = rewards[:-1]
-            all_gains[:, index, :] = gains[:-1]
+            gains_trunc = gain_matrix(y, y_hat_trunc, alphabet,
+                                      given_reward_matrix=rewards_trunc)
+            gains = numpy.ones((len(y_hat), len(alphabet))) * -1000
+            gains[:(gains_trunc.shape[0] - 1), :] = gains_trunc[:-1, :]
+
+            rewards = numpy.ones((len(y_hat), len(alphabet))) * -1
+            rewards[:(rewards_trunc.shape[0] - 1), :] = rewards_trunc[:-1, :]
+            all_rewards[:, index, :] = rewards
+            all_gains[:, index, :] = gains
 
         output_storage[0][0] = all_rewards
         output_storage[1][0] = all_gains
