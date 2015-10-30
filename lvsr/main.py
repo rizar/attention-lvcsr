@@ -168,6 +168,16 @@ def train(config, save_path, bokeh_name,
             brick.push_initialization_config()
     recognizer.initialize()
 
+    if test_tag:
+        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
+        __stream = data.get_stream("train")
+        __data = next(__stream.get_epoch_iterator(as_dict=True))
+        recognizer.recordings.tag.test_value = __data[data.recordings_source]
+        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
+        recognizer.labels.tag.test_value = __data[data.labels_source]
+        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
+        theano.config.compute_test_value = 'warn'
+
     # Separate attention_params to be handled differently
     # when regularization is applied
     attention = recognizer.generator.transition.attention
@@ -343,16 +353,6 @@ def train(config, save_path, bokeh_name,
     if params:
         logger.info("Load parameters from " + params)
         recognizer.load_params(params)
-
-    if test_tag:
-        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
-        __stream = data.get_stream("train")
-        __data = next(__stream.get_epoch_iterator(as_dict=True))
-        recognizer.recordings.tag.test_value = __data[data.recordings_source]
-        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
-        recognizer.labels.tag.test_value = __data[data.labels_source]
-        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
-        theano.config.compute_test_value = 'warn'
 
     # Sometimes there are a few competing losses
     # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
