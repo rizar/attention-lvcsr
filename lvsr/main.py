@@ -204,7 +204,7 @@ def train(config, save_path, bokeh_name,
     if explore_conf:
         prediction = recognizer.get_generate_graph(
             n_steps=recognizer.labels.shape[0] + 10)['outputs']
-        prediction_mask = tensor.le(
+        prediction_mask = tensor.lt(
             tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
             1).astype(floatX)
         prediction_mask = tensor.roll(prediction_mask, 1, 0)
