@@ -196,7 +196,10 @@ def train(config, save_path, bokeh_name,
             n_steps=recognizer.labels.shape[0] + 10)['outputs']
         prediction_mask = tensor.le(
             tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
-            2).astype(floatX)
+            1).astype(floatX)
+        prediction_mask = tensor.roll(prediction_mask, 1, 0)
+        prediction_mask = tensor.set_subtensor(
+            prediction_mask[0, :], tensor.ones_like(prediction_mask[0, :]))
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
