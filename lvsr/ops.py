@@ -262,11 +262,18 @@ class RewardOp(Op):
                 # Sometimes groundtruth is in fact also a prediction
                 # and in this case it might not have EOS label
                 pass
-            rewards = reward_matrix(y, y_hat, alphabet, self.eos_label)
+            if self.eos_label in y_hat:
+                y_hat_eos_pos = y_hat.index(self.eos_label)
+                y_hat_trunc = y_hat[:y_hat_eos_pos + 1]
+            else:
+                y_hat_trunc = y_hat
+            rewards = reward_matrix(y, y_hat_trunc, alphabet, self.eos_label)
             # pass freshly computed rewards to gain_matrix to speed things up
             # a bit
             gains = gain_matrix(y, y_hat, alphabet,
                                 given_reward_matrix=rewards)
+            curr_gains = numpy.ones((len(y_hat), len(alphabet))) * -1000
+            curr_gains[:(gains.shape[0]), :] = gains
             all_rewards[:, index, :] = rewards[:-1]
             all_gains[:, index, :] = gains[:-1]
 

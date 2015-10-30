@@ -194,6 +194,9 @@ def train(config, save_path, bokeh_name,
     if explore_conf:
         prediction = recognizer.get_generate_graph(
             n_steps=recognizer.labels.shape[0] + 10)['outputs']
+        #eos_x, eos_y  = prediction.eq(
+        #    data.eos_label).nonzero().astype(floatX)
+        #prediction_mask = tensor.ones_like(prediction)
         prediction_mask = tensor.ones_like(prediction).astype(floatX)
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
