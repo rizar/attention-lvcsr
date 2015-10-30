@@ -70,6 +70,7 @@ cat $data/$main_train_set/text | cut -d' ' -f 2- | \
 	sort | uniq | grep -v ' ' | grep -v '~' | sort >> tmp_chars.txt
 
 echo "<eol>" >> tmp_chars.txt
+echo "<bol>" >> tmp_chars.txt
 
 cat tmp_chars.txt | awk '{ print $0, NR-1;}' > tmp2_chars.txt
 
@@ -80,7 +81,6 @@ do
 	cat $data/$subset/text
 done | sort | uniq | cut -d' ' -f 2- | \
 	sed -e 's/<NOISE>/~/g' | \
-	#sed -e 's/"/''/g' | \
 	tr '`' "'" | \
 	tr -d -C "\n ~[:alpha:]'.-" | \
 	tr ' ' '*' | \
