@@ -148,6 +148,7 @@ class Data(object):
         self.feature_name = feature_name
         self.max_length = max_length
         self.add_eos = add_eos
+        self.prepend_eos = prepend_eos
         self._eos_label = eos_label
         self.add_bos = add_bos
         self.preprocess_text = preprocess_text
