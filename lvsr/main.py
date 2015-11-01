@@ -210,6 +210,7 @@ def train(config, save_path, bokeh_name,
         prediction_mask = tensor.roll(prediction_mask, 1, 0)
         prediction_mask = tensor.set_subtensor(
             prediction_mask[0, :], tensor.ones_like(prediction_mask[0, :]))
+        prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
@@ -349,6 +350,11 @@ def train(config, save_path, bokeh_name,
             # when nans are encountered.
             [RemoveNotFinite(0.0)]),
         on_unused_sources='warn')
+
+    logger.debug("Scan Ops in the gradients")
+    gradient_cg = ComputationGraph(algorithm.gradients.values())
+    for op in ComputationGraph(gradient_cg).scans:
+        logger.debug(op)
 
     if params:
         logger.info("Load parameters from " + params)
