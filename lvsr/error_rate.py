@@ -108,6 +108,4 @@ def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
     reward = (given_reward_matrix.copy() if given_reward_matrix is not None
               else reward_matrix(y, y_hat, alphabet))
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
-    reward = numpy.maximum(-3, reward)
-    reward = numpy.minimum(0, reward)
     return reward
