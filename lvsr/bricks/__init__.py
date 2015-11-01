@@ -140,10 +140,9 @@ class RewardRegressionEmitter(AbstractEmitter):
             groundtruth.name = self.GROUNDTRUTH
 
             reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)
-            gain_matrix = theano.tensor.maximum(-5)
+            gain_matrix = theano.tensor.maximum(gain_matrix, -5)
             gain_matrix.name = self.GAIN_MATRIX
             reward_matrix.name = self.REWARD_MATRIX
-
 
             predicted_gains = readouts.reshape(temp_shape)[
                 tensor.arange(temp_shape[0]), outputs.flatten()]
