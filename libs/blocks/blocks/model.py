@@ -99,6 +99,9 @@ class AbstractModel(object):
 
         for name, value in parameter_values.items():
             if name in parameters:
+                old_shape = parameters[name].get_value().shape
+                if old_shape != value.shape:
+                    raise ValueError(name + ' old: {} new: {}'.format(old_shape, value.shape))
                 parameters[name].set_value(value)
 
     @abstractmethod
