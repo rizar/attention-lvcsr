@@ -13,6 +13,7 @@ def add_one_dim(param, i):
     new_value = numpy.zeros(new_shape, dtype='float32')
     indices = len(new_shape) * [slice(None,)]
     indices[i] = slice(old_dim)
+    new_value[indices] = param
     return new_value
 
 params = numpy.load(sys.argv[1])
