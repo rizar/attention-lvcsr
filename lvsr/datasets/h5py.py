@@ -30,5 +30,7 @@ class H5PYAudioDataset(H5PYDataset):
         labels = ('~' if label == '<noise>' else label for label in labels)
         labels = ('$' if label == '<eol>' else label
                   for label in labels)
+        labels = ('^' if label == '<bol>' else label
+                  for label in labels)
         labels = ''.join((chr_ for chr_ in labels))
         return labels

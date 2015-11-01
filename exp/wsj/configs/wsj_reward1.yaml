@@ -12,4 +12,5 @@ initialization:
 stages:
     pretraining:
         training:
-            num_epochs: 2
+            num_epochs: 4
+    annealing2: null

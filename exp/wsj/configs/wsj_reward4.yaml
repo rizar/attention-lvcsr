@@ -1,0 +1,6 @@
+parent: $LVSR/exp/wsj/configs/wsj_reward1.yaml
+training:
+    exploration:
+        True
+data:
+    add_bos: 1
