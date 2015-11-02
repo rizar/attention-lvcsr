@@ -1,18 +1,67 @@
 import copy
 import os
 
-import theano
-from theano import config, gof
-from six.moves import reduce
-from .comp import NVCC_compiler
+from theano import gof
+
+try:
+    from pygpu import gpuarray
+except ImportError:
+    pass
+
 from .type import GpuArrayType
-from .basic_ops import as_gpuarray_variable
+from .basic_ops import (as_gpuarray_variable, GpuKernelBase, Kernel,
+                        infer_context_name)
+from theano.gof import utils
 
 
-class GpuConv(gof.Op):
+class GpuConv(GpuKernelBase, gof.Op):
     """
     Implement the batched and stacked 2d convolution on the gpu.
+
+    Parameters
+    ----------
+    version
+        Each version of c_code implements many kernels for the convolution.
+        By default we try to guess the best one. You can force one version with
+        this parameter. This parameter is used by the tests.
+    direction_hint
+        'forward', 'bprop weights' or 'bprop inputs'. Serves as a hint for graph
+        optimizers replacing GpuConv by other implementations. If the GpuConv is
+        inserted automatically, we take its value from ConvOp.
+    verbose
+        For value of 1,2 and 3. Print more information during the execution of
+        the convolution. Mostly used for optimization or debugging.
+    kshp
+        The size of the kernel. If provided, can generate faster code. If the
+        GpuConv op is automatically inserted, we take its value automatically
+        from the Conv op.
+    imshp
+        The size of the image. Not used for code generation but allows to select
+        an experimental new version in another repo.
+    max_threads_dim0
+        The maximum number of threads for the block size dimensions 0
+        (blockDim.x) used by the GPU function.
+    nkern
+        The number of kernels. Not used for this op, but can be used by graph
+        optimizers to select a more optimal convolution implementation. If the
+        GpuConv op is inserted automatically, we take its value from the Conv
+        op.
+    bsize
+        The batch size. Not used for this op, but can be used by graph
+        optimizers to select a more optimal convolution implementation. If the
+        GpuConv op is inserted automatically, we take its value from the Conv
+        op.
+    fft_opt
+        Deactivate fft_opt optimization at the op level when set to False. Note
+        that by default fft optimization aren't enabled.
+        See :ref:`convolution documentation <libdoc_tensor_nnet_conv>` to enable
+        them.
+
     """
+    __props__ = ('border_mode', 'subsample', 'logical_img_hw',
+                 'logical_kern_hw', 'logical_kern_align_top', 'version',
+                 'verbose', 'kshp', 'imshp', 'max_threads_dim0')
+
     @staticmethod
     def logical_output_shape_2d(imshp, kshp, mode):
         if mode == 'valid':
@@ -21,57 +70,13 @@ class GpuConv(gof.Op):
             return imshp[0] + kshp[0] - 1, imshp[1] + kshp[1] - 1
         raise ValueError(mode)
 
-    def __init__(self, border_mode,
-            subsample=(1, 1),
-            logical_img_hw=None,
-            logical_kern_hw=None,
-            logical_kern_align_top=True,
-            version=-1,
-            direction_hint=None,
-            verbose=0,
-            kshp=None,
-            imshp=None,
-            max_threads_dim0=None,
-            nkern=None,
-            bsize=None,
-            fft_opt=True):
-        """
-        :param version: each version of c_code implements many kernels for the
-                        convolution. By default we try to guess the best one.
-                        You can force one version with this parameter. This
-                        parameter is used by the tests.
-        :param direction_hint: 'forward', 'bprop weights' or 'bprop inputs'.
-                        Serves as a hint for graph optimizers replacing
-                        GpuConv by other implementations. If the GpuConv is
-                        inserted automatically, we take its value from ConvOp.
-        :param verbose: for value of 1,2 and 3. Print more information during
-                        the execution of the convolution. Mostly used for
-                        optimization or debugging.
-        :param kshp:    The size of the kernel. If provided, can generate
-                        faster code. If the GpuConv op is automatically
-                        inserted,
-                        we take its value automatically from the Conv op.
-        :param imshp:   The size of the image. Not used for code generation but
-                        allows to select an experimental new version in another
-                        repo.
-        :param max_threads_dim0: The maximum number of threads for the
-                        block size dimensions 0 (blockDim.x) used by the
-                        GPU function.
-        :param nkern:   The number of kernels. Not used for this op, but can be
-                        used by graph optimizers to select a more optimal
-                        convolution implementation. If the GpuConv op is inserted
-                        automatically, we take its value from the Conv op.
-        :param bsize:   The batch size. Not used for this op, but can be
-                        used by graph optimizers to select a more optimal
-                        convolution implementation. If the GpuConv op is inserted
-                        automatically, we take its value from the Conv op.
-        :param fft_opt: deactivate fft_opt optimization at the op level when
-                        set to False. Note that by default fft optimization
-                        aren't enabled. See
-                        :ref:`convolution documentation <libdoc_tensor_nnet_conv>`
-                        to enable them.
-
-        """
+    def __init__(self, border_mode, subsample=(1, 1),
+                 logical_img_hw=None, logical_kern_hw=None,
+                 logical_kern_align_top=True,
+                 version=-1, direction_hint=None,
+                 verbose=0, kshp=None, imshp=None,
+                 max_threads_dim0=None,
+                 nkern=None, bsize=None, fft_opt=True):
         self.border_mode = border_mode
         self.subsample = subsample
         if logical_img_hw is not None:
@@ -99,19 +104,6 @@ class GpuConv(gof.Op):
         self.bsize = bsize
         self.fft_opt = fft_opt
 
-    def __eq__(self, other):
-        return type(self) == type(other) \
-            and self.border_mode == other.border_mode \
-            and self.subsample == other.subsample \
-            and self.logical_img_hw == other.logical_img_hw \
-            and self.logical_kern_hw == other.logical_kern_hw \
-            and self.logical_kern_align_top == other.logical_kern_align_top \
-            and self.version == other.version \
-            and self.verbose == other.verbose \
-            and self.kshp == other.kshp\
-            and self.imshp == other.imshp\
-            and self.max_threads_dim0 == other.max_threads_dim0
-
     def __setstate__(self, d):
         self.__dict__.update(d)
         if not hasattr(self, "imshp"):
@@ -127,32 +119,6 @@ class GpuConv(gof.Op):
         if not hasattr(self, "fft_opt"):
             self.fft_opt = True
 
-    def __hash__(self):
-        # don't use hash(self.version) as hash(-1)==-2 and
-        # hash(-2)==-2 in python!
-        return hash(type(self)) \
-            ^ hash(self.border_mode) \
-            ^ hash(self.subsample) \
-            ^ hash(self.logical_img_hw) \
-            ^ hash(self.logical_kern_hw) \
-            ^ hash(self.logical_kern_align_top) \
-            ^ self.version \
-            ^ hash(self.verbose) \
-            ^ hash(self.kshp)\
-            ^ hash(self.imshp)\
-            ^ hash(self.max_threads_dim0)
-
-    def __str__(self):
-        return '%s{%s, %s, %s, %s, %s, %s, %s}' % (
-            self.__class__.__name__,
-            self.border_mode,
-            str(self.subsample),
-            str(self.logical_img_hw),
-            str(self.logical_kern_hw),
-            str(self.logical_kern_align_top),
-            str(self.imshp),
-            str(self.kshp))
-
     def make_node(self, img, kern):
         if img.dtype != "float32" or kern.dtype != "float32":
             raise NotImplementedError("GpuConv currently only work"
@@ -161,15 +127,22 @@ class GpuConv(gof.Op):
             raise TypeError('img must be 4D tensor')
         if kern.type.ndim != 4:
             raise TypeError('kern must be 4D tensor')
-        img = as_gpuarray_variable(img)
-        kern = as_gpuarray_variable(kern)
+        ctx_name = infer_context_name(img, kern)
+        img = as_gpuarray_variable(img, ctx_name)
+        kern = as_gpuarray_variable(kern, ctx_name)
         broadcastable = [img.type.broadcastable[0], kern.type.broadcastable[0],
                          False, False]
-        out = GpuArrayType(img.dtype, broadcastable)()
+        out = GpuArrayType(img.dtype, broadcastable, context_name=ctx_name)()
         return gof.Apply(self, [img, kern], [out])
 
+    def get_context(self, node):
+        return node.inputs[0].type.context
+
     def flops(self, inputs, outputs):
-        """ Useful with the hack in profilemode to print the MFlops"""
+        """
+        Useful with the hack in profilemode to print the MFlops.
+
+        """
         images, kerns = inputs
         out, = outputs
         assert images[1] == kerns[1]
@@ -190,22 +163,8 @@ class GpuConv(gof.Op):
     def make_thunk(self, node, storage_map, compute_map, no_recycling):
         node_ = copy.copy(node)
         assert node.op is node_.op
-        if config.gpuarray.sync:
-            raise NotImplementedError("GpuConv do not implement gpuarray.sync Theano flag")
         if node_.op.max_threads_dim0 is None:
-            cuda = theano.sandbox.cuda
-            device_id = cuda.use.device_number
-            if device_id is None:
-                cuda.use("gpu",
-                         force=False,
-                         default_to_move_computation_to_gpu=False,
-                         move_shared_float32_to_gpu=False,
-                         enable_cuda=False,
-                         test_driver=True)
-                device_id = cuda.use.device_number
-            cuda_ndarray = theano.sandbox.cuda.cuda_ndarray.cuda_ndarray
-            prop = cuda_ndarray.device_properties(device_id)
-            node_.op.max_threads_dim0 = prop['maxThreadsDim0']
+            node_.op.max_threads_dim0 = node_.inputs[0].type.context.maxlsize
         return super(GpuConv, node_.op).make_thunk(node_, storage_map,
                                                    compute_map, no_recycling)
 
@@ -213,34 +172,18 @@ class GpuConv(gof.Op):
         nb = 0
         if self.kshp is not None:
             nb = self.kshp[1]
-        return ['-DTHEANO_KERN_WID=' + str(nb)]  # ,'-g','-G']
+        return ['-DTHEANO_KERN_WID=' + str(nb)]
 
     def c_headers(self):
-        return ['<stdio.h>', 'cuda.h',
-                '<gpuarray/extension.h>', '<numpy_compat.h>']
+        return ['<stdio.h>', '<numpy_compat.h>', '<gpuarray/types.h>']
 
     def c_code_cache_version(self):
         # raise this whenever modifying any of the support_code_files
-        return (0, 21)
-
-    def c_init_code(self):
-        return ['cuda_get_ptr_raw = (CUdeviceptr (*)(gpudata *g))gpuarray_get_extension("cuda_get_ptr");']
-
-    def c_support_code_apply(self, node, nodename):
-        # REMEMBER TO RAISE c_code_cache_version when changing any of
-        # these files
-        files = ['conv_kernel.cu', 'conv_full_kernel.cu', 'conv.cu']
-        codes = ["CUdeviceptr (*cuda_get_ptr_raw)(gpudata *g);",
-                 "float* cuda_get_ptr(PyGpuArrayObject * o){return (float*) (cuda_get_ptr_raw(o->ga.data) + o->ga.offset);}",
-                 "const float* cuda_get_ptr(const PyGpuArrayObject * o){return (float*) (cuda_get_ptr_raw(o->ga.data) + o->ga.offset);}"]
-        codes += [open(os.path.join(os.path.split(__file__)[0], f)).read()
-                  for f in files]
-        return reduce(str.__add__, codes)
-
-    def c_compiler(self):
-        return NVCC_compiler
+        return (0, 23)
 
     def c_code(self, node, nodename, inp, out_, sub):
+        if node.inputs[0].type.context.kind != "cuda":
+            raise NotImplementedError("GpuConv only works for cuda devices")
         img, kern = inp
         out, = out_
         dx = self.subsample[0]
@@ -263,8 +206,8 @@ class GpuConv(gof.Op):
     //Optional args
     int version = %(version)s;
     int verbose = %(verbose)s;
-    int dx = %(dx)s;
-    int dy = %(dy)s;
+    size_t dx = %(dx)s;
+    size_t dy = %(dy)s;
 
     int mode;
     if (strcmp(mode_str, "full") == 0)
@@ -279,7 +222,7 @@ class GpuConv(gof.Op):
     {
         PyErr_SetString(PyExc_ValueError,
                         "mode must be one of 'full' or 'valid'");
-        return NULL;
+        return 0;
     }
 
     // TODO, make out be decref before we alloc out2!
@@ -296,3 +239,263 @@ class GpuConv(gof.Op):
         %(fail)s
     }
 """ % sub
+
+    def c_support_code_apply(self, node, name):
+        nb = 0
+        if self.kshp is not None:
+            nb = self.kshp[1]
+        kernels = self.gpu_kernels(node, name)
+        k = kernels[0]
+        code = """
+        #define THEANO_KERN_WID %(nb)d
+        """ % locals()
+        code += "\n".join([open(os.path.join(os.path.split(__file__)[0], f)).read()
+                           for f in ["conv_kernel.cu", "conv_full_kernel.cu"]])
+        gk = gpuarray.GpuKernel(code, k.name, k.params, **k.flags)
+        bin = gk._binary
+        bcode = ','.join(hex(ord(c)) for c in bin)
+        code = code.replace('\\', '\\\\')
+        code = code.replace('"', '\\"')
+        code = code.replace('\n', '\\n')
+        mod = """
+        static const char conv_bcode[] = {%(bcode)s};
+        static const char *conv_code = "%(code)s";
+        """ % locals()
+        return mod
+
+    def c_support_code_struct(self, node, name):
+        mod = GpuKernelBase.c_support_code_struct(self, node, name)
+        with open(os.path.join(os.path.split(__file__)[0], "conv.cu")) as f:
+            mod += f.read()
+        return mod
+
+    @utils.memoize
+    def gpu_kernels(self, node, name):
+        dtypes = [i.dtype for i in node.inputs]
+        dtypes.extend([o.dtype for o in node.outputs])
+        flags = Kernel.get_flags(*dtypes)
+        kernels = self.conv_patch_kernels(name, flags)
+        kernels.extend(self.conv_patch_stack_kernels(name, flags))
+        kernels.extend(self.conv_patch_stack_reduce_kernels(name, flags))
+        kernels.extend(self.conv_rows_kernels(name, flags))
+        kernels.extend(self.conv_rows_stack_kernels(name, flags))
+        kernels.extend(self.conv_rows_stack2_kernels(name, flags))
+        kernels.extend(self.conv_valid_row_reduce_kernels(name, flags))
+        kernels.extend(self.conv_reference_valid_kernels(name, flags))
+        kernels.extend(self.conv_reference_full_kernels(name, flags))
+        kernels.extend(self.conv_full_patch_kernels(name, flags))
+        kernels.extend(self.conv_full_patch_stack_kernels(name, flags))
+        kernels.extend(self.conv_full_patch_stack_padded_kernels(name, flags))
+        kernels.extend(self.conv_full_load_everything_kernels(name, flags))
+        return kernels
+
+    def conv_patch_kernels(self, name, flags):
+        kname = "conv_patch_%d"
+        k_var = "conv_patch_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [2, 3]
+            ]
+
+    def conv_patch_stack_kernels(self, name, flags):
+        kname = "conv_patch_stack_%d"
+        k_var = "conv_patch_stack_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in range(64, 96)
+            ]
+
+    def conv_patch_stack_reduce_kernels(self, name, flags):
+        kname = "conv_patch_stack_reduce_%d"
+        k_var = "conv_patch_stack_reduce_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [1, 2, 3, 5, 6, 7, 9, 10, 11, 13, 14, 15]
+            ]
+
+    def conv_rows_kernels(self, name, flags):
+        kname = "conv_rows_%d"
+        k_var = "conv_rows_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1]
+            ]
+
+    def conv_rows_stack_kernels(self, name, flags):
+        kname = "conv_rows_stack_%d"
+        k_var = "conv_rows_stack_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1]
+            ]
+
+    def conv_rows_stack2_kernels(self, name, flags):
+        kname = "conv_rows_stack2_%d"
+        k_var = "conv_rows_stack2_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1, 2, 3]
+            ]
+
+    def conv_valid_row_reduce_kernels(self, name, flags):
+        kname = "conv_valid_row_reduce_%d"
+        k_var = "conv_valid_row_reduce_%d_" + name
+        params = [
+            'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1]
+            ]
+
+    def conv_reference_valid_kernels(self, name, flags):
+        kname = "conv_reference_valid"
+        k_var = "conv_reference_valid_" + name
+        params = [
+            'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname, flags,
+                   'conv_code', 'conv_bcode', k_var)
+            ]
+
+    def conv_reference_full_kernels(self, name, flags):
+        kname = "conv_reference_full"
+        k_var = "conv_reference_full_" + name
+        params = [
+            'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname, flags,
+                   'conv_code', 'conv_bcode', k_var)
+            ]
+
+    def conv_full_patch_kernels(self, name, flags):
+        kname = "conv_full_patch"
+        k_var = "conv_full_patch_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname, flags,
+                   'conv_code', 'conv_bcode', k_var)
+            ]
+
+    def conv_full_patch_stack_kernels(self, name, flags):
+        kname = "conv_full_patch_stack_%d"
+        k_var = "conv_full_patch_stack_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1, 2, 3]
+            ]
+
+    def conv_full_patch_stack_padded_kernels(self, name, flags):
+        kname = "conv_full_patch_stack_padded_%d"
+        k_var = "conv_full_patch_stack_padded_%d_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname % i, flags,
+                   'conv_code', 'conv_bcode', k_var % i)
+            for i in [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14]
+            ]
+
+    def conv_full_load_everything_kernels(self, name, flags):
+        kname = "conv_full_load_everything"
+        k_var = "conv_full_load_everything_" + name
+        params = [
+            gpuarray.GpuArray, 'uintp', gpuarray.GpuArray, 'uintp',
+            gpuarray.GpuArray, 'uintp',
+            'intc', 'intc', 'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc',
+            'intc', 'intc', 'intc', 'intc'
+            ]
+        return [
+            Kernel(None, params, kname, flags,
+                   'conv_code', 'conv_bcode', k_var)
+            ]

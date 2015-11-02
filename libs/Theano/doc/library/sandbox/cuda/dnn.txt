@@ -24,6 +24,13 @@ There are at least three possible ways of doing so:
   ``LD_LIBRARY_PATH``, ``LIBRARY_PATH`` and ``CPATH`` to the directory
   extracted from the download. If needed, separate multiple directories
   with ``:`` as in the ``PATH`` environment variable.
+
+  example::
+
+      export LD_LIBRARY_PATH=/home/user/path_to_CUDNN_folder/lib64:$LD_LIBRARY_PATH
+      export CPATH=/home/user/path_to_CUDNN_folder/include:$CPATH
+      export LIBRARY_PATH=/home/user/path_to_CUDNN_folder/lib64:$LD_LIBRARY_PATH
+
 - And as a third way, also on Linux, you can copy the ``*.h`` files
   to ``/usr/include`` and the ``*.so*`` files to ``/lib64``.
 
@@ -129,23 +136,27 @@ Functions
 =========
 
 .. automodule:: theano.sandbox.cuda.dnn
-    :members: dnn_conv, dnn_pool
+   :noindex:
+   :members: dnn_conv, dnn_pool
 
 Convolution Ops
 ===============
 
 .. automodule:: theano.sandbox.cuda.dnn
-    :members: GpuDnnConvDesc, GpuDnnConv, GpuDnnConv3d, GpuDnnConvGradW,
-              GpuDnnConv3dGradW, GpuDnnConvGradI, GpuDnnConv3dGradI
+   :noindex:
+   :members: GpuDnnConvDesc, GpuDnnConv, GpuDnnConv3d, GpuDnnConvGradW,
+             GpuDnnConv3dGradW, GpuDnnConvGradI, GpuDnnConv3dGradI
 
 Pooling Ops
 ===========
 
 .. automodule:: theano.sandbox.cuda.dnn
-    :members: GpuDnnPoolDesc, GpuDnnPool, GpuDnnPoolGrad
+   :noindex:
+   :members: GpuDnnPoolDesc, GpuDnnPool, GpuDnnPoolGrad
 
 Softmax Ops
 ===========
 
 .. automodule:: theano.sandbox.cuda.dnn
-    :members: GpuDnnSoftmax, GpuDnnSoftmaxGrad
+   :noindex:
+   :members: GpuDnnSoftmax, GpuDnnSoftmaxGrad
