@@ -9,6 +9,8 @@ net:
         type: window_around_median
 regularization:
     max_norm: 1.0
+data:
+    add_bos: 1
 stages:
     pretraining:
         number: 0
