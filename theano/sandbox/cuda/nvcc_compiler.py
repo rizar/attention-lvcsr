@@ -8,6 +8,7 @@ import warnings
 
 import numpy
 
+from theano import config
 from theano.compat import decode, decode_iter
 from theano.gof import local_bitwidth
 from theano.gof.utils import hash_from_file
@@ -19,73 +20,15 @@ from theano.misc.windows import output_subprocess_Popen
 
 _logger = logging.getLogger("theano.sandbox.cuda.nvcc_compiler")
 
-from theano.configparser import (config, AddConfigVar, StrParam,
-                                 BoolParam, ConfigParam)
-
-AddConfigVar('nvcc.compiler_bindir',
-             "If defined, nvcc compiler driver will seek g++ and gcc"
-             " in this directory",
-             StrParam(""),
-             in_c_key=False)
-
-user_provided_cuda_root = True
-
-
-def default_cuda_root():
-    global user_provided_cuda_root
-    v = os.getenv('CUDA_ROOT', "")
-    user_provided_cuda_root = False
-    if v:
-        return v
-    return find_cuda_root()
-
-AddConfigVar('cuda.root',
-        """directory with bin/, lib/, include/ for cuda utilities.
-        This directory is included via -L and -rpath when linking
-        dynamically compiled modules.  If AUTO and nvcc is in the
-        path, it will use one of nvcc parent directory.  Otherwise
-        /usr/local/cuda will be used.  Leave empty to prevent extra
-        linker directives.  Default: environment variable "CUDA_ROOT"
-        or else "AUTO".
-        """,
-        StrParam(default_cuda_root),
-        in_c_key=False)
-
-
-def filter_nvcc_flags(s):
-    assert isinstance(s, str)
-    flags = [flag for flag in s.split(' ') if flag]
-    if any([f for f in flags if not f.startswith("-")]):
-        raise ValueError(
-            "Theano nvcc.flags support only parameter/value pairs without"
-            " space between them. e.g.: '--machine 64' is not supported,"
-            " but '--machine=64' is supported. Please add the '=' symbol."
-            " nvcc.flags value is '%s'" % s)
-    return ' '.join(flags)
-
-AddConfigVar('nvcc.flags',
-             "Extra compiler flags for nvcc",
-             ConfigParam("", filter_nvcc_flags),
-             # Not needed in c key as it is already added.
-             # We remove it as we don't make the md5 of config to change
-             # if theano.sandbox.cuda is loaded or not.
-             in_c_key=False)
-
-
-AddConfigVar('nvcc.fastmath',
-             "",
-             BoolParam(False),
-             # Not needed in c key as it is already added.
-             # We remove it as we don't make the md5 of config to change
-             # if theano.sandbox.cuda is loaded or not.
-             in_c_key=False)
-
 nvcc_path = 'nvcc'
 nvcc_version = None
 
 
 def is_nvcc_available():
-    """Return True iff the nvcc compiler is found."""
+    """
+    Return True iff the nvcc compiler is found.
+
+    """
     def set_version():
         p_out = output_subprocess_Popen([nvcc_path, '--version'])
         ver_line = decode(p_out[0]).strip().split('\n')[-1]
@@ -112,14 +55,6 @@ def is_nvcc_available():
             return False
 
 
-def find_cuda_root():
-    s = os.getenv("PATH")
-    if not s:
-        return
-    for dir in s.split(os.path.pathsep):
-        if os.path.exists(os.path.join(dir, "nvcc")):
-            return os.path.split(dir)[0]
-
 rpath_defaults = []
 
 
@@ -128,6 +63,8 @@ def add_standard_rpath(rpath):
 
 
 class NVCC_compiler(Compiler):
+    supports_amdlibm = False
+
     @staticmethod
     def try_compile_tmp(src_code, tmp_prefix='', flags=(),
                         try_run=False, output=False):
@@ -150,6 +87,7 @@ class NVCC_compiler(Compiler):
         """
         This args will be received by compile_str() in the preargs paramter.
         They will also be included in the "hard" part of the key module.
+
         """
         flags = [flag for flag in config.nvcc.flags.split(' ') if flag]
         if config.nvcc.fastmath:
@@ -209,33 +147,47 @@ class NVCC_compiler(Compiler):
             module_name, src_code,
             location=None, include_dirs=[], lib_dirs=[], libs=[], preargs=[],
             rpaths=rpath_defaults, py_module=True, hide_symbols=True):
-        """:param module_name: string (this has been embedded in the src_code
-        :param src_code: a complete c or c++ source listing for the module
-        :param location: a pre-existing filesystem directory where the
-                         cpp file and .so will be written
-        :param include_dirs: a list of include directory names
-                             (each gets prefixed with -I)
-        :param lib_dirs: a list of library search path directory names
-                         (each gets prefixed with -L)
-        :param libs: a list of libraries to link with
-                     (each gets prefixed with -l)
-        :param preargs: a list of extra compiler arguments
-        :param rpaths: list of rpaths to use with Xlinker.
-                       Defaults to `rpath_defaults`.
-        :param py_module: if False, compile to a shared library, but
-            do not import as a Python module.
-
-        :param hide_symbols: if True (the default), hide all symbols
-        from the library symbol table unless explicitely exported.
-
-        :returns: dynamically-imported python module of the compiled code.
-            (unless py_module is False, in that case returns None.)
-
-        :note 1: On Windows 7 with nvcc 3.1 we need to compile in the
-                 real directory Otherwise nvcc never finish.
-
         """
 
+        Parameters
+        ----------
+        module_name: str
+             This has been embedded in the src_code.
+        src_code
+            A complete c or c++ source listing for the module.
+        location
+            A pre-existing filesystem directory where the
+            cpp file and .so will be written.
+        include_dirs
+            A list of include directory names (each gets prefixed with -I).
+        lib_dirs
+            A list of library search path directory names (each gets
+            prefixed with -L).
+        libs
+            A list of libraries to link with (each gets prefixed with -l).
+        preargs
+            A list of extra compiler arguments.
+        rpaths
+            List of rpaths to use with Xlinker. Defaults to `rpath_defaults`.
+        py_module
+            If False, compile to a shared library, but
+            do not import as a Python module.
+        hide_symbols
+            If True (the default), hide all symbols from the library symbol
+            table unless explicitely exported.
+
+        Returns
+        -------
+        module
+            Dynamically-imported python module of the compiled code.
+            (unless py_module is False, in that case returns None.)
+
+        Notes
+        -----
+        On Windows 7 with nvcc 3.1 we need to compile in the real directory
+        Otherwise nvcc never finish.
+
+        """
         rpaths = list(rpaths)
 
         if sys.platform == "win32":
@@ -339,7 +291,8 @@ class NVCC_compiler(Compiler):
         # provided an cuda.root flag, we need to add one, but
         # otherwise, we don't add it. See gh-1540 and
         # https://wiki.debian.org/RpathIssue for details.
-        if (user_provided_cuda_root and
+
+        if (not type(config.cuda).root.is_default and
             os.path.exists(os.path.join(config.cuda.root, 'lib'))):
 
             rpaths.append(os.path.join(config.cuda.root, 'lib'))
