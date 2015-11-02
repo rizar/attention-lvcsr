@@ -288,8 +288,9 @@ class SpeechRecognizer(Initializable):
         cost = self.cost(recordings, recordings_mask,
                          prediction, prediction_mask)
         cost_cg = ComputationGraph(cost)
-        placeholder, = VariableFilter(theano_name='groundtruth')(cost_cg)
-        cost_cg = cost_cg.replace({placeholder: groundtruth})
+        if self.criterion.startswith("mse"):
+            placeholder, = VariableFilter(theano_name='groundtruth')(cost_cg)
+            cost_cg = cost_cg.replace({placeholder: groundtruth})
         return cost_cg
 
 
