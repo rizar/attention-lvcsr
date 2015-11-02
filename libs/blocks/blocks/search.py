@@ -243,7 +243,7 @@ class BeamSearch(object):
 
     def search(self, input_values, eol_symbol, max_length,
                ignore_first_eol=False, as_arrays=False,
-               char_discount=0):
+               char_discount=0, round_to_inf=1e9):
         """Performs beam search.
 
         If the beam search was not compiled, it also compiles it.
@@ -344,7 +344,9 @@ class BeamSearch(object):
             if ignore_first_eol and i == 0:
                 mask[:] = 1
 
-            for idx in range(all_outputs.shape[1]):
+            for idx in numpy.where(
+                    (all_outputs[-1] == eol_symbol)
+                    & (all_costs[-1] - all_costs[-2] < round_to_inf))[0]:
                 done.append((all_outputs[:, idx], all_costs[:, idx]))
 
             unfinished = numpy.where(mask==1)[0]

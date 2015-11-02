@@ -296,12 +296,12 @@ class SpeechRecognizer(Initializable):
     def analyze(self, recording, groundtruth, prediction=None):
         """Compute cost and aligment."""
         input_values = [recording, groundtruth]
-        if prediction:
+        if prediction is not None:
             input_values.append(prediction)
         if not hasattr(self, "_analyze"):
             input_variables = [self.single_recording, self.single_transcription]
             prediction_variable = tensor.lvector('prediction')
-            if prediction:
+            if prediction is not None:
                 input_variables.append(prediction_variable)
                 cg = self.get_cost_graph(
                     batch=False, prediction=prediction_variable[:, None])
@@ -342,14 +342,14 @@ class SpeechRecognizer(Initializable):
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
-    def beam_search(self, recording, char_discount=0.0):
+    def beam_search(self, recording, **kwargs):
         if not hasattr(self, '_beam_search'):
             self.init_beam_search(self.beam_size)
         input_ = recording[:,numpy.newaxis,:]
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
             ignore_first_eol=self.data_prepend_eos,
-            char_discount=char_discount)
+            **kwargs)
         return outputs, search_costs
 
     def init_generate(self):

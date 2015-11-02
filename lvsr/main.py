@@ -586,7 +586,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
         before = time.time()
         outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount)
+            example[0], char_discount=char_discount, round_to_inf=4.5)
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
