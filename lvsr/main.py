@@ -492,10 +492,14 @@ def train(config, save_path, bokeh_name,
             ['after_epoch'],
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
-        ProgressBar(),
-        LogInputsGains(labels, cg, recognizer.generator.readout.emitter, data),
-        Printing(every_n_batches=1,
-                 attribute_filter=PrintingFilterList())]
+        ProgressBar()]
+    if config['net']['criterion']['name'].startswith('mse'):
+        extensions.append(
+            LogInputsGains(
+                labels, cg, recognizer.generator.readout.emitter, data))
+
+    extensions.append(Printing(every_n_batches=1,
+                               attribute_filter=PrintingFilterList()))
 
     # Save the config into the status
     log = TrainingLog()
