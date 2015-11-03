@@ -10,6 +10,7 @@ from lvsr.config import Configuration
 logger = logging.getLogger(__name__)
 # DEBUG from pykwalify is a way too verbose
 logging.getLogger('pykwalify').setLevel(logging.INFO)
+logging.getLogger('blocks.monitoring').setLevel(logging.INFO)
 
 
 class ParseChanges(argparse.Action):
