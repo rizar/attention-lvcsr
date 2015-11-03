@@ -11,6 +11,7 @@ import sys
 import numpy
 import theano
 from theano import tensor
+from theano.sandbox.rng_mrg import MRG_RandomStreams
 from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.algorithms import (GradientDescent,
@@ -202,15 +203,36 @@ def train(config, save_path, bokeh_name,
     prediction_mask = None
     explore_conf = train_conf.get('exploration')
     if explore_conf:
+        length_expand = 10
         prediction = recognizer.get_generate_graph(
-            n_steps=recognizer.labels.shape[0] + 10)['outputs']
+            n_steps=recognizer.labels.shape[0] + length_expand)['outputs']
         prediction_mask = tensor.lt(
             tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
             1).astype(floatX)
         prediction_mask = tensor.roll(prediction_mask, 1, 0)
         prediction_mask = tensor.set_subtensor(
             prediction_mask[0, :], tensor.ones_like(prediction_mask[0, :]))
+
+        if explore_conf == 'mixed':
+            batch_size = recognizer.labels.shape[1]
+            targets = tensor.concatenate([
+                recognizer.labels,
+                tensor.zeros((length_expand, batch_size), dtype='int64')])
+
+            targets_mask = tensor.concatenate([
+                recognizer.labels_mask,
+                tensor.zeros((length_expand, batch_size), dtype=floatX)])
+            rng = MRG_RandomStreams()
+            generate = rng.binomial((batch_size,), p=0.5, dtype='int64')
+            prediction = (generate[None, :] * prediction + 
+                          (1 - generate[None, :]) * targets)
+            prediction_mask = (tensor.cast(generate[None, :] * 
+                                           prediction_mask, floatX) +
+                               tensor.cast((1 - generate[None, :]) * 
+                                           targets_mask, floatX))
+
         prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
+
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
@@ -394,7 +416,7 @@ def train(config, save_path, bokeh_name,
         for var in variables:
             if var.name == 'weights_penalty':
                 result.append(named_copy(aggregation.mean(var, batch_size),
-                                            'weights_penalty_per_recording'))
+                                         'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
                 result.append(named_copy(aggregation.mean(
                     var, labels_mask.sum()), 'weights_entropy_per_label'))
@@ -450,7 +472,8 @@ def train(config, save_path, bokeh_name,
         clipping, train_conf['gradient_threshold'],
         decay_rate=0.998, burnin_period=500))
     extensions += [
-        SwitchOffLengthFilter(data.length_filter,
+        SwitchOffLengthFilter(
+            data.length_filter,
             after_n_batches=train_conf.get('stop_filtering')),
         FinishAfter(after_n_batches=train_conf['num_batches'],
                     after_n_epochs=train_conf['num_epochs'])

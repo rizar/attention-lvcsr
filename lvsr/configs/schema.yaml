@@ -120,7 +120,7 @@ map:
                 sequence:
                     - type: str
             exploration:
-                type: bool
+                type: str
             restart_from:
                 type: str
     stages:
