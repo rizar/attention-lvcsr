@@ -1,0 +1,3 @@
+parent: $LVSR/exp/wsj/configs/wsj_reward6.yaml
+training:
+    exploration: mixed

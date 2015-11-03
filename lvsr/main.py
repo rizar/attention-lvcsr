@@ -203,8 +203,9 @@ def train(config, save_path, bokeh_name,
     prediction_mask = None
     explore_conf = train_conf.get('exploration')
     if explore_conf:
+        length_expand = 10
         prediction = recognizer.get_generate_graph(
-            n_steps=recognizer.labels.shape[0] + 10)['outputs']
+            n_steps=recognizer.labels.shape[0] + length_expand)['outputs']
         prediction_mask = tensor.lt(
             tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
             1).astype(floatX)
@@ -216,16 +217,19 @@ def train(config, save_path, bokeh_name,
             batch_size = recognizer.labels.shape[1]
             targets = tensor.concatenate([
                 recognizer.labels,
-                tensor.zeros((10, batch_size), dtype='int64')])
+                tensor.zeros((length_expand, batch_size), dtype='int64')])
 
             targets_mask = tensor.concatenate([
                 recognizer.labels_mask,
-                tensor.zeros((10, batch_size), dtype=floatX)])
+                tensor.zeros((length_expand, batch_size), dtype=floatX)])
             rng = MRG_RandomStreams()
             generate = rng.binomial((batch_size,), p=0.5, dtype='int64')
-            prediction = generate[None, :] * prediction + (1 - generate[None, :]) * targets
-            prediction_mask = (tensor.cast(generate[None, :] * prediction_mask, floatX) +
-                               tensor.cast((1 - generate[None, :]) * targets_mask, floatX))
+            prediction = (generate[None, :] * prediction + 
+                          (1 - generate[None, :]) * targets)
+            prediction_mask = (tensor.cast(generate[None, :] * 
+                                           prediction_mask, floatX) +
+                               tensor.cast((1 - generate[None, :]) * 
+                                           targets_mask, floatX))
 
         prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
 
