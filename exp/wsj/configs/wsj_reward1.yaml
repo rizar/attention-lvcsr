@@ -2,6 +2,7 @@ parent: $LVSR/exp/wsj/configs/wsj_paper1.yaml
 net:
     criterion:
         name: mse_gain
+        min_reward: -5
 training:
     scale: 0.01
 initialization:
