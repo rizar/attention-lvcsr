@@ -1,0 +1,9 @@
+parent: $LVSR/exp/wsj/configs/wsj_reward4.yaml
+training:
+    scale: 0.1
+stages:
+    pretraining:
+        net:
+            criterion:
+                min_reward: -1
+

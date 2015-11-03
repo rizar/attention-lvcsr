@@ -122,9 +122,11 @@ class RewardRegressionEmitter(AbstractEmitter):
     REWARD_MSE_LOSS = 'reward_mse_loss'
     GROUNDTRUTH = 'groundtruth'
 
-    def __init__(self, criterion, eos_label, alphabet_size, **kwargs):
+    def __init__(self, criterion, eos_label,
+                 alphabet_size, min_reward, **kwargs):
         self.criterion = criterion
         self.reward_op = RewardOp(eos_label, alphabet_size)
+        self.min_reward = min_reward
         super(RewardRegressionEmitter, self).__init__(**kwargs)
 
     @application
@@ -140,7 +142,7 @@ class RewardRegressionEmitter(AbstractEmitter):
             groundtruth.name = self.GROUNDTRUTH
 
             reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)
-            gain_matrix = theano.tensor.maximum(gain_matrix, -5)
+            gain_matrix = theano.tensor.maximum(gain_matrix, self.min_reward)
             gain_matrix.name = self.GAIN_MATRIX
             reward_matrix.name = self.REWARD_MATRIX
 

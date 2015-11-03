@@ -64,6 +64,8 @@ map:
                 map:
                     name:
                         type: str
+                    min_reward:
+                        type: int
             lm:
                 type: any
             prior:

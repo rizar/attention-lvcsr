@@ -155,6 +155,7 @@ class SpeechRecognizer(Initializable):
         elif criterion['name'].startswith('mse'):
             emitter = RewardRegressionEmitter(
                 criterion['name'], eos_label, num_phonemes,
+                criterion.get('min_reward', -1.0),
                 name="emitter")
         else:
             raise ValueError("Unknown criterion {}".format(criterion['name']))
