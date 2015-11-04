@@ -86,6 +86,7 @@ class AdaptiveClipping(TrainingExtension):
             float(self.burnin_period))
         threshold = (confidence * threshold +
                      (1 - confidence) * self.initial_threshold)
+        threshold = min(threshold, 5 * self.initial_threshold)
         self.clipping_rule.threshold.set_value(threshold)
 
 
