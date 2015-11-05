@@ -202,7 +202,7 @@ def train(config, save_path, bokeh_name,
     prediction = None
     prediction_mask = None
     explore_conf = train_conf.get('exploration')
-    if explore_conf:
+    if explore_conf in ['greedy', 'mixed']:
         length_expand = 10
         prediction = recognizer.get_generate_graph(
             n_steps=recognizer.labels.shape[0] + length_expand)['outputs']
@@ -224,14 +224,16 @@ def train(config, save_path, bokeh_name,
                 tensor.zeros((length_expand, batch_size), dtype=floatX)])
             rng = MRG_RandomStreams()
             generate = rng.binomial((batch_size,), p=0.5, dtype='int64')
-            prediction = (generate[None, :] * prediction + 
+            prediction = (generate[None, :] * prediction +
                           (1 - generate[None, :]) * targets)
-            prediction_mask = (tensor.cast(generate[None, :] * 
+            prediction_mask = (tensor.cast(generate[None, :] *
                                            prediction_mask, floatX) +
-                               tensor.cast((1 - generate[None, :]) * 
+                               tensor.cast((1 - generate[None, :]) *
                                            targets_mask, floatX))
 
         prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
+    elif explore_conf != 'imitative':
+        raise ValueError
 
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)

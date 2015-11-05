@@ -10,7 +10,7 @@ initialization:
         biases_init:
             !!python/object/apply:blocks.initialization.Constant [-1.0]
 training:
-    exploration: False
+    exploration: imitation
 data:
     add_bos: 1
 stages:
