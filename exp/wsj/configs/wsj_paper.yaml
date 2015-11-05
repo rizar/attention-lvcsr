@@ -27,13 +27,16 @@ stages:
         number: 100
         training:
             restart_from: _best_ll
+            num_epochs: 10
     annealing1:
         number: 200
         training:
             epsilon: 1.0e-10
             restart_from: _best_ll
+            num_epochs: 3
     annealing2:
         number: 300
         training:
             epsilon: 1.0e-12
             restart_from: _best_ll
+            num_epochs: 3
