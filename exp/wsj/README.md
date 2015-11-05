@@ -36,7 +36,7 @@ Check that `$LVSR` environment variable points to this repository and
 3. Train the model. You don't need kaldi for training and it doesn't use any 
    scripts from the recipe.
 
-   `$LVSR/bin/run.py train $LVSR/lvsr/configs/wsj_paper6.yaml`
+   `$LVSR/bin/run.py train wsj_paper6 $LVSR/lvsr/configs/wsj_paper6.yaml`
 
 4. Decode the model on the validation and training datasets. 
 
