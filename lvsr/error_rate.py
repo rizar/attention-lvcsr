@@ -76,9 +76,11 @@ def wer(y, y_hat):
     return edit_distance(y, y_hat) / float(len(y))
 
 
-def reward_matrix(y, y_hat, alphabet, eos_label=None):
+def reward_matrix(y, y_hat, alphabet, eos_label):
     dist, _,  = _edit_distance_matrix(y, y_hat)
     y_alphabet_indices = [alphabet.index(c) for c in y]
+    if y_alphabet_indices[-1] != eos_label:
+        raise ValueError("Last character of the groundtruth must be EOS")
 
     # Optimistic edit distance for every y_hat prefix
     optim_dist = dist.min(axis=0)
@@ -90,17 +92,15 @@ def reward_matrix(y, y_hat, alphabet, eos_label=None):
     pess_char_reward = numpy.tile(
         pess_reward[:, None], [1, len(alphabet)]) - 1
     for i in range(len(y)):
-        for j in range(len(y_hat)):
+        for j in range(len(y_hat) + 1):
             c = y_alphabet_indices[i]
             cand_dist = dist[i, j]
             if cand_dist < optim_dist_char[j, c]:
                 optim_dist_char[j, c] = cand_dist
                 pess_char_reward[j, c] = -cand_dist
-    for j in range(len(y_hat)):
-        if eos_label:
-            pess_char_reward[j, eos_label] = -dist[len(y), j]
-    # Note, that each character j to the minimal i
-    # out of the best ones. That makes the reward estimate pessimistic.
+    for j in range(len(y_hat) + 1):
+        # Here we rely on y[-1] being eos_label
+        pess_char_reward[j, eos_label] = -dist[len(y) - 1, j]
     return pess_char_reward
 
 def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
