@@ -103,9 +103,10 @@ def reward_matrix(y, y_hat, alphabet, eos_label):
         pess_char_reward[j, eos_label] = -dist[len(y) - 1, j]
     return pess_char_reward
 
-def gain_matrix(y, y_hat, alphabet, given_reward_matrix=None):
+def gain_matrix(y, y_hat, given_reward_matrix=None,
+                alphabet=None, eos_label=None):
     y_hat_indices = [alphabet.index(c) for c in y_hat]
     reward = (given_reward_matrix.copy() if given_reward_matrix is not None
-              else reward_matrix(y, y_hat, alphabet))
+              else reward_matrix(y, y_hat, alphabet, eos_label))
     reward[1:] -= reward[:-1][numpy.arange(len(y_hat)), y_hat_indices][:, None]
     return reward

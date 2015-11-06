@@ -44,19 +44,20 @@ def test_reward_matrix():
 
 
 def test_gain_matrix():
-    assert_equal(gain_matrix('abc', 'cab', 'abc'),
-            numpy.array([[ 1, -1, -1],
-                  [ 1,  2, -1],
-                  [ -1,  1, -1],
-                  [ -1,  -1, -1]]))
-    assert_equal(gain_matrix('abc', 'abc', 'abc'),
-        numpy.array([[ 1, -1, -1],
-            [-1,  1, -1],
-            [-1, -1,  1],
-            [-1, -1, -1]]))
-    # Two more interesting examples:
-    # gain_matrix('xxxxxxxy', 'aaaaaaaaa', 'abxyz')
-    # gain_matrix('abcwwdef', 'abcdef', 'abcdefww')
+    matrix = gain_matrix('abc$', 'abc$', alphabet='abc$', eos_label=3)
+    should_be = numpy.array([[ 0, -1, -1, -3],
+                             [-1,  0, -1, -2],
+                             [-1, -1,  0, -1],
+                             [-1, -1, -1,  0],
+                             [-1, -1, -1, -1]])
+    assert_equal(matrix, should_be)
+    matrix = gain_matrix('abc$', 'acb$', alphabet='abc$', eos_label=3)
+    should_be = numpy.array([[ 0, -1, -1, -3],
+                             [-1,  0, -1, -2],
+                             [-1, 0,  0, 0],
+                             [-1, -1, 0,  -1],
+                             [-1, -1, 0,  0]])
+    assert_equal(matrix, should_be)
 
 
 def test_wer():
