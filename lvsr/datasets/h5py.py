@@ -15,7 +15,8 @@ class H5PYAudioDataset(H5PYDataset):
 
     def decode(self, labels, keep_eos=False):
         return [self.num2char[label] for label in labels
-                if label != self.eos_label or keep_eos]
+                if (label != self.eos_label or keep_eos)
+                and label != self.bos_label]
 
     def pretty_print(self, labels):
         labels = self.decode(labels)
