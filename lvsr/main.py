@@ -614,8 +614,12 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
             continue
 
         before = time.time()
+        stop_on = ('patience'
+                   if config['net']['criterion']['name'].startswith('mse')
+                   else 'nll')
         outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount, round_to_inf=4.5)
+            example[0], char_discount=char_discount, round_to_inf=4.5,
+            stop_on=stop_on)
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
