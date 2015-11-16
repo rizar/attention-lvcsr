@@ -538,6 +538,8 @@ def train(config, save_path, bokeh_name,
 
 def search(config, params, load_path, beam_size, part, decode_only, report,
            decoded_save, nll_only, char_discount):
+    import matplotlib
+    matplotlib.use("Agg")
     from matplotlib import pyplot
     from lvsr.notebook import show_alignment
 
