@@ -556,7 +556,8 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     logger.info("Recognizer is initialized")
 
     stream = data.get_stream(part, batches=False, shuffle=False,
-                             add_sources=(data.uttid_source,))
+                             add_sources=(data.uttid_source,),
+                             num_examples=500 if part == 'train' else None)
     it = stream.get_epoch_iterator()
     if decode_only is not None:
         decode_only = eval(decode_only)

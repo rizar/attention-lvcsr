@@ -208,10 +208,16 @@ class Data(object):
             sources=(self.recordings_source,
                      self.labels_source) + tuple(add_sources))
 
-    def get_stream(self, part, batches=True, shuffle=True, add_sources=()):
+    def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
+                   num_examples=None):
         dataset = self.get_dataset(part, add_sources=add_sources)
+        if num_examples:
+            examples = list(range(dataset.num_examples))
+            examples = numpy.random.choice(examples, num_examples)
+        else:
+            examples = dataset.num_examples
         stream = (DataStream(dataset,
-                             iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
+                             iteration_scheme=ShuffledExampleScheme(examples))
                   if shuffle
                   else dataset.get_example_stream())
 
@@ -220,7 +226,8 @@ class Data(object):
         if self.add_eos:
             stream = Mapping(stream, _AddLabel(self.eos_label))
         if self.add_bos:
-            stream = Mapping(stream, _AddLabel(self.bos_label, append=False, times=self.add_bos))
+            stream = Mapping(stream, _AddLabel(self.bos_label, append=False,
+                                               times=self.add_bos))
         if self.preprocess_text:
             stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
         stream = Filter(stream, self.length_filter)
