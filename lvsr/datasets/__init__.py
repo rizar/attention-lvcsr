@@ -213,7 +213,8 @@ class Data(object):
         dataset = self.get_dataset(part, add_sources=add_sources)
         if num_examples:
             examples = list(range(dataset.num_examples))
-            examples = numpy.random.choice(examples, num_examples)
+            rng = numpy.random.RandomState(fuel.config.default_seed)
+            examples = rng.choice(examples, num_examples)
         else:
             examples = dataset.num_examples
         stream = (DataStream(dataset,
