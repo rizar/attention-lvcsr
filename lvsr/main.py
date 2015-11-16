@@ -609,19 +609,20 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         print("Groundtruth:", groundtruth_text, file=print_to)
         print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
         print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
-        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth,
+              file=print_to)
         print("Average groundtruth cost: {}".format(total_nll / num_examples),
-                file=print_to)
+              file=print_to)
         if nll_only:
             continue
 
         before = time.time()
-        stop_on = ('patience'
-                   if config['net']['criterion']['name'].startswith('mse')
-                   else 'nll')
+        if config['net']['criterion']['name'].startswith('mse'):
+            add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
+        else:
+            add_args = {'stop_on': 'nll', 'round_to_inf': None}
         outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount, round_to_inf=4.5,
-            stop_on=stop_on)
+            example[0], char_discount=char_discount, **add_args)
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
