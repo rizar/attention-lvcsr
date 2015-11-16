@@ -622,16 +622,23 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
             add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
         else:
             add_args = {'stop_on': 'nll', 'round_to_inf': None}
-        outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount, **add_args)
+        try:
+            outputs, search_costs = recognizer.beam_search(
+                example[0], char_discount=char_discount, **add_args)
+        except CandidateNotFoundError:
+            outputs = [[]]
+            search_costs = [1000]
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
-        costs_recognized, weights_recognized = (
-            recognizer.analyze(example[0], example[1], outputs[0])[:2])
-        weight_std_recognized, mono_penalty_recognized = weight_statistics(
-            weights_recognized)
-        error = min(1, wer(groundtruth, recognized))
+        try:
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(example[0], example[1], outputs[0])[:2])
+            weight_std_recognized, mono_penalty_recognized = weight_statistics(
+                weights_recognized)
+            error = min(1, wer(groundtruth, recognized))
+        except:
+            error = 1
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
 
@@ -649,14 +656,18 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                 alignments_path, "{}.recognized.png".format(number)))
 
         if decoded_file is not None:
-            print("{} {}".format(example[2], ' '.join(recognized)), file=decoded_file)
+            print("{} {}".format(example[2], ' '.join(recognized)),
+                  file=decoded_file)
 
         print("Decoding took:", took, file=print_to)
         print("Beam search cost:", search_costs[0], file=print_to)
         print("Recognized:", recognized_text, file=print_to)
-        print("Recognized cost:", costs_recognized.sum(), file=print_to)
-        print("Recognized weight std:", weight_std_recognized, file=print_to)
-        print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
+        if recognized:
+            print("Recognized cost:", costs_recognized.sum(), file=print_to)
+            print("Recognized weight std:", weight_std_recognized,
+                  file=print_to)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized,
+                  file=print_to)
         print("CER:", error, file=print_to)
         print("Average CER:", total_errors / total_length, file=print_to)
         print("WER:", wer_error, file=print_to)
