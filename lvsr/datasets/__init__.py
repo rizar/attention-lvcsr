@@ -156,48 +156,59 @@ class Data(object):
         self.dataset_cache = {}
 
         self.length_filter = _LengthFilter(self.max_length)
+        self._info_dataset = None
+
+    @property
+    def info_dataset(self):
+        if self._info_dataset is None:
+            self._info_dataset = self._get_dataset("train")
+        return self._info_dataset
 
     @property
     def num_labels(self):
-        return self.get_dataset("train").num_characters
+        return self.info_dataset.num_characters
 
     @property
     def character_map(self):
-        return self.get_dataset("train").char2num
+        return self.info_dataset.char2num
 
     @property
     def num_features(self):
-        return self.get_dataset("train").num_features
+        return self.info_dataset.num_features
 
     @property
     def eos_label(self):
         if self._eos_label:
             return self._eos_label
-        return self.get_dataset("train").eos_label
+        return self.info_dataset.eos_label
 
     @property
     def bos_label(self):
-        return self.get_dataset('train').bos_label
+        return self.info_dataset.bos_label
 
     def decode(self, labels):
-        return self.get_dataset('train').decode(labels)
+        return self.info_dataset.decode(labels)
 
     def pretty_print(self, labels):
-        return self.get_dataset('train').pretty_print(labels)
+        return self.info_dataset.pretty_print(labels)
 
     def get_dataset(self, part, add_sources=()):
-        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
-
+        """Returns dataset from the cache or creates a new one"""
         if not part in self.dataset_cache:
-            self.dataset_cache[part] = H5PYAudioDataset(
-                os.path.join(fuel.config.data_path, "wsj.h5"),
-                which_sets=(wsj_name_mapping.get(part,part),),
-                sources=(self.recordings_source,
-                            self.labels_source) + tuple(add_sources))
+            self.dataset_cache[part] = self._get_dataset(part, add_sources)
         return self.dataset_cache[part]
 
-    def get_stream(self, part, batches=True, shuffle=True,
-                   add_sources=()):
+    def _get_dataset(self, part, add_sources=()):
+        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93",
+                            "test": "test_eval92"}
+
+        return H5PYAudioDataset(
+            os.path.join(fuel.config.data_path, "wsj.h5"),
+            which_sets=(wsj_name_mapping.get(part, part),),
+            sources=(self.recordings_source,
+                     self.labels_source) + tuple(add_sources))
+
+    def get_stream(self, part, batches=True, shuffle=True, add_sources=()):
         dataset = self.get_dataset(part, add_sources=add_sources)
         stream = (DataStream(dataset,
                              iteration_scheme=ShuffledExampleScheme(dataset.num_examples))

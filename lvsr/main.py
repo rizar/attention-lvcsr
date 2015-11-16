@@ -556,7 +556,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     logger.info("Recognizer is initialized")
 
     stream = data.get_stream(part, batches=False, shuffle=False,
-                                add_sources=(data.uttid_source,))
+                             add_sources=(data.uttid_source,))
     it = stream.get_epoch_iterator()
     if decode_only is not None:
         decode_only = eval(decode_only)
@@ -591,7 +591,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     def to_words(chars):
         words = chars.split()
         words = [vocabulary[word] if word in vocabulary
-                    else vocabulary['<UNK>'] for word in words]
+                 else vocabulary['<UNK>'] for word in words]
         return words
 
     for number, example in enumerate(it):
