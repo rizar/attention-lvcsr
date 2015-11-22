@@ -19,12 +19,44 @@ to replicate our results on Wall Street Journal (WSJ) dataset
 ### Dependencies
 
 - Python packages: pykwalify, toposort, pyyaml, numpy, pandas, pyfst;
-- [kaldi](https://github.com/kaldi-asr/kaldi), it should be compiled with 
-  `--shared` option;
+- [kaldi](https://github.com/kaldi-asr/kaldi);
 - [kaldi-python](https://github.com/dmitriy-serdyuk/kaldi-python).
 
 Given that you have the dataset in HDF5 format, the models can be trained
 without Kaldi and PyFst.
+
+### Installation
+
+- Compile Kaldi. 
+  It should be compiled with 
+  `--shared` option, it means that Kaldi should be configured like
+  ```
+  ./configure --shared
+  ```
+  we need Kaldi to be compiled in shared mode to be able to use kaldi-python.
+
+  We don't train anything with Kaldi, so there is no need to compile it
+  with cuda, so if you have any problems with Kaldi+CUDA, feel free to
+  turn it off:
+  ```
+  ./configure --shared --use-cuda=no
+  ```
+  After this step you should have openfst installed at `$KALDI_ROOT/tools/openfst`.
+- Install python packages.
+  You can use pip for that:
+  ```
+  pip install pykwalify toposort pyyaml numpy pandas pyfst
+  ```
+- Install kaldi-python.
+  Clone the repository and run
+  ```
+  python setup.py install
+  ```
+  kaldi-python will be compiled and installed to your system, you can check that 
+  everything went right by running
+  ```
+  python -c "import kaldi_io"
+  ```
 
 ### Subtrees
 
