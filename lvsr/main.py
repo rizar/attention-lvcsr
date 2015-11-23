@@ -615,6 +615,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         print("Average groundtruth cost: {}".format(total_nll / num_examples),
               file=print_to)
         if nll_only:
+            print_to.flush()
             continue
 
         before = time.time()
@@ -669,6 +670,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         print("Average CER:", total_errors / total_length, file=print_to)
         print("WER:", wer_error, file=print_to)
         print("Average WER:", total_wer_errors / total_word_length, file=print_to)
+        print_to.flush()
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
