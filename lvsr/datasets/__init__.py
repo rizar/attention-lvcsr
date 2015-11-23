@@ -156,13 +156,10 @@ class Data(object):
         self.dataset_cache = {}
 
         self.length_filter = _LengthFilter(self.max_length)
-        self._info_dataset = None
 
     @property
     def info_dataset(self):
-        if self._info_dataset is None:
-            self._info_dataset = self._get_dataset("train")
-        return self._info_dataset
+        return self._get_dataset("train")
 
     @property
     def num_labels(self):
@@ -194,9 +191,10 @@ class Data(object):
 
     def get_dataset(self, part, add_sources=()):
         """Returns dataset from the cache or creates a new one"""
-        if not part in self.dataset_cache:
-            self.dataset_cache[part] = self._get_dataset(part, add_sources)
-        return self.dataset_cache[part]
+        key = (part, add_sources)
+        if key not in self.dataset_cache:
+            self.dataset_cache[key] = self._get_dataset(*key)
+        return self.dataset_cache[key]
 
     def _get_dataset(self, part, add_sources=()):
         wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93",
