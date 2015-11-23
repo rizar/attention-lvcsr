@@ -595,6 +595,10 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                  else vocabulary['<UNK>'] for word in words]
         return words
 
+    if config['net']['criterion']['name'].startswith('mse'):
+        add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
+    else:
+        add_args = {'stop_on': 'nll'}
     for number, example in enumerate(it):
         if decode_only and number not in decode_only:
             continue
@@ -619,10 +623,6 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
             continue
 
         before = time.time()
-        if config['net']['criterion']['name'].startswith('mse'):
-            add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
-        else:
-            add_args = {'stop_on': 'nll', 'round_to_inf': None}
         outputs, search_costs = recognizer.beam_search(
             example[0], char_discount=char_discount, **add_args)
         took = time.time() - before
