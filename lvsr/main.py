@@ -622,22 +622,19 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
             add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
         else:
             add_args = {'stop_on': 'nll', 'round_to_inf': None}
-        try:
-            outputs, search_costs = recognizer.beam_search(
-                example[0], char_discount=char_discount, **add_args)
-        except CandidateNotFoundError:
-            outputs = [[]]
-            search_costs = [1000]
+        outputs, search_costs = recognizer.beam_search(
+            example[0], char_discount=char_discount, **add_args)
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
-        try:
+        if recognized:
+            # Theano scan doesn't work with 0 length sequences
             costs_recognized, weights_recognized = (
                 recognizer.analyze(example[0], example[1], outputs[0])[:2])
             weight_std_recognized, mono_penalty_recognized = weight_statistics(
                 weights_recognized)
             error = min(1, wer(groundtruth, recognized))
-        except:
+        else:
             error = 1
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
