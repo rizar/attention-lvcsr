@@ -211,21 +211,16 @@ class Data(object):
         if not rng:
             rng = numpy.random.RandomState(seed)
         dataset = self.get_dataset(part, add_sources=add_sources)
-        if num_examples and shuffle:
-            examples = list(range(dataset.num_examples))
-            examples = rng.choice(examples, num_examples)
-        else:
-            examples = num_examples
+        if num_examples is None:
+            num_examples = dataset.num_examples
 
-        if examples is None:
-            examples = dataset.num_examples
+        examples = list(range(num_examples))
 
         if shuffle:
-            stream = DataStream(
-                dataset, iteration_scheme=ShuffledExampleScheme(examples))
-        else:
-            stream = DataStream(
-                dataset, iteration_scheme=SequentialExampleScheme(examples))
+            examples = rng.choice(examples, num_examples)
+
+        stream = DataStream(
+            dataset, iteration_scheme=SequentialExampleScheme(examples))
 
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
