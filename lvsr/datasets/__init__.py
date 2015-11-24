@@ -159,7 +159,7 @@ class Data(object):
 
     @property
     def info_dataset(self):
-        return self._get_dataset("train")
+        return self.get_dataset("train")
 
     @property
     def num_labels(self):
