@@ -217,7 +217,7 @@ class Data(object):
         else:
             examples = num_examples
 
-        if not examples:
+        if examples is None:
             examples = dataset.num_examples
 
         if shuffle:
