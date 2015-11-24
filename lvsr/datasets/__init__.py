@@ -5,7 +5,7 @@ import os
 import fuel
 import numpy
 from fuel.schemes import (
-    ConstantScheme, ShuffledExampleScheme)
+    ConstantScheme, ShuffledExampleScheme, SequentialExampleScheme)
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack, Filter,
@@ -215,10 +215,12 @@ class Data(object):
             examples = rng.choice(examples, num_examples)
         else:
             examples = dataset.num_examples
-        stream = (DataStream(dataset,
-                             iteration_scheme=ShuffledExampleScheme(examples))
-                  if shuffle
-                  else dataset.get_example_stream())
+        if shuffle:
+            stream = DataStream(
+                dataset, iteration_scheme=ShuffledExampleScheme(examples))
+        else:
+            stream = DataStream(
+                dataset, iteration_scheme=SequentialExampleScheme(examples))
 
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
