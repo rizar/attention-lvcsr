@@ -214,10 +214,12 @@ class Data(object):
         if num_examples is None:
             num_examples = dataset.num_examples
 
-        examples = list(range(num_examples))
+        all_examples = list(range(dataset.num_examples))
 
         if shuffle:
-            examples = rng.choice(examples, num_examples)
+            examples = rng.choice(all_examples, num_examples)
+        else:
+            examples = all_examples[:num_examples]
 
         stream = DataStream(
             dataset, iteration_scheme=SequentialExampleScheme(examples))
