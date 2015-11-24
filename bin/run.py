@@ -123,6 +123,10 @@ if __name__ == "__main__":
     search_parser.add_argument(
         "--nll-only", default=False, action="store_true",
         help="Only compute log-likelihood")
+    search_parser.add_argument(
+        "--seed", default=1, type=int,
+        help="Random generator seed (to get a random sample if train data "
+             "is used)")
 
     init_norm_parser.add_argument(
         "save_path",

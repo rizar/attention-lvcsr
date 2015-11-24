@@ -537,7 +537,7 @@ def train(config, save_path, bokeh_name,
 
 
 def search(config, params, load_path, beam_size, part, decode_only, report,
-           decoded_save, nll_only, char_discount):
+           decoded_save, nll_only, char_discount, seed):
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
@@ -555,9 +555,11 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     recognizer.init_beam_search(beam_size)
     logger.info("Recognizer is initialized")
 
-    stream = data.get_stream(part, batches=False, shuffle=False,
+    stream = data.get_stream(part, batches=False,
+                             shuffle=part == 'train',
                              add_sources=(data.uttid_source,),
-                             num_examples=500 if part == 'train' else None)
+                             num_examples=500 if part == 'train' else None,
+                             seed=seed)
     it = stream.get_epoch_iterator()
     if decode_only is not None:
         decode_only = eval(decode_only)

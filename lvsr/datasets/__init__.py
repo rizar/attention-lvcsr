@@ -207,14 +207,19 @@ class Data(object):
                      self.labels_source) + tuple(add_sources))
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
-                   num_examples=None):
+                   num_examples=None, rng=None, seed=None):
+        if not rng:
+            rng = numpy.random.RandomState(seed)
         dataset = self.get_dataset(part, add_sources=add_sources)
-        if num_examples:
+        if num_examples and shuffle:
             examples = list(range(dataset.num_examples))
-            rng = numpy.random.RandomState(fuel.config.default_seed)
             examples = rng.choice(examples, num_examples)
         else:
+            examples = num_examples
+
+        if not examples:
             examples = dataset.num_examples
+
         if shuffle:
             stream = DataStream(
                 dataset, iteration_scheme=ShuffledExampleScheme(examples))
