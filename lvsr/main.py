@@ -537,7 +537,9 @@ def train(config, save_path, bokeh_name,
 
 
 def search(config, params, load_path, beam_size, part, decode_only, report,
-           decoded_save, nll_only, char_discount):
+           decoded_save, nll_only, char_discount, seed):
+    import matplotlib
+    matplotlib.use("Agg")
     from matplotlib import pyplot
     from lvsr.notebook import show_alignment
 
@@ -553,8 +555,11 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     recognizer.init_beam_search(beam_size)
     logger.info("Recognizer is initialized")
 
-    stream = data.get_stream(part, batches=False, shuffle=False,
-                                add_sources=(data.uttid_source,))
+    stream = data.get_stream(part, batches=False,
+                             shuffle=part == 'train',
+                             add_sources=(data.uttid_source,),
+                             num_examples=500 if part == 'train' else None,
+                             seed=seed)
     it = stream.get_epoch_iterator()
     if decode_only is not None:
         decode_only = eval(decode_only)
@@ -589,9 +594,13 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     def to_words(chars):
         words = chars.split()
         words = [vocabulary[word] if word in vocabulary
-                    else vocabulary['<UNK>'] for word in words]
+                 else vocabulary['<UNK>'] for word in words]
         return words
 
+    if config['net']['criterion']['name'].startswith('mse'):
+        add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
+    else:
+        add_args = {'stop_on': 'nll'}
     for number, example in enumerate(it):
         if decode_only and number not in decode_only:
             continue
@@ -607,27 +616,29 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         print("Groundtruth:", groundtruth_text, file=print_to)
         print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
         print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
-        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth,
+              file=print_to)
         print("Average groundtruth cost: {}".format(total_nll / num_examples),
-                file=print_to)
+              file=print_to)
         if nll_only:
+            print_to.flush()
             continue
 
         before = time.time()
-        stop_on = ('patience'
-                   if config['net']['criterion']['name'].startswith('mse')
-                   else 'nll')
         outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount, round_to_inf=4.5,
-            stop_on=stop_on)
+            example[0], char_discount=char_discount, **add_args)
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
-        costs_recognized, weights_recognized = (
-            recognizer.analyze(example[0], example[1], outputs[0])[:2])
-        weight_std_recognized, mono_penalty_recognized = weight_statistics(
-            weights_recognized)
-        error = min(1, wer(groundtruth, recognized))
+        if recognized:
+            # Theano scan doesn't work with 0 length sequences
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(example[0], example[1], outputs[0])[:2])
+            weight_std_recognized, mono_penalty_recognized = weight_statistics(
+                weights_recognized)
+            error = min(1, wer(groundtruth, recognized))
+        else:
+            error = 1
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
 
@@ -645,18 +656,23 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                 alignments_path, "{}.recognized.png".format(number)))
 
         if decoded_file is not None:
-            print("{} {}".format(example[2], ' '.join(recognized)), file=decoded_file)
+            print("{} {}".format(example[2], ' '.join(recognized)),
+                  file=decoded_file)
 
         print("Decoding took:", took, file=print_to)
         print("Beam search cost:", search_costs[0], file=print_to)
         print("Recognized:", recognized_text, file=print_to)
-        print("Recognized cost:", costs_recognized.sum(), file=print_to)
-        print("Recognized weight std:", weight_std_recognized, file=print_to)
-        print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
+        if recognized:
+            print("Recognized cost:", costs_recognized.sum(), file=print_to)
+            print("Recognized weight std:", weight_std_recognized,
+                  file=print_to)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized,
+                  file=print_to)
         print("CER:", error, file=print_to)
         print("Average CER:", total_errors / total_length, file=print_to)
         print("WER:", wer_error, file=print_to)
         print("Average WER:", total_wer_errors / total_word_length, file=print_to)
+        print_to.flush()
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 

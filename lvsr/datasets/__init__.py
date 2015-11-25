@@ -5,7 +5,7 @@ import os
 import fuel
 import numpy
 from fuel.schemes import (
-    ConstantScheme, ShuffledExampleScheme)
+    ConstantScheme, ShuffledExampleScheme, SequentialExampleScheme)
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack, Filter,
@@ -158,58 +158,79 @@ class Data(object):
         self.length_filter = _LengthFilter(self.max_length)
 
     @property
+    def info_dataset(self):
+        return self.get_dataset("train")
+
+    @property
     def num_labels(self):
-        return self.get_dataset("train").num_characters
+        return self.info_dataset.num_characters
 
     @property
     def character_map(self):
-        return self.get_dataset("train").char2num
+        return self.info_dataset.char2num
 
     @property
     def num_features(self):
-        return self.get_dataset("train").num_features
+        return self.info_dataset.num_features
 
     @property
     def eos_label(self):
         if self._eos_label:
             return self._eos_label
-        return self.get_dataset("train").eos_label
+        return self.info_dataset.eos_label
 
     @property
     def bos_label(self):
-        return self.get_dataset('train').bos_label
+        return self.info_dataset.bos_label
 
     def decode(self, labels):
-        return self.get_dataset('train').decode(labels)
+        return self.info_dataset.decode(labels)
 
     def pretty_print(self, labels):
-        return self.get_dataset('train').pretty_print(labels)
+        return self.info_dataset.pretty_print(labels)
 
     def get_dataset(self, part, add_sources=()):
-        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93", "test": "test_eval92"}
+        """Returns dataset from the cache or creates a new one"""
+        key = (part, add_sources)
+        if key not in self.dataset_cache:
+            self.dataset_cache[key] = self._get_dataset(*key)
+        return self.dataset_cache[key]
 
-        if not part in self.dataset_cache:
-            self.dataset_cache[part] = H5PYAudioDataset(
-                os.path.join(fuel.config.data_path, "wsj.h5"),
-                which_sets=(wsj_name_mapping.get(part,part),),
-                sources=(self.recordings_source,
-                            self.labels_source) + tuple(add_sources))
-        return self.dataset_cache[part]
+    def _get_dataset(self, part, add_sources=()):
+        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93",
+                            "test": "test_eval92"}
 
-    def get_stream(self, part, batches=True, shuffle=True,
-                   add_sources=()):
+        return H5PYAudioDataset(
+            os.path.join(fuel.config.data_path, "wsj.h5"),
+            which_sets=(wsj_name_mapping.get(part, part),),
+            sources=(self.recordings_source,
+                     self.labels_source) + tuple(add_sources))
+
+    def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
+                   num_examples=None, rng=None, seed=None):
+        if not rng:
+            rng = numpy.random.RandomState(seed)
         dataset = self.get_dataset(part, add_sources=add_sources)
-        stream = (DataStream(dataset,
-                             iteration_scheme=ShuffledExampleScheme(dataset.num_examples))
-                  if shuffle
-                  else dataset.get_example_stream())
+        if num_examples is None:
+            num_examples = dataset.num_examples
+
+        all_examples = list(range(dataset.num_examples))
+
+        if shuffle:
+            examples = rng.choice(all_examples, num_examples)
+        else:
+            examples = all_examples[:num_examples]
+
+        stream = DataStream(
+            dataset, iteration_scheme=SequentialExampleScheme(examples))
 
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
         if self.add_eos:
             stream = Mapping(stream, _AddLabel(self.eos_label))
         if self.add_bos:
-            stream = Mapping(stream, _AddLabel(self.bos_label, append=False, times=self.add_bos))
+            stream = Mapping(stream, _AddLabel(self.bos_label, append=False,
+                                               times=self.add_bos))
         if self.preprocess_text:
             stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
         stream = Filter(stream, self.length_filter)
