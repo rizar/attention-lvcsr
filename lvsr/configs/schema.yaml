@@ -123,6 +123,16 @@ map:
                 type: str
             restart_from:
                 type: str
+    monitoring:
+        map:
+            search:
+                map:
+                    beam_size:
+                        type: int
+                    char_discount:
+                        type: float
+                    round_to_inf:
+                        type: float
     stages:
         type: any
     vocabulary:

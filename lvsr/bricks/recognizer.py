@@ -335,6 +335,9 @@ class SpeechRecognizer(Initializable):
         See Blocks issue #500.
 
         """
+        if hasattr(self, '_beam_search') and self.beam_size == beam_size:
+            # Only recompile if the user wants a different beam size
+            return
         self.beam_size = beam_size
         generated = self.get_generate_graph(use_mask=False, n_steps=3)
         cg = ComputationGraph(generated.values())
@@ -344,8 +347,9 @@ class SpeechRecognizer(Initializable):
         self._beam_search.compile()
 
     def beam_search(self, recording, **kwargs):
-        if not hasattr(self, '_beam_search'):
-            self.init_beam_search(self.beam_size)
+        # When a recognizer is unpickled, self.beam_size is available
+        # but beam search has to be recompiled.
+        self.init_beam_search(self.beam_size)
         input_ = recording[:,numpy.newaxis,:]
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,

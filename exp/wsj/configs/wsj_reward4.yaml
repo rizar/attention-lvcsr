@@ -3,3 +3,6 @@ training:
     exploration: greedy
 data:
     add_bos: 1
+monitoring:
+    search:
+        char_discount: 0.
