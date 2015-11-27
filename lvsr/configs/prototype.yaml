@@ -29,3 +29,6 @@ training:
     momentum: 0.0
     num_batches: 100000
     num_epochs: 100000
+monitoring:
+    search:
+        beam_size: 10

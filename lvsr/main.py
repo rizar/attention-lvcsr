@@ -59,8 +59,12 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, data, **kwargs):
+    def __init__(self, recognizer, data, beam_size,
+                 char_discount=0., round_to_inf=1e9, **kwargs):
         self.recognizer = recognizer
+        self.beam_size = beam_size
+        self.char_discount = char_discount
+        self.round_to_inf = round_to_inf
         # Will only be used to decode generated outputs,
         # which is necessary for correct scoring.
         self.data = data
@@ -68,6 +72,8 @@ class PhonemeErrorRate(MonitoredQuantity):
         kwargs.setdefault('requires', [self.recognizer.single_recording,
                                        self.recognizer.single_transcription])
         super(PhonemeErrorRate, self).__init__(**kwargs)
+
+        self.recognizer.init_beam_search(self.beam_size)
 
     def initialize(self):
         self.total_errors = 0.
@@ -82,7 +88,9 @@ class PhonemeErrorRate(MonitoredQuantity):
         groundtruth = self.data.decode(transcription)
         try:
             outputs, search_costs = self.recognizer.beam_search(
-                recording, char_discount=0.1)
+                recording,
+                char_discount=self.char_discount,
+                round_to_inf=self.round_to_inf)
             recognized = self.data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
@@ -201,7 +209,7 @@ def train(config, save_path, bokeh_name,
 
     prediction = None
     prediction_mask = None
-    explore_conf = train_conf.get('exploration')
+    explore_conf = train_conf.get('exploration', 'imitative')
     if explore_conf in ['greedy', 'mixed']:
         length_expand = 10
         prediction = recognizer.get_generate_graph(
@@ -452,8 +460,7 @@ def train(config, save_path, bokeh_name,
             every_n_batches=validation_batches,
             after_training=False)
     extensions.append(validation)
-    recognizer.init_beam_search(10)
-    per = PhonemeErrorRate(recognizer, data)
+    per = PhonemeErrorRate(recognizer, data, **config['monitoring']['search'])
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(

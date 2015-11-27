@@ -12,6 +12,9 @@ initialization:
     /recognizer/generator/readout/post_merge/mlp:
         biases_init:
             !!python/object/apply:blocks.initialization.Constant [-1.0]
+monitoring:
+    search:
+        round_to_inf: 4.5
 stages:
     pretraining:
         training:
