@@ -1,0 +1,22 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper1.yaml
+net:
+    criterion:
+        name: mse_gain
+        min_reward: -5
+training:
+    scale: 0.01
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.Uniform [0.0, 0.1]
+    /recognizer/generator/readout/post_merge/mlp:
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [-1.0]
+monitoring:
+    search:
+        round_to_inf: 4.5
+stages:
+    pretraining:
+        training:
+            num_epochs: 4
+    annealing2: null

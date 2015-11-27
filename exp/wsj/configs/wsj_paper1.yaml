@@ -1,6 +1,6 @@
 parent: $LVSR/exp/wsj/configs/wsj_paper.yaml
 data:
-    prepend_eos: False
+    add_bos: 0
 stages:
     pretraining:
         training:

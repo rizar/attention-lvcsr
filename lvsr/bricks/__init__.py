@@ -1,15 +1,19 @@
 import logging
 import numpy
+import theano
 from theano import tensor
 
+from blocks.roles import VariableRole, add_role
 from blocks.bricks import (
     Initializable, Linear, Sequence, Tanh)
 from blocks.bricks.base import lazy, application
 from blocks.bricks.parallel import Fork
 from blocks.bricks.recurrent import Bidirectional
 from blocks.bricks.sequence_generators import (
-    AbstractFeedback, LookupFeedback)
+    AbstractFeedback, LookupFeedback, AbstractEmitter)
 from blocks.utils import dict_union, check_theano_variable
+
+from lvsr.ops import RewardOp
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +107,87 @@ class OneOfNFeedback(AbstractFeedback, Initializable):
         return super(LookupFeedback, self).get_dim(name)
 
 
+class OtherLoss(VariableRole):
+    pass
+
+
+OTHER_LOSS = OtherLoss()
+
+
+class RewardRegressionEmitter(AbstractEmitter):
+
+    GAIN_MATRIX = 'gain_matrix'
+    REWARD_MATRIX = 'reward_matrix'
+    GAIN_MSE_LOSS = 'gain_mse_loss'
+    REWARD_MSE_LOSS = 'reward_mse_loss'
+    GROUNDTRUTH = 'groundtruth'
+
+    def __init__(self, criterion, eos_label,
+                 alphabet_size, min_reward, **kwargs):
+        self.criterion = criterion
+        self.reward_op = RewardOp(eos_label, alphabet_size)
+        self.min_reward = min_reward
+        super(RewardRegressionEmitter, self).__init__(**kwargs)
+
+    @application
+    def cost(self, application_call, readouts, outputs):
+        if readouts.ndim == 3:
+            temp_shape = (readouts.shape[0] * readouts.shape[1], readouts.shape[2])
+            correct_mask = tensor.zeros(temp_shape)
+            correct_mask = tensor.set_subtensor(
+                correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
+            correct_mask = correct_mask.reshape(readouts.shape)
+
+            groundtruth = outputs.copy()
+            groundtruth.name = self.GROUNDTRUTH
+
+            reward_matrix, gain_matrix = self.reward_op(groundtruth, outputs)
+            gain_matrix = theano.tensor.maximum(gain_matrix, self.min_reward)
+            gain_matrix.name = self.GAIN_MATRIX
+            reward_matrix.name = self.REWARD_MATRIX
+
+            predicted_gains = readouts.reshape(temp_shape)[
+                tensor.arange(temp_shape[0]), outputs.flatten()]
+            predicted_gains = predicted_gains.reshape(outputs.shape)
+            predicted_gains = tensor.concatenate([
+                tensor.zeros((1, outputs.shape[1])), predicted_gains[1:]])
+            predicted_rewards = predicted_gains.cumsum(axis=0)
+            predicted_rewards = readouts + predicted_rewards[:, :, None]
+
+            gain_mse_loss_matrix = ((readouts - gain_matrix) ** 2).sum(axis=-1)
+            reward_mse_loss_matrix = ((predicted_rewards - reward_matrix) ** 2).sum(axis=-1)
+
+            gain_mse_loss = gain_mse_loss_matrix.sum()
+            gain_mse_loss.name = self.GAIN_MSE_LOSS
+            reward_mse_loss = reward_mse_loss_matrix.sum()
+            reward_mse_loss.name = self.REWARD_MSE_LOSS
+            application_call.add_auxiliary_variable(gain_mse_loss)
+
+            if self.criterion == 'mse_gain':
+                add_role(reward_mse_loss, OTHER_LOSS)
+                application_call.add_auxiliary_variable(reward_mse_loss)
+                return gain_mse_loss_matrix
+            else:
+                add_role(gain_mse_loss, OTHER_LOSS)
+                application_call.add_auxiliary_variable(gain_mse_loss)
+                return reward_mse_loss_matrix
+        return readouts[tensor.arange(readouts.shape[0]), outputs]
+
+    @application
+    def emit(self, readouts):
+        # As a generator, acts greedily
+        return readouts.argmax(axis=1)
+
+    @application
+    def costs(self, readouts):
+        return -readouts
+
+    @application
+    def initial_outputs(self, batch_size):
+        # As long as we do not use the previous character, can be anything
+        return tensor.zeros((batch_size,), dtype='int64')
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return 0
+        return super(RewardRegressionEmitter, self).get_dim(name)

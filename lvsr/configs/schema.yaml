@@ -25,6 +25,9 @@ map:
                 type: bool
             add_eos:
                 type: bool
+            add_bos:
+                type: int
+            # legacy, not supported any more
             prepend_eos:
                 type: bool
     net:
@@ -57,6 +60,12 @@ map:
                 type: str
             use_states_for_readout:
                 type: bool
+            criterion:
+                map:
+                    name:
+                        type: str
+                    min_reward:
+                        type: int
             lm:
                 type: any
             prior:
@@ -110,8 +119,20 @@ map:
             rules:
                 sequence:
                     - type: str
+            exploration:
+                type: str
             restart_from:
                 type: str
+    monitoring:
+        map:
+            search:
+                map:
+                    beam_size:
+                        type: int
+                    char_discount:
+                        type: float
+                    round_to_inf:
+                        type: float
     stages:
         type: any
     vocabulary:

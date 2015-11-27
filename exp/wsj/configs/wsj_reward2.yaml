@@ -1,0 +1,15 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper1.yaml
+net:
+    criterion:
+        name: mse_reward
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.Uniform [0.0, 0.1]
+    /recognizer/generator/readout/post_merge/mlp:
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [1.0]
+stages:
+    pretraining:
+        training:
+            num_epochs: 2

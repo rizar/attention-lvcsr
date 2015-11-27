@@ -8,6 +8,8 @@ net:
     dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     attention_type: content
     use_states_for_readout: False
+    criterion:
+        name: log_likelihood
     lm: {}
 regularization:
     dropout: False
@@ -27,3 +29,6 @@ training:
     momentum: 0.0
     num_batches: 100000
     num_epochs: 100000
+monitoring:
+    search:
+        beam_size: 10

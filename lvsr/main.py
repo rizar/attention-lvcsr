@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use('Agg')
 import theano
 from theano import tensor
+from theano.sandbox.rng_mrg import MRG_RandomStreams
 from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph, apply_dropout, apply_noise
 from blocks.algorithms import (GradientDescent,
@@ -39,11 +40,13 @@ from blocks.utils import named_copy, reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
+from lvsr.bricks import RewardRegressionEmitter
 from lvsr.bricks.recognizer import SpeechRecognizer
 from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
-from lvsr.extensions import CGStatistics, AdaptiveClipping
+from lvsr.extensions import (
+    CGStatistics, AdaptiveClipping, LogInputsGains)
 from lvsr.error_rate import wer
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel
@@ -58,15 +61,21 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, dataset, **kwargs):
+    def __init__(self, recognizer, data, beam_size,
+                 char_discount=0., round_to_inf=1e9, **kwargs):
         self.recognizer = recognizer
+        self.beam_size = beam_size
+        self.char_discount = char_discount
+        self.round_to_inf = round_to_inf
         # Will only be used to decode generated outputs,
         # which is necessary for correct scoring.
-        self.dataset = dataset
+        self.data = data
         kwargs.setdefault('name', 'per')
         kwargs.setdefault('requires', [self.recognizer.single_recording,
                                        self.recognizer.single_transcription])
         super(PhonemeErrorRate, self).__init__(**kwargs)
+
+        self.recognizer.init_beam_search(self.beam_size)
 
     def initialize(self):
         self.total_errors = 0.
@@ -78,11 +87,13 @@ class PhonemeErrorRate(MonitoredQuantity):
         if self.num_examples > 10 and self.mean_error > 0.8:
             self.mean_error = 1
             return
-        groundtruth = self.dataset.decode(transcription)
+        groundtruth = self.data.decode(transcription)
         try:
             outputs, search_costs = self.recognizer.beam_search(
-                recording, char_discount=0.1)
-            recognized = self.dataset.decode(outputs[0])
+                recording,
+                char_discount=self.char_discount,
+                round_to_inf=self.round_to_inf)
+            recognized = self.data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
             error = 1.0
@@ -146,6 +157,8 @@ def train(config, save_path, bokeh_name,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
 
+    train_conf = config['training']
+
     data = Data(**config['data'])
 
     # Build the main brick and initialize all parameters.
@@ -159,12 +172,22 @@ def train(config, save_path, bokeh_name,
         **config["net"])
     for brick_path, attribute_dict in sorted(
             config['initialization'].items(),
-            key=lambda (k, v): -k.count('/')):
+            key=lambda (k, v): k.count('/')):
         for attribute, value in attribute_dict.items():
             brick, = Selector(recognizer).select(brick_path).bricks
             setattr(brick, attribute, value)
             brick.push_initialization_config()
     recognizer.initialize()
+
+    if test_tag:
+        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
+        __stream = data.get_stream("train")
+        __data = next(__stream.get_epoch_iterator(as_dict=True))
+        recognizer.recordings.tag.test_value = __data[data.recordings_source]
+        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
+        recognizer.labels.tag.test_value = __data[data.labels_source]
+        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
+        theano.config.compute_test_value = 'warn'
 
     # Separate attention_params to be handled differently
     # when regularization is applied
@@ -186,26 +209,64 @@ def train(config, save_path, bokeh_name,
         return result
     logger.info(pprint.pformat(show_init_scheme(recognizer)))
 
-    if params:
-        logger.info("Load parameters from " + params)
-        recognizer.load_params(params)
+    prediction = None
+    prediction_mask = None
+    explore_conf = train_conf.get('exploration', 'imitative')
+    if explore_conf in ['greedy', 'mixed']:
+        length_expand = 10
+        prediction = recognizer.get_generate_graph(
+            n_steps=recognizer.labels.shape[0] + length_expand)['outputs']
+        prediction_mask = tensor.lt(
+            tensor.cumsum(tensor.eq(prediction, data.eos_label), axis=0),
+            1).astype(floatX)
+        prediction_mask = tensor.roll(prediction_mask, 1, 0)
+        prediction_mask = tensor.set_subtensor(
+            prediction_mask[0, :], tensor.ones_like(prediction_mask[0, :]))
 
-    if test_tag:
-        tensor.TensorVariable.__str__ = tensor.TensorVariable.__repr__
-        __stream = data.get_stream("train")
-        __data = next(__stream.get_epoch_iterator(as_dict=True))
-        recognizer.recordings.tag.test_value = __data[data.recordings_source]
-        recognizer.recordings_mask.tag.test_value = __data[data.recordings_source + '_mask']
-        recognizer.labels.tag.test_value = __data[data.labels_source]
-        recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
-        theano.config.compute_test_value = 'warn'
+        if explore_conf == 'mixed':
+            batch_size = recognizer.labels.shape[1]
+            targets = tensor.concatenate([
+                recognizer.labels,
+                tensor.zeros((length_expand, batch_size), dtype='int64')])
 
-    batch_cost = recognizer.get_cost_graph().sum()
+            targets_mask = tensor.concatenate([
+                recognizer.labels_mask,
+                tensor.zeros((length_expand, batch_size), dtype=floatX)])
+            rng = MRG_RandomStreams()
+            generate = rng.binomial((batch_size,), p=0.5, dtype='int64')
+            prediction = (generate[None, :] * prediction +
+                          (1 - generate[None, :]) * targets)
+            prediction_mask = (tensor.cast(generate[None, :] *
+                                           prediction_mask, floatX) +
+                               tensor.cast((1 - generate[None, :]) *
+                                           targets_mask, floatX))
+
+        prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
+    elif explore_conf != 'imitative':
+        raise ValueError
+
+    cg = recognizer.get_cost_graph(
+        batch=True, prediction=prediction, prediction_mask=prediction_mask)
+    labels, = VariableFilter(
+        applications=[recognizer.cost], name='labels')(cg)
+    labels_mask, = VariableFilter(
+        applications=[recognizer.cost], name='labels_mask')(cg)
+    criterion_related_observables = []
+    gain_matrix = VariableFilter(
+        theano_name=RewardRegressionEmitter.GAIN_MATRIX)(cg)
+    if len(gain_matrix):
+        gain_matrix, = gain_matrix
+        criterion_related_observables.append(
+            named_copy(gain_matrix.min(), 'min_gain'))
+        criterion_related_observables.append(
+            named_copy(gain_matrix.max(), 'max_gain'))
+
+    batch_cost = cg.outputs[0].sum().sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
     cost = batch_cost / batch_size
-    cost.name = "sequence_log_likelihood"
+    cost.name = "sequence_total_cost"
     logger.info("Cost graph is built")
 
     # Fetch variables useful for debugging.
@@ -217,9 +278,9 @@ def train(config, save_path, bokeh_name,
     energies, = VariableFilter(
         applications=[r.generator.readout.readout], name="output_0")(
                 cost_cg)
-    bottom_output, = VariableFilter(
+    bottom_output = VariableFilter(
         applications=[r.bottom.apply], name="output")(
-                cost_cg)
+                cost_cg)[-1]
     attended, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended")(
                 cost_cg)
@@ -236,7 +297,7 @@ def train(config, save_path, bokeh_name,
                                           "max_attended_mask_length")
     max_attended_length = named_copy(attended.shape[0],
                                      "max_attended_length")
-    max_num_phonemes = named_copy(r.labels.shape[0],
+    max_num_phonemes = named_copy(labels.shape[0],
                                   "max_num_phonemes")
     min_energy = named_copy(energies.min(), "min_energy")
     max_energy = named_copy(energies.max(), "max_energy")
@@ -244,11 +305,11 @@ def train(config, save_path, bokeh_name,
                                "mean_attended")
     mean_bottom_output = named_copy(abs(bottom_output).mean(),
                                     "mean_bottom_output")
-    weights_penalty = named_copy(monotonicity_penalty(weights, r.labels_mask),
+    weights_penalty = named_copy(monotonicity_penalty(weights, labels_mask),
                                  "weights_penalty")
-    weights_entropy = named_copy(entropy(weights, r.labels_mask),
+    weights_entropy = named_copy(entropy(weights, labels_mask),
                                  "weights_entropy")
-    mask_density = named_copy(r.labels_mask.mean(),
+    mask_density = named_copy(labels_mask.mean(),
                               "mask_density")
     cg = ComputationGraph([
         cost, weights_penalty, weights_entropy,
@@ -270,7 +331,6 @@ def train(config, save_path, bokeh_name,
         noise_subjects = [p for p in cg.parameters if p not in attention_params]
         regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
     regularized_cost = regularized_cg.outputs[0]
-    regularized_weights_penalty = regularized_cg.outputs[1]
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
@@ -279,15 +339,14 @@ def train(config, save_path, bokeh_name,
     # because of some bug a parameter is not in the computation
     # graph.
     model = SpeechModel(regularized_cost)
-    params = model.get_parameter_dict()
+    parameters = model.get_parameter_dict()
     logger.info("Parameters:\n" +
                 pprint.pformat(
-                    [(key, params[key].get_value().shape) for key
-                        in sorted(params.keys())],
+                    [(key, parameters[key].get_value().shape) for key
+                        in sorted(parameters.keys())],
                     width=120))
 
     # Define the training algorithm.
-    train_conf = config['training']
     clipping = StepClipping(train_conf['gradient_threshold'])
     clipping.threshold.name = "gradient_norm_threshold"
     rule_names = train_conf.get('rules', ['momentum'])
@@ -299,32 +358,45 @@ def train(config, save_path, bokeh_name,
         logger.info("Using AdaDelta for training")
         core_rules.append(AdaDelta(train_conf['decay_rate'], train_conf['epsilon']))
     max_norm_rules = []
-    if reg_config.get('max_norm', False):
+    if reg_config.get('max_norm', False) > 0:
         logger.info("Apply MaxNorm")
         maxnorm_subjects = VariableFilter(roles=[WEIGHT])(cg.parameters)
         if reg_config.get('max_norm_exclude_lookup', False):
             maxnorm_subjects = [v for v in maxnorm_subjects
                                 if not isinstance(get_brick(v), LookupTable)]
         logger.info("Parameters covered by MaxNorm:\n"
-                    + pprint.pformat([name for name, p in params.items()
+                    + pprint.pformat([name for name, p in parameters.items()
                                         if p in maxnorm_subjects]))
         logger.info("Parameters NOT covered by MaxNorm:\n"
-                    + pprint.pformat([name for name, p in params.items()
+                    + pprint.pformat([name for name, p in parameters.items()
                                         if not p in maxnorm_subjects]))
         max_norm_rules = [
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                         maxnorm_subjects)]
     algorithm = GradientDescent(
         cost=regularized_cost +
-            reg_config.get("penalty_coof", .0) * regularized_weights_penalty / batch_size +
             reg_config.get("decay", .0) *
             l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
-        parameters=params.values(),
+        parameters=parameters.values(),
         step_rule=CompositeRule(
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
             # when nans are encountered.
-            [RemoveNotFinite(0.0)]))
+            [RemoveNotFinite(0.0)]),
+        on_unused_sources='warn')
+
+    logger.debug("Scan Ops in the gradients")
+    gradient_cg = ComputationGraph(algorithm.gradients.values())
+    for op in ComputationGraph(gradient_cg).scans:
+        logger.debug(op)
+
+    if params:
+        logger.info("Load parameters from " + params)
+        recognizer.load_params(params)
+
+    # Sometimes there are a few competing losses
+    # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
+    other_losses = []
 
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
@@ -332,7 +404,7 @@ def train(config, save_path, bokeh_name,
     observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
         clipping.threshold]
-    for name, param in params.items():
+    for name, param in parameters.items():
         num_elements = numpy.product(param.get_value().shape)
         norm = param.norm(2) / num_elements ** 0.5
         grad_norm = algorithm.gradients[param].norm(2) / num_elements ** 0.5
@@ -340,6 +412,13 @@ def train(config, save_path, bokeh_name,
         stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
         stats.name = name + '_stats'
         observables.append(stats)
+    observables.extend(other_losses)
+    primary_observables = [
+        regularized_cost, algorithm.total_gradient_norm,
+        algorithm.total_step_norm, clipping.threshold,
+        max_recording_length,
+        max_attended_length, max_attended_mask_length]
+    primary_observables += criterion_related_observables
 
     def attach_aggregation_schemes(variables):
         # Aggregation specification has to be factored out as a separate
@@ -349,10 +428,10 @@ def train(config, save_path, bokeh_name,
         for var in variables:
             if var.name == 'weights_penalty':
                 result.append(named_copy(aggregation.mean(var, batch_size),
-                                            'weights_penalty_per_recording'))
+                                         'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
                 result.append(named_copy(aggregation.mean(
-                    var, recognizer.labels_mask.sum()), 'weights_entropy_per_label'))
+                    var, labels_mask.sum()), 'weights_entropy_per_label'))
             else:
                 result.append(var)
         return result
@@ -370,10 +449,7 @@ def train(config, save_path, bokeh_name,
         #CodeVersion(['lvsr']),
         ]
     extensions.append(TrainingDataMonitoring(
-        [observables[0], algorithm.total_gradient_norm,
-            algorithm.total_step_norm, clipping.threshold,
-            max_recording_length,
-            max_attended_length, max_attended_mask_length], after_batch=True))
+        primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
         attach_aggregation_schemes(observables),
         prefix="average", every_n_batches=10)
@@ -386,8 +462,7 @@ def train(config, save_path, bokeh_name,
             every_n_batches=validation_batches,
             after_training=False)
     extensions.append(validation)
-    recognizer.init_beam_search(10)
-    per = PhonemeErrorRate(recognizer, data.get_dataset("valid"))
+    per = PhonemeErrorRate(recognizer, data, **config['monitoring']['search'])
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(
@@ -399,39 +474,43 @@ def train(config, save_path, bokeh_name,
     track_the_best_per = TrackTheBest(
         per_monitoring.record_name(per)).set_conditions(
             before_first_epoch=True, after_epoch=True)
-    track_the_best_likelihood = TrackTheBest(
+    track_the_best_cost = TrackTheBest(
         validation.record_name(cost)).set_conditions(
             before_first_epoch=True, after_epoch=True)
-    extensions += [track_the_best_likelihood, track_the_best_per]
+    extensions += [track_the_best_cost, track_the_best_per]
     extensions.append(AdaptiveClipping(
         algorithm.total_gradient_norm.name,
         clipping, train_conf['gradient_threshold'],
         decay_rate=0.998, burnin_period=500))
     extensions += [
-        SwitchOffLengthFilter(data.length_filter,
+        SwitchOffLengthFilter(
+            data.length_filter,
             after_n_batches=train_conf.get('stop_filtering')),
         FinishAfter(after_n_batches=train_conf['num_batches'],
                     after_n_epochs=train_conf['num_epochs'])
         .add_condition(["after_batch"], _gradient_norm_is_none),
-        # Live plotting: requires launching `bokeh-server`
-        # and allows to see what happens online.
-        Plot(bokeh_name
-             if bokeh_name
+        ]
+    channels = [
+        # Plot 1: training and validation costs
+        [average_monitoring.record_name(regularized_cost),
+        validation.record_name(cost)],
+        # Plot 2: gradient norm,
+        [average_monitoring.record_name(algorithm.total_gradient_norm),
+        average_monitoring.record_name(clipping.threshold)],
+        # Plot 3: phoneme error rate
+        [per_monitoring.record_name(per)],
+        # Plot 4: training and validation mean weight entropy
+        [average_monitoring._record_name('weights_entropy_per_label'),
+        validation._record_name('weights_entropy_per_label')],
+        # Plot 5: training and validation monotonicity penalty
+        [average_monitoring._record_name('weights_penalty_per_recording'),
+        validation._record_name('weights_penalty_per_recording')]]
+    for loss in other_losses:
+        channels[0].append(average_monitoring.record_name(loss))
+    extensions += [
+        Plot(bokeh_name if bokeh_name
              else os.path.basename(save_path),
-             [# Plot 1: training and validation costs
-             [average_monitoring.record_name(regularized_cost),
-             validation.record_name(cost)],
-             # Plot 2: gradient norm,
-             [average_monitoring.record_name(algorithm.total_gradient_norm),
-             average_monitoring.record_name(clipping.threshold)],
-             # Plot 3: phoneme error rate
-             [per_monitoring.record_name(per)],
-             # Plot 4: training and validation mean weight entropy
-             [average_monitoring._record_name('weights_entropy_per_label'),
-             validation._record_name('weights_entropy_per_label')],
-             # Plot 5: training and validation monotonicity penalty
-             [average_monitoring._record_name('weights_penalty_per_recording'),
-             validation._record_name('weights_penalty_per_recording')]],
+             channels,
              every_n_batches=10,
              server_url=bokeh_server),
         Checkpoint(save_path,
@@ -445,12 +524,16 @@ def train(config, save_path, bokeh_name,
             (root_path + "_best" + extension,))
         .add_condition(
             ['after_epoch'],
-            OnLogRecord(track_the_best_likelihood.notification_name),
+            OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
-        ProgressBar(),
-        Printing(every_n_batches=1,
-                    attribute_filter=PrintingFilterList()
-                    )]
+        ProgressBar()]
+    if config['net']['criterion']['name'].startswith('mse'):
+        extensions.append(
+            LogInputsGains(
+                labels, cg, recognizer.generator.readout.emitter, data))
+
+    extensions.append(Printing(every_n_batches=1,
+                               attribute_filter=PrintingFilterList()))
 
     # Save the config into the status
     log = TrainingLog()
@@ -463,12 +546,15 @@ def train(config, save_path, bokeh_name,
 
 
 def search(config, params, load_path, beam_size, part, decode_only, report,
-           decoded_save, nll_only, char_discount):
+           decoded_save, nll_only, char_discount, seed):
+    import matplotlib
+    matplotlib.use("Agg")
     from matplotlib import pyplot
     from lvsr.notebook import show_alignment
 
     data = Data(**config['data'])
 
+    logger.info("Recognizer initialization started")
     recognizer = SpeechRecognizer(
         data.recordings_source, data.labels_source,
         data.eos_label, data.num_features, data.num_labels,
@@ -476,10 +562,13 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         name='recognizer', **config["net"])
     recognizer.load_params(load_path)
     recognizer.init_beam_search(beam_size)
+    logger.info("Recognizer is initialized")
 
-    dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
-    stream = data.get_stream(part, batches=False, shuffle=False,
-                                add_sources=(data.uttid_source,))
+    stream = data.get_stream(part, batches=False,
+                             shuffle=part == 'train',
+                             add_sources=(data.uttid_source,),
+                             num_examples=500 if part == 'train' else None,
+                             seed=seed)
     it = stream.get_epoch_iterator()
     if decode_only is not None:
         decode_only = eval(decode_only)
@@ -514,17 +603,21 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     def to_words(chars):
         words = chars.split()
         words = [vocabulary[word] if word in vocabulary
-                    else vocabulary['<UNK>'] for word in words]
+                 else vocabulary['<UNK>'] for word in words]
         return words
 
-    for number, data in enumerate(it):
+    if config['net']['criterion']['name'].startswith('mse'):
+        add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
+    else:
+        add_args = {'stop_on': 'nll'}
+    for number, example in enumerate(it):
         if decode_only and number not in decode_only:
             continue
-        print("Utterance {} ({})".format(number, data[2]), file=print_to)
-        groundtruth = dataset.decode(data[1])
-        groundtruth_text = dataset.pretty_print(data[1])
+        print("Utterance {} ({})".format(number, example[2]), file=print_to)
+        groundtruth = data.decode(example[1])
+        groundtruth_text = data.pretty_print(example[1])
         costs_groundtruth, weights_groundtruth = (
-            recognizer.analyze(data[0], data[1])[:2])
+            recognizer.analyze(example[0], example[1], example[1])[:2])
         weight_std_groundtruth, mono_penalty_groundtruth = weight_statistics(
             weights_groundtruth)
         total_nll += costs_groundtruth.sum()
@@ -532,23 +625,29 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         print("Groundtruth:", groundtruth_text, file=print_to)
         print("Groundtruth cost:", costs_groundtruth.sum(), file=print_to)
         print("Groundtruth weight std:", weight_std_groundtruth, file=print_to)
-        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth, file=print_to)
+        print("Groundtruth monotonicity penalty:", mono_penalty_groundtruth,
+              file=print_to)
         print("Average groundtruth cost: {}".format(total_nll / num_examples),
-                file=print_to)
+              file=print_to)
         if nll_only:
+            print_to.flush()
             continue
 
         before = time.time()
         outputs, search_costs = recognizer.beam_search(
-            data[0], char_discount=char_discount)
+            example[0], char_discount=char_discount, **add_args)
         took = time.time() - before
-        recognized = dataset.decode(outputs[0])
-        recognized_text = dataset.pretty_print(outputs[0])
-        costs_recognized, weights_recognized = (
-            recognizer.analyze(data[0], outputs[0])[:2])
-        weight_std_recognized, mono_penalty_recognized = weight_statistics(
-            weights_recognized)
-        error = min(1, wer(groundtruth, recognized))
+        recognized = data.decode(outputs[0])
+        recognized_text = data.pretty_print(outputs[0])
+        if recognized:
+            # Theano scan doesn't work with 0 length sequences
+            costs_recognized, weights_recognized = (
+                recognizer.analyze(example[0], example[1], outputs[0])[:2])
+            weight_std_recognized, mono_penalty_recognized = weight_statistics(
+                weights_recognized)
+            error = min(1, wer(groundtruth, recognized))
+        else:
+            error = 1
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
 
@@ -566,20 +665,49 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                 alignments_path, "{}.recognized.png".format(number)))
 
         if decoded_file is not None:
-            print("{} {}".format(data[2], ' '.join(recognized)), file=decoded_file)
+            print("{} {}".format(example[2], ' '.join(recognized)),
+                  file=decoded_file)
 
         print("Decoding took:", took, file=print_to)
         print("Beam search cost:", search_costs[0], file=print_to)
         print("Recognized:", recognized_text, file=print_to)
-        print("Recognized cost:", costs_recognized.sum(), file=print_to)
-        print("Recognized weight std:", weight_std_recognized, file=print_to)
-        print("Recognized monotonicity penalty:", mono_penalty_recognized, file=print_to)
+        if recognized:
+            print("Recognized cost:", costs_recognized.sum(), file=print_to)
+            print("Recognized weight std:", weight_std_recognized,
+                  file=print_to)
+            print("Recognized monotonicity penalty:", mono_penalty_recognized,
+                  file=print_to)
         print("CER:", error, file=print_to)
         print("Average CER:", total_errors / total_length, file=print_to)
         print("WER:", wer_error, file=print_to)
         print("Average WER:", total_wer_errors / total_word_length, file=print_to)
+        print_to.flush()
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
+
+def sample(config, params, load_path, part):
+    data = Data(**config['data'])
+
+    recognizer = SpeechRecognizer(
+        data.recordings_source, data.labels_source,
+        data.eos_label, data.num_features, data.num_labels,
+        character_map=data.character_map,
+        name='recognizer', **config["net"])
+    recognizer.load_params(load_path)
+
+    dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
+    stream = data.get_stream(part, batches=False, shuffle=False,
+                                add_sources=(data.uttid_source,))
+    it = stream.get_epoch_iterator()
+
+    print_to = sys.stdout
+    for number, data in enumerate(it):
+        print("Utterance {} ({})".format(number, data[2]), file=print_to)
+        groundtruth_text = dataset.pretty_print(data[1])
+        print("Groundtruth:", groundtruth_text, file=print_to)
+        sample = recognizer.sample(data[0])['outputs'][:, 0]
+        recognized_text = dataset.pretty_print(sample)
+        print("Recognized:", recognized_text, file=print_to)
 
 
 def init_norm(config, save_path):
@@ -594,7 +722,7 @@ def init_norm(config, save_path):
 def show_data(config):
     data = Data(**config['data'])
     stream = data.get_stream("train")
-    data = next(stream.get_epoch_iterator(as_dict=True))
+    batch = next(stream.get_epoch_iterator(as_dict=True))
     import IPython; IPython.embed()
 
 
@@ -612,12 +740,14 @@ def train_multistage(config, save_path, bokeh_name, params, start_stage, **kwarg
                          + pprint.pformat(stage_config, width=120))
             stage_save_path = '{}/{}.zip'.format(save_path, stage_name)
             stage_bokeh_name = '{}_{}'.format(save_path, stage_name)
-            if number:
+            if number and not params:
                 stage_params = '{}/{}{}.zip'.format(
                     save_path, stages[number - 1][0],
                     stage_config['training'].get('restart_from', ''))
             else:
-                stage_params = None
+                stage_params = params
+                # Avoid loading the params twice
+                params = None
 
             train(stage_config, stage_save_path, stage_bokeh_name,
                   stage_params, **kwargs)

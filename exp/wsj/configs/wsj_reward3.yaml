@@ -1,0 +1,4 @@
+parent: $LVSR/exp/wsj/configs/wsj_reward1.yaml
+training:
+    exploration: greedy
+

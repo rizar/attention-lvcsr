@@ -18,7 +18,8 @@ from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
 from blocks.serialization import load_parameter_values
 
-from lvsr.bricks import Encoder, OneOfNFeedback, InitializableSequence
+from lvsr.bricks import (
+    Encoder, OneOfNFeedback, InitializableSequence, RewardRegressionEmitter)
 from lvsr.bricks.attention import SequenceContentAndConvAttention
 from lvsr.bricks.language_models import (
     LanguageModel, LMEmitter, ShallowFusionReadout)
@@ -49,6 +50,7 @@ class SpeechRecognizer(Initializable):
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
+                 criterion,
                  lm=None, character_map=None,
                  subsample=None,
                  dims_top=None,
@@ -61,7 +63,7 @@ class SpeechRecognizer(Initializable):
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
-                 energy_normalizer=None,  # softmax is th edefault set in SequenceContentAndConvAttention
+                 energy_normalizer=None,  # softmax is the default set in SequenceContentAndConvAttention
                  **kwargs):
         if bottom_activation is None:
             bottom_activation = Tanh()
@@ -79,6 +81,8 @@ class SpeechRecognizer(Initializable):
         self.enc_transition = enc_transition
         self.dec_transition = dec_transition
         self.dec_stack = dec_stack
+
+        self.criterion = criterion
 
         bottom_activation = bottom_activation
         post_merge_activation = post_merge_activation
@@ -143,9 +147,18 @@ class SpeechRecognizer(Initializable):
         if lm:
             # In case we use LM it is Readout that is responsible
             # for normalization.
+            if criterion['name'] != 'log_likelihood':
+                raise ValueError('LM integration only for log-likelihood')
             emitter = LMEmitter()
-        else:
+        if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
+        elif criterion['name'].startswith('mse'):
+            emitter = RewardRegressionEmitter(
+                criterion['name'], eos_label, num_phonemes,
+                criterion.get('min_reward', -1.0),
+                name="emitter")
+        else:
+            raise ValueError("Unknown criterion {}".format(criterion['name']))
         readout_config = dict(
             readout_dim=num_phonemes,
             source_names=(transition.apply.states if use_states_for_readout else [])
@@ -209,6 +222,7 @@ class SpeechRecognizer(Initializable):
                              self.labels, self.labels_mask]
         self.single_recording = tensor.matrix(self.recordings_source)
         self.single_transcription = tensor.lvector(self.labels_source)
+        self.n_steps = tensor.lscalar('n_steps')
 
     def push_initialization_config(self):
         super(SpeechRecognizer, self).push_initialization_config()
@@ -222,7 +236,8 @@ class SpeechRecognizer(Initializable):
             global_push_initialization_config(self,
                                               {'initial_states_init': self.initial_states_init})
 
-    @application
+    @application(inputs=['recordings', 'recordings_mask',
+                         'labels', 'labels_mask'])
     def cost(self, recordings, recordings_mask, labels, labels_mask):
         bottom_processed = self.bottom.apply(recordings)
         encoded, encoded_mask = self.encoder.apply(
@@ -234,12 +249,14 @@ class SpeechRecognizer(Initializable):
             attended=encoded, attended_mask=encoded_mask)
 
     @application
-    def generate(self, recordings):
+    def generate(self, recordings, recordings_mask, n_steps=None):
         encoded, encoded_mask = self.encoder.apply(
-            input_=self.bottom.apply(recordings))
+            input_=self.bottom.apply(recordings),
+            mask=recordings_mask)
         encoded = self.top.apply(encoded)
         return self.generator.generate(
-            n_steps=recordings.shape[0], batch_size=recordings.shape[1],
+            n_steps=n_steps if n_steps is not None else self.n_steps,
+            batch_size=recordings.shape[1],
             attended=encoded,
             attended_mask=encoded_mask,
             as_dict=True)
@@ -249,26 +266,49 @@ class SpeechRecognizer(Initializable):
         param_values = load_parameter_values(path)
         SpeechModel(generated['outputs']).set_parameter_values(param_values)
 
-    def get_generate_graph(self):
-        result = self.generate(self.recordings)
-        return result
+    def get_generate_graph(self, use_mask=True, n_steps=None):
+        return self.generate(self.recordings, self.recordings_mask if use_mask else None,
+                             n_steps)
 
-    def get_cost_graph(self, batch=True):
+    def get_cost_graph(self, batch=True,
+                       prediction=None, prediction_mask=None):
         if batch:
-            return self.cost(
-                self.recordings, self.recordings_mask,
-                self.labels, self.labels_mask)
-        recordings = self.single_recording[:, None, :]
-        labels = self.single_transcription[:, None]
-        return self.cost(
-            recordings, tensor.ones_like(recordings[:, :, 0]),
-            labels, None)
+            recordings = self.recordings
+            recordings_mask = self.recordings_mask
+            groundtruth = self.labels
+            groundtruth_mask = self.labels_mask
+        else:
+            recordings = self.single_recording[:, None, :]
+            recordings_mask = tensor.ones_like(recordings[:, :, 0])
+            groundtruth = self.single_transcription[:, None]
+            groundtruth_mask = None
+        if not prediction:
+            prediction = groundtruth
+        if not prediction_mask:
+            prediction_mask = groundtruth_mask
+        cost = self.cost(recordings, recordings_mask,
+                         prediction, prediction_mask)
+        cost_cg = ComputationGraph(cost)
+        if self.criterion['name'].startswith("mse"):
+            placeholder, = VariableFilter(theano_name='groundtruth')(cost_cg)
+            cost_cg = cost_cg.replace({placeholder: groundtruth})
+        return cost_cg
 
-    def analyze(self, recording, transcription):
-        """Compute cost and aligment for a recording/transcription pair."""
+    def analyze(self, recording, groundtruth, prediction=None):
+        """Compute cost and aligment."""
+        input_values = [recording, groundtruth]
+        if prediction is not None:
+            input_values.append(prediction)
         if not hasattr(self, "_analyze"):
-            cost = self.get_cost_graph(batch=False)
-            cg = ComputationGraph(cost)
+            input_variables = [self.single_recording, self.single_transcription]
+            prediction_variable = tensor.lvector('prediction')
+            if prediction is not None:
+                input_variables.append(prediction_variable)
+                cg = self.get_cost_graph(
+                    batch=False, prediction=prediction_variable[:, None])
+            else:
+                cg = self.get_cost_graph(batch=False)
+            cost = cg.outputs[0]
             energies = VariableFilter(
                 bricks=[self.generator], name="energies")(cg)
             energies_output = [energies[0][:, 0, :] if energies
@@ -285,9 +325,9 @@ class SpeechRecognizer(Initializable):
             weights, = VariableFilter(
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
-                [self.single_recording, self.single_transcription],
+                input_variables,
                 [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output)
-        return self._analyze(recording, transcription)
+        return self._analyze(*input_values)
 
     def init_beam_search(self, beam_size):
         """Compile beam search and set the beam size.
@@ -295,23 +335,39 @@ class SpeechRecognizer(Initializable):
         See Blocks issue #500.
 
         """
+        if hasattr(self, '_beam_search') and self.beam_size == beam_size:
+            # Only recompile if the user wants a different beam size
+            return
         self.beam_size = beam_size
-        generated = self.get_generate_graph()
+        generated = self.get_generate_graph(use_mask=False, n_steps=3)
+        cg = ComputationGraph(generated.values())
         samples, = VariableFilter(
-            applications=[self.generator.generate], name="outputs")(
-            ComputationGraph(generated['outputs']))
+            applications=[self.generator.generate], name="outputs")(cg)
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
-    def beam_search(self, recording, char_discount=0.0):
-        if not hasattr(self, '_beam_search'):
-            self.init_beam_search(self.beam_size)
+    def beam_search(self, recording, **kwargs):
+        # When a recognizer is unpickled, self.beam_size is available
+        # but beam search has to be recompiled.
+        self.init_beam_search(self.beam_size)
         input_ = recording[:,numpy.newaxis,:]
         outputs, search_costs = self._beam_search.search(
             {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
             ignore_first_eol=self.data_prepend_eos,
-            char_discount=char_discount)
+            **kwargs)
         return outputs, search_costs
+
+    def init_generate(self):
+        generated = self.get_generate_graph(use_mask=False)
+        self._do_generate = theano.function(
+            [self.recordings, self.n_steps], generated)
+
+    def sample(self, recording, n_steps=None):
+        if not hasattr(self, '_do_generate'):
+            self.init_generate()
+        batch = recording[:, None, :]
+        return self._do_generate(
+            batch, n_steps if n_steps is not None else recording.shape[0] / 3)
 
     def __getstate__(self):
         state = dict(self.__dict__)
