@@ -63,12 +63,14 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, data, beam_size,
-                 char_discount=0., round_to_inf=1e9, **kwargs):
+    def __init__(self, recognizer, data,
+                 beam_size,  char_discount, round_to_inf, stop_on,
+                 **kwargs):
         self.recognizer = recognizer
         self.beam_size = beam_size
         self.char_discount = char_discount
         self.round_to_inf = round_to_inf
+        self.stop_on = stop_on
         # Will only be used to decode generated outputs,
         # which is necessary for correct scoring.
         self.data = data
@@ -94,7 +96,8 @@ class PhonemeErrorRate(MonitoredQuantity):
             outputs, search_costs = self.recognizer.beam_search(
                 recording,
                 char_discount=self.char_discount,
-                round_to_inf=self.round_to_inf)
+                round_to_inf=self.round_to_inf,
+                stop_on=self.stop_on)
             recognized = self.data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
@@ -156,8 +159,7 @@ class LoadLog(TrainingExtension):
 
 def train(config, save_path, bokeh_name,
           params, bokeh_server, bokeh, test_tag, use_load_ext,
-          load_log, fast_start, validation_epochs, validation_batches,
-          per_epochs, per_batches):
+          load_log, fast_start):
     root_path, extension = os.path.splitext(save_path)
 
     train_conf = config['training']
@@ -502,6 +504,8 @@ def train(config, save_path, bokeh_name,
                 result.append(var)
         return result
 
+    mon_conf = config['monitoring']
+
     # Build main loop.
     logger.info("Initialize extensions")
     extensions = []
@@ -524,8 +528,8 @@ def train(config, save_path, bokeh_name,
         attach_aggregation_schemes(validation_observables),
         data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
-            every_n_epochs=validation_epochs,
-            every_n_batches=validation_batches,
+            every_n_epochs=mon_conf['validate_every_epochs'],
+            every_n_batches=mon_conf['validate_every_batches'],
             after_training=False)
     extensions.append(validation)
     per = PhonemeErrorRate(recognizer, data, **config['monitoring']['search'])
@@ -533,8 +537,8 @@ def train(config, save_path, bokeh_name,
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
-            every_n_epochs=per_epochs,
-            every_n_batches=per_batches,
+            every_n_epochs=mon_conf['search_every_epochs'],
+            every_n_batches=mon_conf['search_every_batches'],
             after_training=False)
     extensions.append(per_monitoring)
     track_the_best_per = TrackTheBest(
@@ -611,14 +615,15 @@ def train(config, save_path, bokeh_name,
     main_loop.run()
 
 
-def search(config, params, load_path, beam_size, part, decode_only, report,
-           decoded_save, nll_only, char_discount, seed):
+def search(config, params, load_path, part, decode_only, report,
+           decoded_save, nll_only, seed):
     import matplotlib
     matplotlib.use("Agg")
     from matplotlib import pyplot
     from lvsr.notebook import show_alignment
 
     data = Data(**config['data'])
+    search_conf = config['monitoring']['search']
 
     logger.info("Recognizer initialization started")
     recognizer = SpeechRecognizer(
@@ -627,7 +632,7 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         character_map=data.character_map,
         name='recognizer', **config["net"])
     recognizer.load_params(load_path)
-    recognizer.init_beam_search(beam_size)
+    recognizer.init_beam_search(search_conf['beam_size'])
     logger.info("Recognizer is initialized")
 
     stream = data.get_stream(part, batches=False,
@@ -674,10 +679,6 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                      else vocabulary['<UNK>'] for word in words]
             return words
 
-    if config['net']['criterion']['name'].startswith('mse'):
-        add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
-    else:
-        add_args = {'stop_on': 'nll'}
     for number, example in enumerate(it):
         if decode_only and number not in decode_only:
             continue
@@ -703,7 +704,10 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
 
         before = time.time()
         outputs, search_costs = recognizer.beam_search(
-            example[0], char_discount=char_discount, **add_args)
+            example[0],
+            char_discount=search_conf['char_discount'],
+            round_to_inf=search_conf['round_to_inf'],
+            stop_on=search_conf['stop_on'])
         took = time.time() - before
         recognized = data.decode(outputs[0])
         recognized_text = data.pretty_print(outputs[0])
