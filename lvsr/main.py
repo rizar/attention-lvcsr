@@ -48,8 +48,10 @@ from lvsr.expressions import (
 from lvsr.extensions import (
     CGStatistics, AdaptiveClipping, LogInputsGains)
 from lvsr.error_rate import wer
+from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel
+from blocks.serialization import load_parameter_values
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -331,7 +333,43 @@ def train(config, save_path, bokeh_name,
         logger.info('apply noise')
         noise_subjects = [p for p in cg.parameters if p not in attention_params]
         regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
-    regularized_cost = regularized_cg.outputs[0]
+    gradients = None
+    if reg_config.get('adaptive_noise'):
+        logger.info('apply adaptive noise')
+        train_cost, regularized_cg, gradients, noise_brick = apply_adaptive_noise(
+            regularized_cg, regularized_cg.outputs[0],
+            variables=cg.parameters,
+            num_examples=data.get_dataset('train').num_examples,
+            parameters=SpeechModel(regularized_cg.outputs[0]
+                                   ).get_parameter_dict().values(),
+            **reg_config.get('adaptive_noise')
+            )
+        adapt_noise_cg = ComputationGraph(train_cost)
+        model_prior_mean = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_prior_mean')(adapt_noise_cg)[0],
+            'model_prior_mean')
+        model_cost = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_cost')(adapt_noise_cg)[0],
+            'model_cost')
+        model_prior_variance = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_prior_variance')(adapt_noise_cg)[0],
+            'model_prior_variance')
+        regularized_cg = ComputationGraph(
+            [train_cost, model_cost] +
+            regularized_cg.outputs +
+            [model_prior_mean, model_prior_variance])
+        regularized_weights_penalty = regularized_cg.outputs[1]
+    else:
+        regularized_weights_penalty = regularized_cg.outputs[1]
+        train_cost = (
+            regularized_cg.outputs[0] +
+            reg_config.get("penalty_coof", .0) * regularized_weights_penalty / batch_size +
+            reg_config.get("decay", .0) *
+            l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2
+            )
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
@@ -339,7 +377,12 @@ def train(config, save_path, bokeh_name,
     # and give them hierahical names. This help to notice when a
     # because of some bug a parameter is not in the computation
     # graph.
-    model = SpeechModel(regularized_cost)
+    model = SpeechModel(train_cost)
+    if params:
+        logger.info("Load parameters from " + params)
+        recognizer.load_params(params)
+        param_values = load_parameter_values(params)
+        model.set_parameter_values(param_values)
     parameters = model.get_parameter_dict()
     logger.info("Parameters:\n" +
                 pprint.pformat(
@@ -375,10 +418,9 @@ def train(config, save_path, bokeh_name,
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                         maxnorm_subjects)]
     algorithm = GradientDescent(
-        cost=regularized_cost +
-            reg_config.get("decay", .0) *
-            l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
+        cost=train_cost,
         parameters=parameters.values(),
+        gradients=gradients,
         step_rule=CompositeRule(
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
@@ -401,7 +443,7 @@ def train(config, save_path, bokeh_name,
 
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
-    observables = regularized_cg.outputs
+    observables = list(regularized_cg.outputs)
     observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
         clipping.threshold]
@@ -450,6 +492,15 @@ def train(config, save_path, bokeh_name,
         #CodeVersion(['lvsr']),
         ]
     extensions.append(TrainingDataMonitoring(
+        [observables[0], algorithm.total_gradient_norm,
+            algorithm.total_step_norm, clipping.threshold,
+            max_recording_length,
+            max_attended_length, max_attended_mask_length], after_batch=True))
+        regularized_cg.outputs +
+        [algorithm.total_gradient_norm,
+            algorithm.total_step_norm, clipping.threshold,
+            max_recording_length,
+            max_attended_length, max_attended_mask_length], after_batch=True))
         primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
         attach_aggregation_schemes(observables),

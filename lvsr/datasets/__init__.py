@@ -98,6 +98,8 @@ class Data(object):
         Source name for labels.
     batch_size : int
         Batch size.
+    validation_batch_size : int
+        Batch size used for validation.
     sort_k_batches : int
     max_length : int
         Maximum length of input, longer sequences will be filtered.
@@ -121,7 +123,8 @@ class Data(object):
     """
     def __init__(self, dataset, name_mapping,
                  recordings_source, labels_source,
-                 batch_size, sort_k_batches=None,
+                 batch_size, validation_batch_size=None,
+                 sort_k_batches=None,
                  max_length=None, normalization=None,
                  uttid_source='uttids',
                  feature_name='wav', preprocess_features=None,
@@ -141,6 +144,9 @@ class Data(object):
         self.uttid_source = uttid_source
         self.normalization = normalization
         self.batch_size = batch_size
+        if validation_batch_size is None:
+            validation_batch_size = batch_size
+        self.validation_batch_size = validation_batch_size
         self.sort_k_batches = sort_k_batches
         self.feature_name = feature_name
         self.max_length = max_length
@@ -244,7 +250,10 @@ class Data(object):
         if not batches:
             return stream
 
-        stream = Batch(stream, iteration_scheme=ConstantScheme(self.batch_size))
+        stream = Batch(
+            stream,
+            iteration_scheme=ConstantScheme(self.batch_size if part == 'train'
+                                            else self.validation_batch_size))
         stream = Padding(stream)
         stream = Mapping(stream, switch_first_two_axes)
         stream = ForceCContiguous(stream)

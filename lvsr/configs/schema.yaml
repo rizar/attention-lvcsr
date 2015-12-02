@@ -7,6 +7,8 @@ map:
         map:
             batch_size:
                 type: int
+            validation_batch_size:
+                type: int
             max_length:
                 type: int
             normalization:
@@ -104,6 +106,9 @@ map:
                 type: float
             max_norm:
                 type: float
+            adaptive_noise:
+                type: map
+                allowempty: true
     initialization:
         matching-rule: any
         map:

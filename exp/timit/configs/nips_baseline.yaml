@@ -19,6 +19,7 @@ data:
 
     sort_k_batches: ''
     batch_size: 8
+    validation_batch_size: 64
 
 initialization:
     /recognizer:
@@ -50,9 +51,6 @@ net:
 
     use_states_for_readout: True
 
-regularization:
-    max_norm: 1.0
-
 training:
     rules: [momentum, adadelta]
     scale: 1.0
@@ -63,3 +61,31 @@ training:
 
     gradient_threshold: 10.0
 
+stages:
+    pretraining:
+        number: 0
+        regularization:
+            max_norm: 1.0
+        training:
+            num_epochs: 15
+    main:
+        number: 100
+        data:
+            batch_size: 1
+        regularization:
+            adaptive_noise:
+                model_cost_coefficient: 0.1
+                init_sigma: 1.0e-12
+        training:
+            restart_from: _best_ll
+    annealing:
+        number: 200
+        data:
+            batch_size: 1
+        regularization:
+            adaptive_noise:
+                model_cost_coefficient: 1.0
+                init_sigma: 1e-12
+        training:
+            epsilon: 1.0e-10
+            restart_from: _best_ll
