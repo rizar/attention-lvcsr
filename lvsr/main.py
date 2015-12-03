@@ -380,9 +380,12 @@ def train(config, save_path, bokeh_name,
     model = SpeechModel(train_cost)
     if params:
         logger.info("Load parameters from " + params)
-        recognizer.load_params(params)
+        # please note: we cannot use recognizer.load_params
+        # as it builds a new computation graph that dies not have
+        # shapred variables added by adaptive weight noise
         param_values = load_parameter_values(params)
         model.set_parameter_values(param_values)
+
     parameters = model.get_parameter_dict()
     logger.info("Parameters:\n" +
                 pprint.pformat(
@@ -433,10 +436,6 @@ def train(config, save_path, bokeh_name,
     for op in ComputationGraph(gradient_cg).scans:
         logger.debug(op)
 
-    if params:
-        logger.info("Load parameters from " + params)
-        recognizer.load_params(params)
-
     # Sometimes there are a few competing losses
     # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
     other_losses = []
@@ -456,8 +455,8 @@ def train(config, save_path, bokeh_name,
         stats.name = name + '_stats'
         observables.append(stats)
     observables.extend(other_losses)
-    primary_observables = [
-        regularized_cost, algorithm.total_gradient_norm,
+    primary_observables = regularized_cg.outputs + [
+        algorithm.total_gradient_norm,
         algorithm.total_step_norm, clipping.threshold,
         max_recording_length,
         max_attended_length, max_attended_mask_length]
@@ -492,15 +491,6 @@ def train(config, save_path, bokeh_name,
         #CodeVersion(['lvsr']),
         ]
     extensions.append(TrainingDataMonitoring(
-        [observables[0], algorithm.total_gradient_norm,
-            algorithm.total_step_norm, clipping.threshold,
-            max_recording_length,
-            max_attended_length, max_attended_mask_length], after_batch=True))
-        regularized_cg.outputs +
-        [algorithm.total_gradient_norm,
-            algorithm.total_step_norm, clipping.threshold,
-            max_recording_length,
-            max_attended_length, max_attended_mask_length], after_batch=True))
         primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
         attach_aggregation_schemes(observables),
@@ -544,7 +534,7 @@ def train(config, save_path, bokeh_name,
         ]
     channels = [
         # Plot 1: training and validation costs
-        [average_monitoring.record_name(regularized_cost),
+        [average_monitoring.record_name(train_cost),
         validation.record_name(cost)],
         # Plot 2: gradient norm,
         [average_monitoring.record_name(algorithm.total_gradient_norm),
@@ -585,6 +575,9 @@ def train(config, save_path, bokeh_name,
         extensions.append(
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
+
+    extensions.append(Printing(every_n_batches=1,
+                               attribute_filter=PrintingFilterList()))
 
     # Save the config into the status
     log = TrainingLog()
