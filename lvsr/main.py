@@ -248,20 +248,27 @@ def train(config, save_path, bokeh_name,
     elif explore_conf != 'imitative':
         raise ValueError
 
+    #
+    # Observables:
+    #
+    primary_observables = []  # monitored each batch
+    secondary_observables = []  # monitored every 10 batches
+    validation_observables = []  # monitored on the validation set
+
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
         applications=[recognizer.cost], name='labels')(cg)
     labels_mask, = VariableFilter(
         applications=[recognizer.cost], name='labels_mask')(cg)
-    criterion_related_observables = []
+
     gain_matrix = VariableFilter(
         theano_name=RewardRegressionEmitter.GAIN_MATRIX)(cg)
     if len(gain_matrix):
         gain_matrix, = gain_matrix
-        criterion_related_observables.append(
+        primary_observables.append(
             named_copy(gain_matrix.min(), 'min_gain'))
-        criterion_related_observables.append(
+        primary_observables.append(
             named_copy(gain_matrix.max(), 'max_gain'))
 
     batch_cost = cg.outputs[0].sum()
@@ -333,9 +340,28 @@ def train(config, save_path, bokeh_name,
         logger.info('apply noise')
         noise_subjects = [p for p in cg.parameters if p not in attention_params]
         regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
+
+    train_cost = regularized_cg.outputs[0]
+    if reg_config.get("penalty_coof", .0) > 0:
+        # big warning!!!
+        # here we assume that:
+        # regularized_weights_penalty = regularized_cg.outputs[1]
+        train_cost = (train_cost +
+                      reg_config.get("penalty_coof", .0) *
+                      regularized_cg.outputs[1] / batch_size)
+    if reg_config.get("decay", .0) > 0:
+        train_cost = (train_cost + reg_config.get("decay", .0) *
+                      l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2)
+
+    train_cost = named_copy(train_cost, 'train_cost')
+
     gradients = None
     if reg_config.get('adaptive_noise'):
         logger.info('apply adaptive noise')
+        if ((reg_config.get("penalty_coof", .0) > 0) or
+                (reg_config.get("decay", .0) > 0)):
+            logger.error('using  adaptive noise with alignment weight panalty '
+                         'or weight decay is probably stupid')
         train_cost, regularized_cg, gradients, noise_brick = apply_adaptive_noise(
             cg, cg.outputs[0],
             variables=cg.parameters,
@@ -362,16 +388,11 @@ def train(config, save_path, bokeh_name,
             [train_cost, model_cost] +
             regularized_cg.outputs +
             [model_prior_mean, model_prior_variance])
-        regularized_weights_penalty = regularized_cg.outputs[1]
-    else:
-        regularized_weights_penalty = regularized_cg.outputs[1]
-        train_cost = (
-            regularized_cg.outputs[0] +
-            reg_config.get("penalty_coof", .0) * regularized_weights_penalty / batch_size +
-            reg_config.get("decay", .0) *
-            l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2
-            )
-        train_cost.name = 'train_cost'
+        primary_observables += [
+            regularized_cg.outputs[1],  # model cost
+            regularized_cg.outputs[2],  # task cost
+            regularized_cg.outputs[-2],  # model prior mean
+            regularized_cg.outputs[-1]]  # model prior variance
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
@@ -438,14 +459,10 @@ def train(config, save_path, bokeh_name,
     for op in ComputationGraph(gradient_cg).scans:
         logger.debug(op)
 
-    # Sometimes there are a few competing losses
-    # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
-    other_losses = []
-
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
-    observables = list(regularized_cg.outputs)
-    observables += [
+    secondary_observables += list(regularized_cg.outputs)
+    secondary_observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
         clipping.threshold]
     for name, param in parameters.items():
@@ -455,14 +472,19 @@ def train(config, save_path, bokeh_name,
         step_norm = algorithm.steps[param].norm(2) / num_elements ** 0.5
         stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
         stats.name = name + '_stats'
-        observables.append(stats)
-    observables.extend(other_losses)
-    primary_observables = regularized_cg.outputs + [
+        secondary_observables.append(stats)
+
+    primary_observables += [
+        train_cost,
         algorithm.total_gradient_norm,
         algorithm.total_step_norm, clipping.threshold,
         max_recording_length,
         max_attended_length, max_attended_mask_length]
-    primary_observables += criterion_related_observables
+
+    validation_observables += [
+        rename(aggregation.mean(batch_cost, batch_size), cost.name),
+        rename(aggregation.sum_(batch_size), 'num_utterances'),
+        weights_entropy, weights_penalty]
 
     def attach_aggregation_schemes(variables):
         # Aggregation specification has to be factored out as a separate
@@ -495,14 +517,11 @@ def train(config, save_path, bokeh_name,
     extensions.append(TrainingDataMonitoring(
         primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
-        attach_aggregation_schemes(observables),
+        attach_aggregation_schemes(secondary_observables),
         prefix="average", every_n_batches=10)
     extensions.append(average_monitoring)
     validation = DataStreamMonitoring(
-        attach_aggregation_schemes([
-            rename(aggregation.mean(batch_cost, batch_size), cost.name),
-            rename(aggregation.sum_(batch_size), 'num_utterances'),
-            weights_entropy, weights_penalty]),
+        attach_aggregation_schemes(validation_observables),
         data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
             every_n_epochs=validation_epochs,
@@ -552,8 +571,6 @@ def train(config, save_path, bokeh_name,
         # Plot 5: training and validation monotonicity penalty
         [average_monitoring._record_name('weights_penalty_per_recording'),
         validation._record_name('weights_penalty_per_recording')]]
-    for loss in other_losses:
-        channels[0].append(average_monitoring.record_name(loss))
     if bokeh:
         extensions += [
             Plot(bokeh_name if bokeh_name
