@@ -469,11 +469,11 @@ def train(config, save_path, bokeh_name,
         result = []
         for var in variables:
             if var.name == 'weights_penalty':
-                result.append(named_copy(aggregation.mean(var, batch_size),
+                result.append(aggregation.mean(var, batch_size,
                                          'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
-                result.append(named_copy(aggregation.mean(
-                    var, labels_mask.sum()), 'weights_entropy_per_label'))
+                result.append(aggregation.mean(
+                    var, labels_mask.sum(), 'weights_entropy_per_label'))
             else:
                 result.append(var)
         return result
@@ -497,8 +497,11 @@ def train(config, save_path, bokeh_name,
         prefix="average", every_n_batches=10)
     extensions.append(average_monitoring)
     validation = DataStreamMonitoring(
-        attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
-        data.get_stream("valid"), prefix="valid").set_conditions(
+        attach_aggregation_schemes([
+            aggregation.mean(batch_cost, batch_size, cost.name),
+            aggregation.sum_(batch_size, 'num_utterances'),
+            weights_entropy, weights_penalty]),
+        data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
             every_n_epochs=validation_epochs,
             every_n_batches=validation_batches,

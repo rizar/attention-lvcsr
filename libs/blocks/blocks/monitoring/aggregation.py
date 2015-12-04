@@ -138,11 +138,63 @@ class Mean(AggregationScheme):
         return aggregator
 
 
-def mean(numerator, denominator=1.):
+def mean(numerator, denominator=1., name=None):
     """Mean of quantity (numerator) over a number (denominator) values."""
     variable = numerator / denominator
     variable.tag.aggregation_scheme = Mean(numerator, denominator)
-    variable.name = numerator.name
+    if name:
+        variable.name = name
+    else:
+        variable.name = numerator.name
+    return variable
+
+
+class Sum(AggregationScheme):
+    """Aggregation scheme which computes the sum.
+
+    Parameters
+    ----------
+    expression : :class:`~tensor.TensorVariable`
+        Theano variable for the summand
+
+    """
+    def __init__(self, expression):
+        self.expression = expression
+
+    def get_aggregator(self):
+        initialized = shared_like(0.)
+        expression_acc = shared_like(self.expression)
+
+        # Dummy default expression to use as the previously-accumulated
+        # value, that has the same shape as the new result
+        expression_zeros = tensor.as_tensor(self.expression).zeros_like()
+
+        conditional_update_expr = self.expression + ifelse(initialized,
+                                                           expression_acc,
+                                                           expression_zeros)
+
+        initialization_updates = [(expression_acc,
+                                   tensor.zeros_like(expression_acc)),
+                                  (initialized, 0.)]
+        accumulation_updates = [(expression_acc,
+                                 conditional_update_expr),
+                                (initialized, 1.)]
+        aggregator = Aggregator(aggregation_scheme=self,
+                                initialization_updates=initialization_updates,
+                                accumulation_updates=accumulation_updates,
+                                readout_variable=(expression_acc))
+        return aggregator
+
+
+def sum_(expression, name=None):
+    """Sum of quantity (expression)."""
+    variable = expression.copy()
+    variable.tag.aggregation_scheme = Sum(expression)
+    variable.name = expression.name
+    if name:
+        variable.name = name
+    else:
+        variable.name = expression.name
     return variable
 
 
