@@ -63,7 +63,7 @@ def __get_name(param):
     brick_hierarchy = [brick]
     while brick_hierarchy[-1].parents:
         brick_hierarchy.append(brick_hierarchy[-1].parents[0])
-    name = "{}.{}".format('-'.join((b.name for b in brick_hierarchy[::-1])),
+    name = "{}.{}".format('/'.join((b.name for b in brick_hierarchy[::-1])),
                           param.name)
     return name
 
