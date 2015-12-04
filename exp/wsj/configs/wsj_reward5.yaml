@@ -1,3 +1,11 @@
 parent: $LVSR/exp/wsj/configs/wsj_reward1.yaml
 data:
     add_bos: 1
+monitoring:
+    search:
+        char_discount: 0.
+stages:
+    pretraining:
+        net:
+            criterion:
+                min_reward: -1
