@@ -155,7 +155,7 @@ class LoadLog(TrainingExtension):
 
 
 def train(config, save_path, bokeh_name,
-          params, bokeh_server, no_bokeh, test_tag, use_load_ext,
+          params, bokeh_server, bokeh, test_tag, use_load_ext,
           load_log, fast_start, validation_epochs, validation_batches,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
@@ -554,7 +554,7 @@ def train(config, save_path, bokeh_name,
         validation._record_name('weights_penalty_per_recording')]]
     for loss in other_losses:
         channels[0].append(average_monitoring.record_name(loss))
-    if not no_bokeh:
+    if bokeh:
         extensions += [
             Plot(bokeh_name if bokeh_name
                  else os.path.basename(save_path),

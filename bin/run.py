@@ -71,7 +71,7 @@ if __name__ == "__main__":
         "--bokeh-server", default=None,
         help="Bokeh Server to use")
     train_parser.add_argument(
-        "--no-bokeh", default=False, action="store_true",
+        "--bokeh", default=1, type=int,
         help="Bokeh Server to use")
     train_parser.add_argument(
         "--use-load-ext", default=False, action="store_true",
