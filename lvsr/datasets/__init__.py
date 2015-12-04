@@ -207,21 +207,18 @@ class Data(object):
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
                    num_examples=None, rng=None, seed=None):
-        if not rng:
-            rng = numpy.random.RandomState(seed)
+
         dataset = self.get_dataset(part, add_sources=add_sources)
         if num_examples is None:
             num_examples = dataset.num_examples
 
-        all_examples = list(range(dataset.num_examples))
-
         if shuffle:
-            examples = rng.choice(all_examples, num_examples)
+            iteration_scheme = ShuffledExampleScheme(num_examples, rng=rng)
         else:
-            examples = all_examples[:num_examples]
+            iteration_scheme = SequentialExampleScheme(num_examples)
 
         stream = DataStream(
-            dataset, iteration_scheme=SequentialExampleScheme(examples))
+            dataset, iteration_scheme=iteration_scheme)
 
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))

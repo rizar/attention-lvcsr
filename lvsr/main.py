@@ -337,13 +337,14 @@ def train(config, save_path, bokeh_name,
     if reg_config.get('adaptive_noise'):
         logger.info('apply adaptive noise')
         train_cost, regularized_cg, gradients, noise_brick = apply_adaptive_noise(
-            regularized_cg, regularized_cg.outputs[0],
+            cg, cg.outputs[0],
             variables=cg.parameters,
             num_examples=data.get_dataset('train').num_examples,
             parameters=SpeechModel(regularized_cg.outputs[0]
                                    ).get_parameter_dict().values(),
             **reg_config.get('adaptive_noise')
             )
+        train_cost.name = 'train_cost'
         adapt_noise_cg = ComputationGraph(train_cost)
         model_prior_mean = named_copy(
             VariableFilter(applications=[noise_brick.apply],
@@ -370,6 +371,7 @@ def train(config, save_path, bokeh_name,
             reg_config.get("decay", .0) *
             l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2
             )
+        train_cost.name = 'train_cost'
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
