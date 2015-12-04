@@ -138,14 +138,11 @@ class Mean(AggregationScheme):
         return aggregator
 
 
-def mean(numerator, denominator=1., name=None):
+def mean(numerator, denominator=1.):
     """Mean of quantity (numerator) over a number (denominator) values."""
     variable = numerator / denominator
     variable.tag.aggregation_scheme = Mean(numerator, denominator)
-    if name:
-        variable.name = name
-    else:
-        variable.name = numerator.name
+    variable.name = numerator.name
     return variable
 
 
@@ -186,15 +183,11 @@ class Sum(AggregationScheme):
         return aggregator
 
 
-def sum_(expression, name=None):
+def sum_(expression):
     """Sum of quantity (expression)."""
     variable = expression.copy()
     variable.tag.aggregation_scheme = Sum(expression)
     variable.name = expression.name
-    if name:
-        variable.name = name
-    else:
-        variable.name = expression.name
     return variable
 
 

@@ -50,7 +50,7 @@ from lvsr.extensions import (
 from lvsr.error_rate import wer
 from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
-from lvsr.utils import SpeechModel
+from lvsr.utils import SpeechModel, rename
 from blocks.serialization import load_parameter_values
 
 floatX = theano.config.floatX
@@ -471,11 +471,11 @@ def train(config, save_path, bokeh_name,
         result = []
         for var in variables:
             if var.name == 'weights_penalty':
-                result.append(aggregation.mean(var, batch_size,
-                                         'weights_penalty_per_recording'))
+                result.append(rename(aggregation.mean(var, batch_size),
+                                     'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
-                result.append(aggregation.mean(
-                    var, labels_mask.sum(), 'weights_entropy_per_label'))
+                result.append(rename(aggregation.mean(var, labels_mask.sum()),
+                                     'weights_entropy_per_label'))
             else:
                 result.append(var)
         return result
@@ -500,8 +500,8 @@ def train(config, save_path, bokeh_name,
     extensions.append(average_monitoring)
     validation = DataStreamMonitoring(
         attach_aggregation_schemes([
-            aggregation.mean(batch_cost, batch_size, cost.name),
-            aggregation.sum_(batch_size, 'num_utterances'),
+            rename(aggregation.mean(batch_cost, batch_size), cost.name),
+            rename(aggregation.sum_(batch_size), 'num_utterances'),
             weights_entropy, weights_penalty]),
         data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
