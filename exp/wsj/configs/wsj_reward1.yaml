@@ -15,6 +15,7 @@ initialization:
 monitoring:
     search:
         round_to_inf: 4.5
+        stop_on: patience
 stages:
     pretraining:
         training:
