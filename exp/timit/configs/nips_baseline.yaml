@@ -1,6 +1,7 @@
 parent: $LVSR/lvsr/configs/prototype.yaml
 data:
     dataset: timit.h5
+    dataset_class: !!python/name:lvsr.datasets.h5py.H5PYAudioDatasetTimit
 
     name_mapping:
         train: train

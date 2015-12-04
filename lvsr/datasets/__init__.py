@@ -130,7 +130,8 @@ class Data(object):
                  feature_name='wav', preprocess_features=None,
                  add_eos=True, eos_label=None,
                  add_bos=0, prepend_eos=False,
-                 preprocess_text=False):
+                 preprocess_text=False,
+                 dataset_class=H5PYAudioDataset):
         assert not prepend_eos
 
         if normalization:
@@ -138,6 +139,7 @@ class Data(object):
                 normalization = cPickle.load(src)
 
         self.dataset = dataset
+        self.dataset_class = dataset_class
         self.name_mapping = name_mapping
         self.recordings_source = recordings_source
         self.labels_source = labels_source
@@ -199,7 +201,7 @@ class Data(object):
         return self.dataset_cache[key]
 
     def _get_dataset(self, part, add_sources=()):
-        return H5PYAudioDataset(
+        return self.dataset_class(
             os.path.join(fuel.config.data_path,  self.dataset),
             which_sets=(self.name_mapping.get(part, part), ),
             sources=(self.recordings_source,

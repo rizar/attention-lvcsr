@@ -17,6 +17,8 @@ map:
                 type: str
             dataset:
                 type: str
+            dataset_class:
+                type: any
             name_mapping:
                 map:
                     train:

@@ -1,4 +1,5 @@
 data:
+    dataset_class: !!python/name:lvsr.datasets.h5py.H5PYAudioDataset
     batch_size: 10
 net:
     dim_dec: 100

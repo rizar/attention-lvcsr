@@ -646,14 +646,16 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     total_length = .0
     total_wer_errors = .0
     total_word_length = 0.
-    with open(os.path.expandvars(config['vocabulary'])) as f:
-        vocabulary = dict(line.split() for line in f.readlines())
 
-    def to_words(chars):
-        words = chars.split()
-        words = [vocabulary[word] if word in vocabulary
-                 else vocabulary['<UNK>'] for word in words]
-        return words
+    if config.get('vocabulary'):
+        with open(os.path.expandvars(config['vocabulary'])) as f:
+            vocabulary = dict(line.split() for line in f.readlines())
+
+        def to_words(chars):
+            words = chars.split()
+            words = [vocabulary[word] if word in vocabulary
+                     else vocabulary['<UNK>'] for word in words]
+            return words
 
     if config['net']['criterion']['name'].startswith('mse'):
         add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
@@ -700,10 +702,11 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
 
-        wer_error = min(1, wer(to_words(groundtruth_text),
-                                to_words(recognized_text)))
-        total_wer_errors += len(groundtruth) * wer_error
-        total_word_length += len(groundtruth)
+        if config.get('vocabulary'):
+            wer_error = min(1, wer(to_words(groundtruth_text),
+                                    to_words(recognized_text)))
+            total_wer_errors += len(groundtruth) * wer_error
+            total_word_length += len(groundtruth)
 
         if report and recognized:
             show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
@@ -728,8 +731,9 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                   file=print_to)
         print("CER:", error, file=print_to)
         print("Average CER:", total_errors / total_length, file=print_to)
-        print("WER:", wer_error, file=print_to)
-        print("Average WER:", total_wer_errors / total_word_length, file=print_to)
+        if config.get('vocabulary'):
+            print("WER:", wer_error, file=print_to)
+            print("Average WER:", total_wer_errors / total_word_length, file=print_to)
         print_to.flush()
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
