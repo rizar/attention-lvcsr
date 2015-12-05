@@ -32,3 +32,8 @@ class SpeechModel(Model):
             if not ('shared' in key
                     or 'None' in key)}
         super(SpeechModel,self).set_parameter_values(filtered_param_values)
+
+
+def rename(var, name):
+    var.name = name
+    return var

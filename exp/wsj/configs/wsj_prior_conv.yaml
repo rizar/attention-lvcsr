@@ -1,6 +1,12 @@
 parent: $LVSR/lvsr/configs/prototype.yaml
 data:
-    dataset: WSJ
+    dataset: wsj.h5
+
+    name_mapping:
+        train: train_si284
+        valid: test_dev93
+        test:  test_eval92
+
     normalization: wsj_norm.pkl
     recordings_source: recordings
     labels_source: labels

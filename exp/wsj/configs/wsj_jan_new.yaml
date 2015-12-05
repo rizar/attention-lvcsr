@@ -1,5 +1,10 @@
 data:
-    dataset: WSJ
+    dataset: wsj.h5
+
+    name_mapping:
+        train: train_si284
+        valid: test_dev93
+        test:  test_eval92
 
     recordings_source: fbank_dd
     max_length: null

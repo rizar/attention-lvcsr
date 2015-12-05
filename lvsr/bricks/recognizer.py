@@ -60,6 +60,7 @@ class SpeechRecognizer(Initializable):
                  post_merge_dims=None,
                  dim_matcher=None,
                  embed_outputs=True,
+                 dim_output_embedding=None,
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
@@ -141,7 +142,10 @@ class SpeechRecognizer(Initializable):
             raise ValueError("Unknown attention type {}"
                              .format(attention_type))
         if embed_outputs:
-            feedback = LookupFeedback(num_phonemes + 1, dim_dec)
+            feedback = LookupFeedback(num_phonemes + 1,
+                                      dim_dec if
+                                      dim_output_embedding is None
+                                      else dim_output_embedding)
         else:
             feedback = OneOfNFeedback(num_phonemes + 1)
         if lm:

@@ -48,8 +48,10 @@ from lvsr.expressions import (
 from lvsr.extensions import (
     CGStatistics, AdaptiveClipping, LogInputsGains)
 from lvsr.error_rate import wer
+from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
-from lvsr.utils import SpeechModel
+from lvsr.utils import SpeechModel, rename
+from blocks.serialization import load_parameter_values
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -116,6 +118,7 @@ class SwitchOffLengthFilter(SimpleExtension):
         self.length_filter.max_length = None
         self.main_loop.log.current_row['length_filter_switched'] = True
 
+
 class LoadLog(TrainingExtension):
     """Loads a the log from the checkoint.
 
@@ -152,7 +155,7 @@ class LoadLog(TrainingExtension):
 
 
 def train(config, save_path, bokeh_name,
-          params, bokeh_server, test_tag, use_load_ext,
+          params, bokeh_server, bokeh, test_tag, use_load_ext,
           load_log, fast_start, validation_epochs, validation_batches,
           per_epochs, per_batches):
     root_path, extension = os.path.splitext(save_path)
@@ -245,23 +248,30 @@ def train(config, save_path, bokeh_name,
     elif explore_conf != 'imitative':
         raise ValueError
 
+    #
+    # Observables:
+    #
+    primary_observables = []  # monitored each batch
+    secondary_observables = []  # monitored every 10 batches
+    validation_observables = []  # monitored on the validation set
+
     cg = recognizer.get_cost_graph(
         batch=True, prediction=prediction, prediction_mask=prediction_mask)
     labels, = VariableFilter(
         applications=[recognizer.cost], name='labels')(cg)
     labels_mask, = VariableFilter(
         applications=[recognizer.cost], name='labels_mask')(cg)
-    criterion_related_observables = []
+
     gain_matrix = VariableFilter(
         theano_name=RewardRegressionEmitter.GAIN_MATRIX)(cg)
     if len(gain_matrix):
         gain_matrix, = gain_matrix
-        criterion_related_observables.append(
+        primary_observables.append(
             named_copy(gain_matrix.min(), 'min_gain'))
-        criterion_related_observables.append(
+        primary_observables.append(
             named_copy(gain_matrix.max(), 'max_gain'))
 
-    batch_cost = cg.outputs[0].sum().sum()
+    batch_cost = cg.outputs[0].sum()
     batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
@@ -330,7 +340,59 @@ def train(config, save_path, bokeh_name,
         logger.info('apply noise')
         noise_subjects = [p for p in cg.parameters if p not in attention_params]
         regularized_cg = apply_noise(cg, noise_subjects, reg_config['noise'])
-    regularized_cost = regularized_cg.outputs[0]
+
+    train_cost = regularized_cg.outputs[0]
+    if reg_config.get("penalty_coof", .0) > 0:
+        # big warning!!!
+        # here we assume that:
+        # regularized_weights_penalty = regularized_cg.outputs[1]
+        train_cost = (train_cost +
+                      reg_config.get("penalty_coof", .0) *
+                      regularized_cg.outputs[1] / batch_size)
+    if reg_config.get("decay", .0) > 0:
+        train_cost = (train_cost + reg_config.get("decay", .0) *
+                      l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2)
+
+    train_cost = named_copy(train_cost, 'train_cost')
+
+    gradients = None
+    if reg_config.get('adaptive_noise'):
+        logger.info('apply adaptive noise')
+        if ((reg_config.get("penalty_coof", .0) > 0) or
+                (reg_config.get("decay", .0) > 0)):
+            logger.error('using  adaptive noise with alignment weight panalty '
+                         'or weight decay is probably stupid')
+        train_cost, regularized_cg, gradients, noise_brick = apply_adaptive_noise(
+            cg, cg.outputs[0],
+            variables=cg.parameters,
+            num_examples=data.get_dataset('train').num_examples,
+            parameters=SpeechModel(regularized_cg.outputs[0]
+                                   ).get_parameter_dict().values(),
+            **reg_config.get('adaptive_noise')
+            )
+        train_cost.name = 'train_cost'
+        adapt_noise_cg = ComputationGraph(train_cost)
+        model_prior_mean = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_prior_mean')(adapt_noise_cg)[0],
+            'model_prior_mean')
+        model_cost = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_cost')(adapt_noise_cg)[0],
+            'model_cost')
+        model_prior_variance = named_copy(
+            VariableFilter(applications=[noise_brick.apply],
+                           name='model_prior_variance')(adapt_noise_cg)[0],
+            'model_prior_variance')
+        regularized_cg = ComputationGraph(
+            [train_cost, model_cost] +
+            regularized_cg.outputs +
+            [model_prior_mean, model_prior_variance])
+        primary_observables += [
+            regularized_cg.outputs[1],  # model cost
+            regularized_cg.outputs[2],  # task cost
+            regularized_cg.outputs[-2],  # model prior mean
+            regularized_cg.outputs[-1]]  # model prior variance
 
     # Model is weird class, we spend lots of time arguing with Bart
     # what it should be. However it can already nice things, e.g.
@@ -338,7 +400,15 @@ def train(config, save_path, bokeh_name,
     # and give them hierahical names. This help to notice when a
     # because of some bug a parameter is not in the computation
     # graph.
-    model = SpeechModel(regularized_cost)
+    model = SpeechModel(train_cost)
+    if params:
+        logger.info("Load parameters from " + params)
+        # please note: we cannot use recognizer.load_params
+        # as it builds a new computation graph that dies not have
+        # shapred variables added by adaptive weight noise
+        param_values = load_parameter_values(params)
+        model.set_parameter_values(param_values)
+
     parameters = model.get_parameter_dict()
     logger.info("Parameters:\n" +
                 pprint.pformat(
@@ -374,10 +444,9 @@ def train(config, save_path, bokeh_name,
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                         maxnorm_subjects)]
     algorithm = GradientDescent(
-        cost=regularized_cost +
-            reg_config.get("decay", .0) *
-            l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2,
+        cost=train_cost,
         parameters=parameters.values(),
+        gradients=gradients,
         step_rule=CompositeRule(
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
@@ -390,18 +459,10 @@ def train(config, save_path, bokeh_name,
     for op in ComputationGraph(gradient_cg).scans:
         logger.debug(op)
 
-    if params:
-        logger.info("Load parameters from " + params)
-        recognizer.load_params(params)
-
-    # Sometimes there are a few competing losses
-    # other_losses = VariableFilter(roles=[OTHER_LOSS])(cg)
-    other_losses = []
-
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
-    observables = regularized_cg.outputs
-    observables += [
+    secondary_observables += list(regularized_cg.outputs)
+    secondary_observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
         clipping.threshold]
     for name, param in parameters.items():
@@ -411,14 +472,19 @@ def train(config, save_path, bokeh_name,
         step_norm = algorithm.steps[param].norm(2) / num_elements ** 0.5
         stats = tensor.stack(norm, grad_norm, step_norm, step_norm / grad_norm)
         stats.name = name + '_stats'
-        observables.append(stats)
-    observables.extend(other_losses)
-    primary_observables = [
-        regularized_cost, algorithm.total_gradient_norm,
+        secondary_observables.append(stats)
+
+    primary_observables += [
+        train_cost,
+        algorithm.total_gradient_norm,
         algorithm.total_step_norm, clipping.threshold,
         max_recording_length,
         max_attended_length, max_attended_mask_length]
-    primary_observables += criterion_related_observables
+
+    validation_observables += [
+        rename(aggregation.mean(batch_cost, batch_size), cost.name),
+        rename(aggregation.sum_(batch_size), 'num_utterances'),
+        weights_entropy, weights_penalty]
 
     def attach_aggregation_schemes(variables):
         # Aggregation specification has to be factored out as a separate
@@ -427,11 +493,11 @@ def train(config, save_path, bokeh_name,
         result = []
         for var in variables:
             if var.name == 'weights_penalty':
-                result.append(named_copy(aggregation.mean(var, batch_size),
-                                         'weights_penalty_per_recording'))
+                result.append(rename(aggregation.mean(var, batch_size),
+                                     'weights_penalty_per_recording'))
             elif var.name == 'weights_entropy':
-                result.append(named_copy(aggregation.mean(
-                    var, labels_mask.sum()), 'weights_entropy_per_label'))
+                result.append(rename(aggregation.mean(var, labels_mask.sum()),
+                                     'weights_entropy_per_label'))
             else:
                 result.append(var)
         return result
@@ -451,12 +517,12 @@ def train(config, save_path, bokeh_name,
     extensions.append(TrainingDataMonitoring(
         primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
-        attach_aggregation_schemes(observables),
+        attach_aggregation_schemes(secondary_observables),
         prefix="average", every_n_batches=10)
     extensions.append(average_monitoring)
     validation = DataStreamMonitoring(
-        attach_aggregation_schemes([cost, weights_entropy, weights_penalty]),
-        data.get_stream("valid"), prefix="valid").set_conditions(
+        attach_aggregation_schemes(validation_observables),
+        data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
             before_first_epoch=not fast_start,
             every_n_epochs=validation_epochs,
             every_n_batches=validation_batches,
@@ -492,7 +558,7 @@ def train(config, save_path, bokeh_name,
         ]
     channels = [
         # Plot 1: training and validation costs
-        [average_monitoring.record_name(regularized_cost),
+        [average_monitoring.record_name(train_cost),
         validation.record_name(cost)],
         # Plot 2: gradient norm,
         [average_monitoring.record_name(algorithm.total_gradient_norm),
@@ -505,14 +571,14 @@ def train(config, save_path, bokeh_name,
         # Plot 5: training and validation monotonicity penalty
         [average_monitoring._record_name('weights_penalty_per_recording'),
         validation._record_name('weights_penalty_per_recording')]]
-    for loss in other_losses:
-        channels[0].append(average_monitoring.record_name(loss))
+    if bokeh:
+        extensions += [
+            Plot(bokeh_name if bokeh_name
+                 else os.path.basename(save_path),
+                 channels,
+                 every_n_batches=10,
+                 server_url=bokeh_server),]
     extensions += [
-        Plot(bokeh_name if bokeh_name
-             else os.path.basename(save_path),
-             channels,
-             every_n_batches=10,
-             server_url=bokeh_server),
         Checkpoint(save_path,
                    before_first_epoch=not fast_start, after_epoch=True,
                    every_n_batches=train_conf.get('save_every_n_batches'),
@@ -597,14 +663,16 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
     total_length = .0
     total_wer_errors = .0
     total_word_length = 0.
-    with open(os.path.expandvars(config['vocabulary'])) as f:
-        vocabulary = dict(line.split() for line in f.readlines())
 
-    def to_words(chars):
-        words = chars.split()
-        words = [vocabulary[word] if word in vocabulary
-                 else vocabulary['<UNK>'] for word in words]
-        return words
+    if config.get('vocabulary'):
+        with open(os.path.expandvars(config['vocabulary'])) as f:
+            vocabulary = dict(line.split() for line in f.readlines())
+
+        def to_words(chars):
+            words = chars.split()
+            words = [vocabulary[word] if word in vocabulary
+                     else vocabulary['<UNK>'] for word in words]
+            return words
 
     if config['net']['criterion']['name'].startswith('mse'):
         add_args = {'stop_on': 'patience', 'round_to_inf': 4.5}
@@ -651,10 +719,11 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
         total_errors += len(groundtruth) * error
         total_length += len(groundtruth)
 
-        wer_error = min(1, wer(to_words(groundtruth_text),
-                                to_words(recognized_text)))
-        total_wer_errors += len(groundtruth) * wer_error
-        total_word_length += len(groundtruth)
+        if config.get('vocabulary'):
+            wer_error = min(1, wer(to_words(groundtruth_text),
+                                    to_words(recognized_text)))
+            total_wer_errors += len(groundtruth) * wer_error
+            total_word_length += len(groundtruth)
 
         if report and recognized:
             show_alignment(weights_groundtruth, groundtruth, bos_symbol=True)
@@ -679,8 +748,9 @@ def search(config, params, load_path, beam_size, part, decode_only, report,
                   file=print_to)
         print("CER:", error, file=print_to)
         print("Average CER:", total_errors / total_length, file=print_to)
-        print("WER:", wer_error, file=print_to)
-        print("Average WER:", total_wer_errors / total_word_length, file=print_to)
+        if config.get('vocabulary'):
+            print("WER:", wer_error, file=print_to)
+            print("Average WER:", total_wer_errors / total_word_length, file=print_to)
         print_to.flush()
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)

@@ -1,0 +1,92 @@
+parent: $LVSR/lvsr/configs/prototype.yaml
+data:
+    dataset: timit.h5
+    dataset_class: !!python/name:lvsr.datasets.h5py.H5PYAudioDatasetTimit
+
+    name_mapping:
+        train: train
+        valid: dev
+        test:  test
+
+    recordings_source: fbank40_dd
+    max_length: 10000000000000
+    normalization: ''
+    preprocess_features: ''
+
+    labels_source: phones60
+    preprocess_text: False
+    add_eos: True
+    prepend_eos: False
+
+    sort_k_batches: ''
+    batch_size: 8
+    validation_batch_size: 64
+
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.01]
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [0.0]
+        rec_weights_init:
+            !!python/object/apply:blocks.initialization.Orthogonal []
+        initial_states_init:
+            !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
+
+net:
+    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
+    dims_bottom: []
+
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    dims_bidir: [256, 256, 256]
+    subsample: [1, 1, 1]
+
+    dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    dim_dec: 256
+    dim_matcher: 512
+
+    attention_type: content
+
+    post_merge_dims: [256]
+    post_merge_activation: !!python/object/apply:blocks.bricks.Maxout [2]
+
+    use_states_for_readout: True
+
+training:
+    rules: [momentum, adadelta]
+    scale: 1.0
+    momentum: 0.0
+
+    decay_rate: 0.95
+    epsilon: 1.0e-8
+
+    gradient_threshold: 10.0
+
+stages:
+    pretraining:
+        number: 0
+        regularization:
+            max_norm: 1.0
+        training:
+            num_epochs: 15
+    main:
+        number: 100
+        data:
+            batch_size: 1
+        regularization:
+            adaptive_noise:
+                model_cost_coefficient: 0.1
+                init_sigma: 1.0e-12
+        training:
+            restart_from: _best_ll
+    annealing:
+        number: 200
+        data:
+            batch_size: 1
+        regularization:
+            adaptive_noise:
+                model_cost_coefficient: 1.0
+                init_sigma: 1e-12
+        training:
+            epsilon: 1.0e-10
+            restart_from: _best_ll

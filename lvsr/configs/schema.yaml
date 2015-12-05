@@ -7,6 +7,8 @@ map:
         map:
             batch_size:
                 type: int
+            validation_batch_size:
+                type: int
             max_length:
                 type: int
             normalization:
@@ -15,6 +17,16 @@ map:
                 type: str
             dataset:
                 type: str
+            dataset_class:
+                type: any
+            name_mapping:
+                map:
+                    train:
+                        type: str
+                    valid:
+                        type: str
+                    test:
+                        type: str
             recordings_source:
                 type: str
             labels_source:
@@ -33,6 +45,10 @@ map:
     net:
         map:
             dim_dec:
+                type: int
+            dim_matcher:
+                type: int
+            dim_output_embedding:
                 type: int
             dims_bidir:
                 sequence:
@@ -92,6 +108,9 @@ map:
                 type: float
             max_norm:
                 type: float
+            adaptive_noise:
+                type: map
+                allowempty: true
     initialization:
         matching-rule: any
         map:

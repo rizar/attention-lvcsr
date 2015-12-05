@@ -98,6 +98,8 @@ class Data(object):
         Source name for labels.
     batch_size : int
         Batch size.
+    validation_batch_size : int
+        Batch size used for validation.
     sort_k_batches : int
     max_length : int
         Maximum length of input, longer sequences will be filtered.
@@ -119,31 +121,34 @@ class Data(object):
         Preprocess text for WSJ.
 
     """
-    def __init__(self, dataset, recordings_source, labels_source,
-                 batch_size, sort_k_batches=None,
+    def __init__(self, dataset, name_mapping,
+                 recordings_source, labels_source,
+                 batch_size, validation_batch_size=None,
+                 sort_k_batches=None,
                  max_length=None, normalization=None,
                  uttid_source='uttids',
                  feature_name='wav', preprocess_features=None,
                  add_eos=True, eos_label=None,
                  add_bos=0, prepend_eos=False,
-                 preprocess_text=False):
+                 preprocess_text=False,
+                 dataset_class=H5PYAudioDataset):
         assert not prepend_eos
-
-        # We used to support more datasets, but only WSJ is left after
-        # a cleanup.
-        if not dataset in ('WSJ'):
-            raise ValueError()
 
         if normalization:
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
 
         self.dataset = dataset
+        self.dataset_class = dataset_class
+        self.name_mapping = name_mapping
         self.recordings_source = recordings_source
         self.labels_source = labels_source
         self.uttid_source = uttid_source
         self.normalization = normalization
         self.batch_size = batch_size
+        if validation_batch_size is None:
+            validation_batch_size = batch_size
+        self.validation_batch_size = validation_batch_size
         self.sort_k_batches = sort_k_batches
         self.feature_name = feature_name
         self.max_length = max_length
@@ -154,7 +159,6 @@ class Data(object):
         self.preprocess_text = preprocess_text
         self.preprocess_features = preprocess_features
         self.dataset_cache = {}
-
         self.length_filter = _LengthFilter(self.max_length)
 
     @property
@@ -197,32 +201,26 @@ class Data(object):
         return self.dataset_cache[key]
 
     def _get_dataset(self, part, add_sources=()):
-        wsj_name_mapping = {"train": "train_si284", "valid": "test_dev93",
-                            "test": "test_eval92"}
-
-        return H5PYAudioDataset(
-            os.path.join(fuel.config.data_path, "wsj.h5"),
-            which_sets=(wsj_name_mapping.get(part, part),),
+        return self.dataset_class(
+            os.path.join(fuel.config.data_path,  self.dataset),
+            which_sets=(self.name_mapping.get(part, part), ),
             sources=(self.recordings_source,
                      self.labels_source) + tuple(add_sources))
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
                    num_examples=None, rng=None, seed=None):
-        if not rng:
-            rng = numpy.random.RandomState(seed)
+
         dataset = self.get_dataset(part, add_sources=add_sources)
         if num_examples is None:
             num_examples = dataset.num_examples
 
-        all_examples = list(range(dataset.num_examples))
-
         if shuffle:
-            examples = rng.choice(all_examples, num_examples)
+            iteration_scheme = ShuffledExampleScheme(num_examples, rng=rng)
         else:
-            examples = all_examples[:num_examples]
+            iteration_scheme = SequentialExampleScheme(num_examples)
 
         stream = DataStream(
-            dataset, iteration_scheme=SequentialExampleScheme(examples))
+            dataset, iteration_scheme=iteration_scheme)
 
         stream = FilterSources(stream, (self.recordings_source,
                                         self.labels_source)+tuple(add_sources))
@@ -251,7 +249,10 @@ class Data(object):
         if not batches:
             return stream
 
-        stream = Batch(stream, iteration_scheme=ConstantScheme(self.batch_size))
+        stream = Batch(
+            stream,
+            iteration_scheme=ConstantScheme(self.batch_size if part == 'train'
+                                            else self.validation_batch_size))
         stream = Padding(stream)
         stream = Mapping(stream, switch_first_two_axes)
         stream = ForceCContiguous(stream)

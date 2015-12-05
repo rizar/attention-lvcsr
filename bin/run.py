@@ -23,7 +23,8 @@ def prepare_config(cmd_args):
     original_cmd_args = dict(cmd_args)
     config = Configuration(
         cmd_args.pop('config_path'),
-        '$LVSR/lvsr/configs/schema.yaml',
+        '$LVSR/lvsr/configs/schema.yaml'
+        if cmd_args.pop("validate_config") else None,
         cmd_args.pop('config_changes')
     )
     config['cmd_args'] = original_cmd_args
@@ -68,6 +69,9 @@ if __name__ == "__main__":
         help="Name for Bokeh document")
     train_parser.add_argument(
         "--bokeh-server", default=None,
+        help="Bokeh Server to use")
+    train_parser.add_argument(
+        "--bokeh", default=1, type=int,
         help="Bokeh Server to use")
     train_parser.add_argument(
         "--use-load-ext", default=False, action="store_true",
@@ -135,6 +139,9 @@ if __name__ == "__main__":
     # Adds final positional arguments to all the subparsers
     for parser in [train_parser, test_parser, init_norm_parser,
                    show_data_parser, search_parser, sample_parser]:
+        parser.add_argument(
+            "--validate-config", help="Run pykwalify config validation",
+            type=bool, default=True)
         parser.add_argument(
             "config_path", help="The configuration path")
         parser.add_argument(
