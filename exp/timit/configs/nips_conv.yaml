@@ -1,0 +1,12 @@
+parent: $LVSR/exp/timit/configs/nips_baseline.yaml
+net:
+    attention_type: content_and_conv
+    conv_n: 100
+    conv_num_filters: 10
+    prior:
+      # params for type: expanding, which is the default!
+      initial_begin: 0
+      initial_end: 10000
+      max_speed: 10.0
+      min_speed: 0.0
+      type: expanding

@@ -1,0 +1,3 @@
+parent: $LVSR/exp/timit/configs/nips_conv.yaml
+net:
+  energy_normalizer: logistic
