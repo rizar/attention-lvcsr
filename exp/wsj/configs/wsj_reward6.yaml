@@ -6,4 +6,7 @@ stages:
         net:
             criterion:
                 min_reward: -1
+    main:
+        training:
+            num_epochs: 15
 
