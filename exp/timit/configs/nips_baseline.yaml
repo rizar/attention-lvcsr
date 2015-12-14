@@ -61,6 +61,8 @@ training:
     epsilon: 1.0e-8
 
     gradient_threshold: 1000.0
+    num_batches: 100000000
+    num_epochs: 100000
 
 stages:
     pretraining:
@@ -79,7 +81,7 @@ stages:
                 init_sigma: 1.0e-12
         training:
             restart_from: _best_ll
-            num_epochs: 100
+            num_epochs: 1000
     annealing:
         number: 200
         regularization:
@@ -89,3 +91,4 @@ stages:
         training:
             epsilon: 1.0e-10
             restart_from: _best_ll
+            num_epochs: 1000
