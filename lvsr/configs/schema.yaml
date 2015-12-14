@@ -61,6 +61,10 @@ map:
                     - type: int
             conv_n:
                 type: int
+            conv_num_filters:
+                type: int
+            energy_normalizer:
+                type: str
             bottom_activation:
                 type: any
             post_merge_activation:

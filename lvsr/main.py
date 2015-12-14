@@ -140,6 +140,8 @@ class LoadLog(TrainingExtension):
             loaded_log = pickle.load(source)
             #TODO: remove and fix the printing issue!
             loaded_log.status['resumed_from'] = None
+            #make sure that we start a new epoch
+            loaded_log.status['epoch_started'] = False
         main_loop.log = loaded_log
 
     def before_training(self):

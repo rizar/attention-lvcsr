@@ -19,7 +19,7 @@ data:
     prepend_eos: False
 
     sort_k_batches: ''
-    batch_size: 8
+    batch_size: 1
     validation_batch_size: 64
 
 initialization:
@@ -60,33 +60,35 @@ training:
     decay_rate: 0.95
     epsilon: 1.0e-8
 
-    gradient_threshold: 10.0
+    gradient_threshold: 1000.0
+    num_batches: 100000000
+    num_epochs: 100000
 
 stages:
     pretraining:
         number: 0
+        data:
+            batch_size: 8
         regularization:
             max_norm: 1.0
         training:
             num_epochs: 15
     main:
         number: 100
-        data:
-            batch_size: 1
         regularization:
             adaptive_noise:
                 model_cost_coefficient: 0.1
                 init_sigma: 1.0e-12
         training:
             restart_from: _best_ll
+            num_epochs: 1000
     annealing:
         number: 200
-        data:
-            batch_size: 1
         regularization:
             adaptive_noise:
-                model_cost_coefficient: 1.0
-                init_sigma: 1e-12
+                model_cost_coefficient: 0.1
+                init_sigma: 1.0e-12
         training:
             epsilon: 1.0e-10
             restart_from: _best_ll
+            num_epochs: 1000
