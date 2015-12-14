@@ -141,7 +141,10 @@ class LoadLog(TrainingExtension):
             #TODO: remove and fix the printing issue!
             loaded_log.status['resumed_from'] = None
             #make sure that we start a new epoch
-            loaded_log.status['epoch_started'] = False
+            if loaded_log.status.get('epoch_started'):
+                logger.warn('Loading a snaphot taken during an epoch. '
+                            'Iteration information will be destroyed!')
+                loaded_log.status['epoch_started'] = False
         main_loop.log = loaded_log
 
     def before_training(self):
