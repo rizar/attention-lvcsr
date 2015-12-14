@@ -8,7 +8,7 @@ KL=$KALDI_ROOT/egs/wsj/s5/local
 beam_search_opts=""
 lm_opts=""
 part=test_dev92
-dataset=$FUEL_DATA_PATH/WSJ/wsj_new.h5
+DATASET=$FUEL_DATA_PATH/wsj.h5
 lexicon=$FUEL_DATA_PATH/WSJ/lexicon.txt
 
 
@@ -40,10 +40,10 @@ $LVSR/lvsr/run.py --params=true \
 	net.lm.type_ "'fst'" $lm_opts > $dir/beam_search.log 2>&1
 
 #we cannot use stdout pipe, because of some pydot parser error getting printed to the stdout :(
-$LVSR/bin/kaldi2fuel.py $dataset read_text --subset $part characters $dir/tmp
+$LVSR/bin/kaldi2fuel.py $DATASET read_text --subset $part characters $dir/tmp
 cat $dir/tmp | sort > $dir/$part-groundtruth-characters.txt
 
-$LVSR/bin/kaldi2fuel.py $dataset read_raw_text --subset $part kaldi_text $dir/tmp
+$LVSR/bin/kaldi2fuel.py $DATASET read_raw_text --subset $part kaldi_text $dir/tmp
 cat $dir/tmp | sort | $KL/wer_ref_filter > $dir/$part-groundtruth-text.txt
 
 rm $dir/tmp

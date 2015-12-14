@@ -6,7 +6,7 @@ set -e
 
 LMFILE=$1
 DIR=$2
-DATASET=$FUEL_DATA_PATH/wsj/wsj_new.h5
+DATASET=$FUEL_DATA_PATH/wsj.h5
 
 
 if [[ $LMFILE = *.gz ]]; then

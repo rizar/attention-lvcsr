@@ -7,7 +7,7 @@ WSJDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 
 part=test_dev93
-dataset=$FUEL_DATA_PATH/WSJ/wsj_new.h5
+dataset=$FUEL_DATA_PATH/wsj.h5
 use_initial_eol=false
 
 . $KU/parse_options.sh
