@@ -88,18 +88,6 @@ if __name__ == "__main__":
     train_parser.add_argument(
         "--test-tag", default=None, type=int,
         help="Tag the batch with test data for debugging?")
-    train_parser.add_argument(
-        "--validation-batches", type=int, default=0,
-        help="Perform validation every n batches")
-    train_parser.add_argument(
-        "--validation-epochs", type=int, default=1,
-        help="Perform validation every n epochs")
-    train_parser.add_argument(
-        "--per-batches", type=int, default=0,
-        help="Perform validation of PER every n batches")
-    train_parser.add_argument(
-        "--per-epochs", type=int, default=2,
-        help="Perform validation of PER every n epochs")
 
     for parser in [search_parser, sample_parser]:
         parser.add_argument(
@@ -108,13 +96,6 @@ if __name__ == "__main__":
         parser.add_argument(
             "--part", default="valid",
             help="Data to recognize with beam search")
-    search_parser.add_argument(
-        "--beam-size", default=10, type=int,
-        help="Beam size")
-    search_parser.add_argument(
-        "--char-discount", default=0.0, type=float,
-        help="A discount given by beam search for every additional character"
-        " added to a candidate")
     search_parser.add_argument(
         "--report", default=None,
         help="Destination to save a detailed report")

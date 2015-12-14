@@ -148,6 +148,14 @@ map:
                 type: str
     monitoring:
         map:
+            validate_every_epochs:
+                type: int
+            validate_every_batches:
+                type: int
+            search_every_epochs:
+                type: int
+            search_every_batches:
+                type: int
             search:
                 map:
                     beam_size:
@@ -156,6 +164,8 @@ map:
                         type: float
                     round_to_inf:
                         type: float
+                    stop_on:
+                        type: str
     stages:
         type: any
     vocabulary:

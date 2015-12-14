@@ -1,0 +1,13 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper.yaml
+stages:
+    pretraining:
+        training:
+            num_epochs: 4
+    main:
+        training:
+            num_epochs: 15
+            restart_from: _best
+    annealing1:
+        training:
+            num_epochs: 3
+            restart_from: _best

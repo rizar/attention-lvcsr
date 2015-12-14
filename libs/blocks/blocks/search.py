@@ -314,7 +314,7 @@ class BeamSearch(object):
                         patience -= 1
                         if patience == 0:
                             break
-            else:
+            elif stop_on == 'optimistic_future_cost':
                 # stop only when we have at least self.beam_size sequences,
                 # that are all cheaper than we can possibly obtain by extending
                 # other ones
@@ -327,6 +327,8 @@ class BeamSearch(object):
                                          char_discount * len(last_in_done))
                     if last_in_done_cost < optimistic_future_cost:
                         break
+            else:
+                raise ValueError('Unknown stopping criterion {}'.format(stop_on))
 
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
