@@ -76,7 +76,7 @@ fsttablecompose $DIR/L_disambig.fst $DIR/G.fst | \
     cat	> $DIR/LG_no_eol.fst
 
 if `$use_initial_eol`; then
-	initial_readout='<eol>'
+	initial_readout='<bol>'
 else
 	initial_readout='<eps>'
 fi
@@ -90,7 +90,7 @@ fi
 		echo "1 1 $p $p"
 	done
 	#the <eol> transition to the final state will meit a space
-	echo "1 2 <eol> <spc>"
+	echo "1 2 <bol> <spc>"
 	#the final state
 	echo "2"
 } > $DIR/eol_to_spc.fst

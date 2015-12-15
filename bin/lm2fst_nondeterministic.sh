@@ -9,7 +9,7 @@ set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=false
+use_initial_eol=true
 
 . $KU/parse_options.sh
 
@@ -89,8 +89,8 @@ fi
 	while read p; do
 		echo "1 1 $p $p"
 	done
-	#the <eol> transition to the final state will meit a space
-	echo "1 2 <eol> <spc>"
+	#the <bol> transition to the final state will meit a space
+	echo "1 2 <bol> <spc>"
 	#the final state
 	echo "2"
 } > $DIR/eol_to_spc.fst
