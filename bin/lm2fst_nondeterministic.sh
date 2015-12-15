@@ -9,14 +9,14 @@ set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=true
+use_bol=false
 
 . $KU/parse_options.sh
 
 if [ $# -ne 2 ]; then
 	echo "usage: lm2fst.sh <lm_file> <dir>"
 	echo "options:"
-	echo "		--use-initial-eol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--use-bol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
 	exit 1
 fi
 
@@ -75,8 +75,9 @@ fsttablecompose $DIR/L_disambig.fst $DIR/G.fst | \
     fstarcsort --sort_type=ilabel | \
     cat	> $DIR/LG_no_eol.fst
 
-if `$use_initial_eol`; then
-	initial_readout='<eol>'
+if `$use_bol`; then
+    #Initially we used eol symbols for beginning and end of line. 
+	initial_readout='<bol>'
 else
 	initial_readout='<eps>'
 fi
@@ -85,12 +86,16 @@ fi
 	#possibly eat initial <eol>
 	echo "0 1 $initial_readout <eps>";
 	#then loop through the rest of the input tape
-	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' |  cut -d ' ' -f 1 | \
+	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' | grep -v '<bol>' |  cut -d ' ' -f 1 | \
 	while read p; do
 		echo "1 1 $p $p"
 	done
-	#the <bol> transition to the final state will meit a space
-	echo "1 2 <bol> <spc>"
+    
+    #add transition <bol>:<eps> from state 1 to 1, since utterance can have multiple bos symbols at the beginning of the line
+    echo "1 1 <bol> <eps>"
+
+	#the <eol> transition to the final state emit a space
+	echo "1 2 <eol> <spc>"
 	#the final state
 	echo "2"
 } > $DIR/eol_to_spc.fst
