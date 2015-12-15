@@ -52,6 +52,7 @@ class SpeechRecognizer(Initializable):
                  attention_type,
                  criterion,
                  lm=None, character_map=None,
+                 bidir=True,
                  subsample=None,
                  dims_top=None,
                  prior=None, conv_n=None,
@@ -104,12 +105,13 @@ class SpeechRecognizer(Initializable):
             subsample = [1] * len(dims_bidir)
         encoder = Encoder(self.enc_transition, dims_bidir,
                           dims_bottom[-1] if len(dims_bottom) else num_features,
-                          subsample)
+                          subsample, bidir=bidir)
+        dim_encoded = encoder.get_dim(encoder.apply.outputs[0])
 
         # The top part, on top of BiRNN but before the attention
         if dims_top:
             top = MLP([Tanh()],
-                      [2 * dims_bidir[-1]] + dims_top + [2 * dims_bidir[-1]], name="top")
+                      [dim_encoded] + dims_top + [dim_encoded], name="top")
         else:
             top = Identity(name='top')
 
@@ -127,14 +129,14 @@ class SpeechRecognizer(Initializable):
         if attention_type == "content":
             attention = SequenceContentAttention(
                 state_names=transition.apply.states,
-                attended_dim=2 * dims_bidir[-1], match_dim=dim_matcher,
+                attended_dim=dim_encoded, match_dim=dim_matcher,
                 name="cont_att")
         elif attention_type == "content_and_conv":
             attention = SequenceContentAndConvAttention(
                 state_names=transition.apply.states,
                 conv_n=conv_n,
                 conv_num_filters=conv_num_filters,
-                attended_dim=2 * dims_bidir[-1], match_dim=dim_matcher,
+                attended_dim=dim_encoded, match_dim=dim_matcher,
                 prior=prior,
                 energy_normalizer=energy_normalizer,
                 name="conv_att")
