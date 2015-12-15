@@ -468,6 +468,7 @@ def train(config, save_path, bokeh_name,
 
     # More variables for debugging: some of them can be added only
     # after the `algorithm` object is created.
+    secondary_observables += [train_cost]
     secondary_observables += list(regularized_cg.outputs)
     secondary_observables += [
         algorithm.total_step_norm, algorithm.total_gradient_norm,
