@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 
 #
-# Create a characters-to-words FST from an ARPA LM file.
+# Create a deterministic or nondeterministic characters-to-words FST from an
+# ARPA LM file.
+# This script produces two variants of the FST, with and without pushing
+# FST weights towards the starting state.
 #
 
 set -e
