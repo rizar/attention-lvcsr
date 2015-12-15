@@ -14,10 +14,10 @@ deterministic=false
 . $KU/parse_options.sh
 
 if [ $# -ne 2 ]; then
-	echo "usage: lm2fst_helper.sh <lm_file> <dir>"
+	echo "usage: lm2fst.sh <lm_file> <dir>"
 	echo "options:"
-	echo "		--use-bol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
-	echo "		--use-bol (true|false)        #default: false, if true the graph is determinized at the end"
+	echo "		--use-bol (true|false)         #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--deterministic (true|false)   #default: false, if true the graph is determinized at the end"
 	exit 1
 fi
 
