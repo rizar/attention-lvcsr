@@ -19,7 +19,7 @@ deterministic=false
 if [ $# -ne 2 ]; then
 	echo "usage: lm2fst.sh <lm_file> <dir>"
 	echo "options:"
-	echo "		--use-bol (true|false)         #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--use-bol (true|false)         #default: false, if true the graph will account for bol symbol"
 	echo "		--deterministic (true|false)   #default: false, if true the graph is determinized at the end"
 	exit 1
 fi
@@ -56,7 +56,7 @@ ndisambig=$[$ndisambig+1]; # add one disambig symbol for silence in lexicon FST.
 ( for n in `seq 0 $ndisambig`; do echo '#'$n; done ) >$DIR/disambig.txt
 
 cat $DIR/chars.txt | cut -d ' ' -f 1 | \
-	#add disambiguatio symbols
+	#add disambiguation symbols
 	cat - $DIR/disambig.txt | \
 	awk '{ print $0, NR-1;}' > $DIR/chars_disambig.txt
 
@@ -87,7 +87,7 @@ else
 fi
 
 {
-	#possibly eat initial <eol>
+	#possibly eat <bol>
 	echo "0 1 $initial_readout <eps>";
 	#then loop through the rest of the input tape
 	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' | grep -v '<bol>' |\
