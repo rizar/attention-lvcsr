@@ -37,5 +37,6 @@ monitoring:
     search_every_batches: 0
     search:
         beam_size: 10
-        char_discount: 0
+        char_discount: 0.0
         round_to_inf: 1000000000.0
+        stop_on: optimistic_future_cost
