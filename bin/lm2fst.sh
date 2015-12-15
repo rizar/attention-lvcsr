@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 
 #
-# Create a deterministic characters-to-words FST from an ARPA LM file.
-# This script produces two variants of the FST, with and without pushing
-# FST weights towards the starting state.
+# Create a characters-to-words FST from an ARPA LM file.
 #
 
 set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=false
+use_bol=false
+deterministic=false
 
 . $KU/parse_options.sh
 
 if [ $# -ne 2 ]; then
-	echo "usage: lm2fst.sh <lm_file> <dir>"
+	echo "usage: lm2fst_helper.sh <lm_file> <dir>"
 	echo "options:"
-	echo "		--use-initial-eol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--use-bol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--use-bol (true|false)        #default: false, if true the graph is determinized at the end"
 	exit 1
 fi
 
@@ -69,30 +69,36 @@ $KU/make_lexicon_fst.pl                       \
     fstarcsort --sort_type=olabel > $DIR/L_disambig.fst
 
 fsttablecompose $DIR/L_disambig.fst $DIR/G.fst | \
+	fstdeterminizestar --use-log=true        | \
 	fstrmsymbols <(cat $DIR/chars_disambig.txt | grep '#' | cut -d ' ' -f 2) | \
-    fstdeterminizestar --use-log=true        | \
+    fstrmepslocal | \
     fstminimizeencoded | \
     fstarcsort --sort_type=ilabel | \
     cat	> $DIR/LG_no_eol.fst
 
-if `$use_initial_eol`; then
+if `$use_bol`; then
+    #Initially we used eol symbols for beginning and end of line.
 	initial_readout='<bol>'
 else
 	initial_readout='<eps>'
 fi
 
 {
-	#possibly eat initial <bol>
+	#possibly eat initial <eol>
 	echo "0 1 $initial_readout <eps>";
 	#then loop through the rest of the input tape
-	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<bol>' | grep -v '<eol>' |  cut -d ' ' -f 1 | \
-	while read p; do
-		echo "1 1 $p $p"
-	done
-    #It is possible for an utterance to have multiple <bol> at the beginning of an utterance. This is why we are adding <bos> -> <eps> transition from state 1 to 1
+	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' | grep -v '<bol>' |\
+	    cut -d ' ' -f 1 | \
+        while read p; do
+            echo "1 1 $p $p"
+        done
+
+    # add transition <bol>:<eps> from state 1 to 1, since utterance can have
+    # multiple bos symbols at the beginning of the line
     echo "1 1 <bol> <eps>"
-	#the <eol> transition to the final state will meit a space
-    echo "1 2 <eol> <spc>"
+
+	#the <eol> transition to the final state emit a space
+	echo "1 2 <eol> <spc>"
 	#the final state
 	echo "2"
 } > $DIR/eol_to_spc.fst
@@ -105,19 +111,46 @@ fstcompile \
 	fstarcsort --sort_type=olabel | \
 	cat	> $DIR/eol_to_spc_bin.fst
 
-fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
-	fstdeterminizestar --use-log=true        | \
-    fstminimizeencoded > $DIR/LG.fst
+if `$deterministic`; then
+    fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
+        fstdeterminizestar --use-log=true        | \
+        fstminimizeencoded > $DIR/LG.fst
 
-fstpush --push_weights=true $DIR/LG.fst | \
-    fstrmepsilon > $DIR/LG_pushed.fst
+    fstpush --push_weights=true $DIR/LG.fst | \
+        fstrmepsilon > $DIR/LG_pushed.fst
 
-fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
-	fstcompile --isymbols=$DIR/chars.txt                 \
-        --osymbols=$DIR/words.txt                       \
-        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
+    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
+        fstcompile --isymbols=$DIR/chars.txt                 \
+            --osymbols=$DIR/words.txt                       \
+            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
 
-fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
-	fstcompile --isymbols=$DIR/chars.txt                 \
-        --osymbols=$DIR/words.txt                       \
-        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
+        fstcompile --isymbols=$DIR/chars.txt                 \
+            --osymbols=$DIR/words.txt                       \
+            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+else
+    fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
+        # fstminimizeencoded | \
+        # fstdeterminizestar --use-log=true        | \
+        fstminimizeencoded > $DIR/LG.fst
+
+    fstpush --push_weights=true $DIR/LG.fst | \
+        fstrmepsilon > $DIR/LG_pushed.fst
+
+    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
+        fstcompile --isymbols=$DIR/chars.txt                 \
+            --osymbols=$DIR/words.txt                       \
+            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
+
+    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
+        fstcompile --isymbols=$DIR/chars.txt                 \
+            --osymbols=$DIR/words.txt                       \
+            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+
+    fstprint $DIR/LG_withsyms.fst | \
+        fstcompile --isymbols=$DIR/chars.txt --osymbols=$DIR/words.txt \
+            --keep_isymbols=true --keep_osymbols=true --arc_type=log \
+        > $DIR/LG_log_withsyms.fst
+    fstpush --push_weights=true $DIR/LG_log_withsyms.fst \
+        $DIR/LG_log_pushed_withsyms.fst
+fi
