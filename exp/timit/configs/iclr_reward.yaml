@@ -1,0 +1,23 @@
+parent: $LVSR/exp/timit/configs/nips_smooth.yaml
+net:
+    criterion:
+        name: mse_gain
+        min_reward: -5
+initialization:
+    /recognizer/generator/readout/post_merge/mlp:
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [-1.0]
+training:
+    exploration: greedy
+    gradient_threshold: 100.0
+monitoring:
+    search:
+        round_to_inf: 4.5
+        stop_on: patience
+stages:
+    pretraining:
+        training:
+            num_epochs: 20
+        net:
+            criterion:
+                min_reward: -1
