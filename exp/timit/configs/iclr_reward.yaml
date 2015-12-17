@@ -17,7 +17,7 @@ monitoring:
 stages:
     pretraining:
         training:
-            num_epochs: 20
+            num_epochs: 50
         net:
             criterion:
                 min_reward: -1
