@@ -1,13 +1,13 @@
 import collections
 from abc import ABCMeta, abstractmethod
 
-import numpy
 from six import add_metaclass
 
 from picklable_itertools import iter_, izip
 
 from fuel.schemes import SequentialExampleScheme
 from fuel.streams import DataStream
+from fuel.utils import Subset
 
 
 @add_metaclass(ABCMeta)
@@ -219,6 +219,7 @@ class Dataset(object):
 
         Examples
         --------
+        >>> import numpy
         >>> class Random(Dataset):
         ...     provides_sources = ('features', 'targets')
         ...     def get_data(self, state=None, request=None):
@@ -252,7 +253,7 @@ class IterableDataset(Dataset):
 
     Notes
     -----
-    Internally, this method uses `picklable iterools's`_ ``_iter``
+    Internally, this method uses picklable iterools's ``_iter``
     function, providing picklable alternatives to some iterators such as
     :func:`range`, :func:`tuple`, and even :class:`file`. However, if the
     iterable returns a different kind of iterator that is not picklable,
@@ -353,12 +354,20 @@ class IndexableDataset(Dataset):
 
         self.start = start
         self.stop = stop
+        self.subset = Subset(slice(start, stop), self.num_examples)
 
     def __getattr__(self, attr):
         if (attr not in ['sources', 'indexables', '_sources'] and
                 attr in self.sources):
             return self.indexables[self.sources.index(attr)]
         raise AttributeError
+
+    # Without explicitly defining a trivial __setstate__ method,
+    # the __getattribute__ method would call the __getattr__ method,
+    # which would raise an AttributeError. This causes problems
+    # when unpickling.
+    def __setstate__(self, dict):
+        self.__dict__ = dict
 
     @property
     def num_examples(self):
@@ -367,13 +376,5 @@ class IndexableDataset(Dataset):
     def get_data(self, state=None, request=None):
         if state is not None or request is None:
             raise ValueError
-        if isinstance(request, collections.Iterable):
-            returned = []
-            for indexable in self.indexables:
-                if isinstance(indexable, numpy.ndarray):
-                    returned.append(indexable[request])
-                else:
-                    returned.append([indexable[r] for r in request])
-            return tuple(returned)
-        else:
-            return tuple(indexable[request] for indexable in self.indexables)
+        return tuple(self.subset.index_within_subset(indexable, request)
+                     for indexable in self.indexables)
