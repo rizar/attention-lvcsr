@@ -3,6 +3,7 @@ import copy
 from theano.compat import izip
 import numpy
 
+import theano
 from theano import Apply, scalar, config
 from theano import scalar as scal
 from six.moves import StringIO, xrange
@@ -101,7 +102,7 @@ class GpuElemwise(GpuKernelBase, HideC, Elemwise):
 
         return node
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.inputs[0].type.context
 
     def generate_kernel(self, node, nodename):
@@ -173,7 +174,7 @@ class GpuElemwise(GpuKernelBase, HideC, Elemwise):
                         ("npy_float64", "ga_double"),
                         ]:
             kop = kop.replace(npy, ga)
-        return ElemwiseKernel(self.get_context(node), inps + outs, kop,
+        return ElemwiseKernel(self.get_params(node), inps + outs, kop,
                               preamble=support_code)
 
     def c_headers(self):
@@ -222,7 +223,7 @@ class GpuElemwise(GpuKernelBase, HideC, Elemwise):
         fail = sub["fail"]
         initial_dims = ','.join('1' for i in xrange(nd))
         opname = str(self.scalar_op)
-        ctx = sub['context']
+        ctx = sub['params']
 
         # check that all inputs have valid dimensions
         emitted_inames = {}
@@ -650,11 +651,11 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
                                               ret.outputs[0].type.broadcastable,
                                               context_name=x.type.context_name)()])
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.inputs[0].type.context
 
     def perform(self, node, inp, out, ctx):
-        raise MethodNotDefined("")
+        theano.Op.perform(self, node, inp, out, ctx)
 
     def supports_c_code(self, inputs):
         """
@@ -683,7 +684,7 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
         inp = ['fake_input_name_%d' % i for i in xrange(len(inputs))]
         out = ['fake_output_name_%d' % i for i in xrange(len(node.outputs))]
 
-        sub = {'fail': 'fake failure code', 'context': 'fake context'}
+        sub = {'fail': 'fake failure code', 'params': 'fake context'}
 
         try:
             self.c_code(node, name, inp, out, sub)
@@ -711,7 +712,7 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
 
         sio = StringIO()
         fail = sub['fail']
-        ctx = sub['context']
+        ctx = sub['params']
 
         # check input
         print("""
@@ -833,7 +834,7 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
 
         return sio.getvalue()
 
-    def _makecall(self, node, name, x, z, fail, pattern=None):
+    def _makecall(self, node, name, x, z, fail, pattern=None, extra_dims=(), extra_strides=()):
         """
         Return a string for making a kernel call.
 
@@ -876,6 +877,9 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
 
         for i in xrange(ndim):
             params.append("(void *)&PyGpuArray_DIMS(%(x)s)[%(i)s]" % locals())
+        for declaration, value in extra_dims:
+            print(declaration % locals(), file=sio)
+            params.append(value)
         params.append("(void *)%(x)s->ga.data" % locals())
         params.append("(void *)&%(x)s->ga.offset" % locals())
         for i in xrange(ndim):
@@ -883,6 +887,9 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
             ssize_t stride_A%(i)d = PyGpuArray_STRIDES(%(x)s)[%(i)s]/sizeof(%(in_dtype)s);
             """ % locals(), file=sio)
             params.append("(void *)&stride_A%(i)d" % locals())
+        for declaration, value in extra_strides:
+            print(declaration % locals(), file=sio)
+            params.append(value)
 
         params.append("(void *)%(z)s->ga.data" % locals())
         params.append("(void *)&%(z)s->ga.offset" % locals())
@@ -1779,6 +1786,34 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
         }
         """ % locals(), file=sio)
 
+    def c_code_reduce_101(self, sio, node, name, x, z, fail):
+        makecall = self._makecall(node, name, x, z, fail,
+                                  extra_dims=[("size_t one = 1;", "(void *) &one")],
+                                  extra_strides=[("ssize_t sone = 1;", "(void *) &sone")],
+                                  pattern="1011")
+        print("""
+        {
+            int verbose = 0;
+//            size_t n_threads[3] = {std::min(PyGpuArray_DIMS(%(x)s)[3],
+//                                            (size_t) 256), 1, 1};
+            size_t n_threads[3] = {1, 1, 1};
+
+            while (n_threads[0] * (n_threads[1]+1) <= 256) ++n_threads[1];
+            if (n_threads[1] > PyGpuArray_DIMS(%(x)s)[2])
+                n_threads[1] = PyGpuArray_DIMS(%(x)s)[2];
+
+            while (n_threads[0] * n_threads[1] * (n_threads[2]+1) <= 256)
+                ++n_threads[2];
+            if (n_threads[2] > 64)
+                n_threads[2] = 64;
+            if (n_threads[2] > PyGpuArray_DIMS(%(x)s)[0])
+                n_threads[2] = PyGpuArray_DIMS(%(x)s)[0];
+
+            size_t n_blocks[3] = {PyGpuArray_DIMS(%(x)s)[1], 1, 1};
+            %(makecall)s
+        }
+        """ % locals(), file=sio)
+
     def c_code_reduce_111(self, sio, node, name, x, z, fail):
         makecall = self._makecall(node, name, x, z, fail)
         print("""
@@ -2572,7 +2607,7 @@ class GpuCAReduceCuda(GpuKernelBase, HideC, CAReduceDtype):
             """ % locals(), file=sio)
             kernels.append(Kernel(code=sio.getvalue(), name=kname,
                                   params=params, flags=flags, objvar=k_var))
-        if self.reduce_mask == (1, 0, 1, 1):
+        if self.reduce_mask == (1, 0, 1, 1) or self.reduce_mask == (1, 0, 1):
             reducebuf = self._k_reduce_buf('Z[blockIdx.x*sZ0]',
                                            node, nodename, sub={})
             reduce_fct = self._assign_reduce(node, nodename, "myresult",
@@ -2664,7 +2699,7 @@ class GpuCAReduceCPY(GpuKernelBase, HideC, CAReduceDtype):
 
         return Apply(res.op, [input], [otype()])
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.outputs[0].type.context
 
     def make_thunk(self, node, storage_map, compute_map, no_recycling):
@@ -2776,7 +2811,7 @@ class GpuCAReduceCPY(GpuKernelBase, HideC, CAReduceDtype):
              }
          }
         """ % dict(output=output, nd_out=nd_out, fail=sub['fail'],
-                   ctx=sub['context'],
+                   ctx=sub['params'],
                    out_type=dtype_to_typecode(node.outputs[0].type.dtype))
         else:
             code += """
@@ -2788,7 +2823,7 @@ class GpuCAReduceCPY(GpuKernelBase, HideC, CAReduceDtype):
                 %(fail)s
             }
         }
-        """ % dict(output=output, fail=sub['fail'], ctx=sub['context'],
+        """ % dict(output=output, fail=sub['fail'], ctx=sub['params'],
                    out_type=dtype_to_typecode(node.outputs[0].type.dtype))
 
         if acc_dtype != node.outputs[0].type.dtype:
@@ -2796,7 +2831,7 @@ class GpuCAReduceCPY(GpuKernelBase, HideC, CAReduceDtype):
         tmp = pygpu_empty(%(output)s->ga.nd, %(output)s->ga.dimensions,
                           %(acc_type)s, GA_C_ORDER, %(ctx)s, Py_None);
         if (!tmp) %(fail)s
-        """ % dict(output=output, fail=sub['fail'], ctx=sub['context'],
+        """ % dict(output=output, fail=sub['fail'], ctx=sub['params'],
                    acc_type=dtype_to_typecode(acc_dtype))
         else:
             code += """

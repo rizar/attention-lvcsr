@@ -199,7 +199,7 @@ optdb.register('merge1', gof.MergeOptimizer(),
 
 # rearranges elemwise expressions
 optdb.register('canonicalize', gof.EquilibriumDB(ignore_newtrees=False),
-               1, 'fast_run', 'fast_compile')
+               1, 'fast_run', 'fast_compile', 'canonicalize_db')
 # Register in the canonizer Equilibrium as a clean up opt the merge opt.
 # Without this, as the equilibrium have ignore_newtrees=False, we
 # won't merge all nodes if it is set as a global optimizer with
@@ -233,7 +233,7 @@ optdb.register('uncanonicalize', gof.EquilibriumDB(),
 
 # misc special cases for speed that are dependent on the device.
 optdb.register('specialize_device', gof.EquilibriumDB(),
-               48.6, 'fast_run')  # must be after gpu stuff at 48.5
+               48.6, 'fast_compile', 'fast_run')  # must be after gpu stuff at 48.5
 
 # especially constant merge
 optdb.register('merge2', gof.MergeOptimizer(),

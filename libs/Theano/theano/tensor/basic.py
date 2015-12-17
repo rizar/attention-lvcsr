@@ -432,7 +432,7 @@ def constant(x, name=None, ndim=None, dtype=None):
         return ret
     sig = ret.signature()
     if (sig not in constant_cache and ret.data.size == 1 and
-        ret.data <= 10 and ret.data >= -10 and
+        (-10) <= ret.data <= 10 and
         (ret.dtype in int_dtypes or ret.dtype in uint_dtypes or
          (ret.dtype in float_dtypes and int(ret.data) == ret.data))):
         constant_cache[sig] = ret
@@ -764,11 +764,11 @@ def get_scalar_constant_value(orig_v, elemwise=True,
                     if not (idx < len(gp_broadcastable)):
                         msg = ("get_scalar_constant_value detected " +
                                "deterministic IndexError: x.shape[%d] " +
-                               "when x.ndim=%d.") % (ndim, idx)
+                               "when x.ndim=%d.") % (idx, ndim)
                         if config.exception_verbosity == 'high':
-                            msg += 'x=%s' % min_informative_str(v)
+                            msg += ' x=%s' % min_informative_str(v)
                         else:
-                            msg += 'x=%s' % str(v)
+                            msg += ' x=%s' % str(v)
                         raise ValueError(msg)
 
                     if gp_broadcastable[idx]:
@@ -3968,7 +3968,7 @@ pprint.assign(lambda pstate, r: r.owner and isinstance(r.owner.op, Join),
 
 def roll(x, shift, axis=None):
     """
-    Convenience function to roll `TensorType`s along the given axis.
+    Convenience function to roll TensorTypes along the given axis.
 
     Syntax copies numpy.roll function.
 
@@ -3986,7 +3986,7 @@ def roll(x, shift, axis=None):
     Returns
     -------
     tensor
-        Output tensor, with the same shape as `x`.
+        Output tensor, with the same shape as ``x``.
 
     """
     if axis is None:
@@ -4230,7 +4230,8 @@ def get_vector_length(v):
     """
     v = as_tensor_variable(v)
     if v.ndim != 1:
-        raise TypeError('argument must be symbolic vector')
+        raise TypeError("argument must be symbolic vector, got '%s'" %
+                        v)
     if v.type.broadcastable[0]:
         return 1
     if isinstance(v, gof.Constant) and v.type.ndim == 1:
@@ -4242,18 +4243,40 @@ def get_vector_length(v):
     # If we take a slice, we know how many elements it will result in
     if ((v.owner and
          isinstance(v.owner.op, theano.tensor.subtensor.Subtensor) and
-         isinstance(v.owner.op.idx_list[0], slice))):
+         isinstance(v.owner.op.idx_list[0], slice) and
+         v.owner.inputs[0].owner and
+         isinstance(v.owner.inputs[0].owner.op, theano.compile.ops.Shape))):
         start = extract_constant(theano.tensor.subtensor.get_idx_list(
             v.owner.inputs, v.owner.op.idx_list)[0].start)
         stop = extract_constant(theano.tensor.subtensor.get_idx_list(
             v.owner.inputs, v.owner.op.idx_list)[0].stop)
+        step = extract_constant(theano.tensor.subtensor.get_idx_list(
+            v.owner.inputs, v.owner.op.idx_list)[0].step)
+
+        ndim = v.owner.inputs[0].owner.inputs[0].ndim
+        types = (numbers.Integral, numpy.integer)
         if start is None:
             start = 0
+        elif isinstance(start, types) and start < 0:
+            start += ndim
+            if start < 0:
+                start = 0
         if stop is None:
-            stop = 0
-        if ((isinstance(stop, numbers.Integral) and
-             isinstance(start, numbers.Integral))):
-            return stop - start
+            stop = ndim
+        elif isinstance(stop, types):
+            if stop > ndim:
+                stop = ndim
+            elif stop < 0:
+                stop += ndim
+        if step is None:
+            step = 1
+
+        if (isinstance(stop, types) and
+                isinstance(start, types) and
+                isinstance(step, types) and
+                start >= 0 and stop >= 0 and
+                step > 0 and stop >= start):
+            return (stop - start - 1) // step + 1
     if isinstance(v, Variable):
         msg = theano.printing.debugprint(v, file='str')
     else:
@@ -4400,6 +4423,11 @@ class Reshape(Op):
         # Here, we only simplify if the shape (node.inputs[1]) is a constant,
         # ideally it would suffice to check that it is always non-negative.
 
+        # If current variable is a scalar and its dimensionality should
+        # change to self.ndim, then use size 1 for all new dimensions.
+        if len(ishapes[0]) == 0:
+            return [(1,) * self.ndim]
+
         requ = node.inputs[1]
         if isinstance(requ, theano.tensor.TensorConstant):
             requ = list(requ.data)
@@ -4411,23 +4439,23 @@ class Reshape(Op):
                     if ele == -1:
                         requ[i] = missing
             elif crit == 1:  # we reshape to -1
-                requ = [mul(*ishapes[0])]
+                requ = [mul(*ishapes[0])] if ishapes[0] else [1]
             elif crit > 1:
                 raise ValueError('shape argument to Reshape.perform'
                                  ' must have at most one entry equal to -1')
             return [requ]
         else:
-            oshape = []
-            for i in xrange(self.ndim):
-                default_os_i = theano.tensor.opt.Shape_i(i)(node.outputs[0])
-                try:
-                    os_i = get_scalar_constant_value(node.inputs[1][i]).item()
-                    if os_i == -1:
-                        os_i = default_os_i
-                except NotScalarConstantError:
-                    os_i = default_os_i
-                oshape.append(os_i)
-            return [tuple(oshape)]
+            new_dims = [node.inputs[1][i] for i in xrange(self.ndim)]
+            # since new_dims has one negative value (-1), the
+            # multiplication of all values should be negated
+            # to give a positive value.
+            # To avoid optimization complexity, we avoid checking
+            # for the case when there are two or more '-1' values.
+            return [tuple([switch(eq(new_dims[i], -1),
+                                  theano.tensor.mul(*ishapes[0]) //
+                                  (-theano.tensor.mul(*new_dims)),
+                                  new_dims[i])
+                           for i in xrange(self.ndim)])]
 
     def c_code_cache_version(self):
         return (6,)
@@ -4479,6 +4507,11 @@ class Reshape(Op):
 
 def reshape(x, newshape, ndim=None, name=None):
     if ndim is None:
+        newshape = as_tensor_variable(newshape)
+        if newshape.ndim != 1:
+            raise TypeError(
+                "New shape in reshape must be a vector or a list/tuple of"
+                " scalar. Got %s after conversion to a vector." % newshape)
         try:
             ndim = get_vector_length(newshape)
         except ValueError:
@@ -4500,6 +4533,7 @@ class Flatten(Op):
     Flattens a tensor to `outdim` dimensions by preserving the leading
     outdim - 1 shape components.
 
+    .. note:: The interface Flatten(Op) is deprecated, you should use flatten.
     """
     view_map = {0: [0]}
 
@@ -4507,6 +4541,11 @@ class Flatten(Op):
     __props__ = ("outdim",)
 
     def __init__(self, outdim=1):
+        warnings.warn(
+            "Flatten class is deprecated, "
+            "please use flatten method instead.",
+            DeprecationWarning,
+            stacklevel=4)
         self.outdim = int(outdim)
 
     def __str__(self):
@@ -4645,8 +4684,70 @@ class Flatten(Op):
         """ % locals()
 
 
+def is_flat(var, outdim=1):
+    """
+    Verifies the dimensionality of the var is equal to
+    outdim. This method is usually called after flatten method on a
+    variable, where the first outdim-1 dimension size(s) of the variable
+    is kept intact, and the last dimension size of the variable is made
+    equal to the multiplication of its remaining dimension size(s), such that
+    the variable would end up with as many dimension as outdim.
+
+    Parameters
+    ----------
+        var : theano.tensor.var.TensorVariable
+            the theano var on which the dimensionality is checked.
+
+        outdim : int
+            the expected dimensionality of var.
+
+    Returns
+    -------
+    bool
+        the comparison result of var's dim
+        and the expected outdim.
+    """
+    return var.ndim == outdim
+
+
 def flatten(x, outdim=1):
-    return Flatten(outdim)(x)
+    """
+    Reshapes the variable x by keeping
+    the first outdim-1 dimension size(s) of x the same,
+    and making the last dimension size of x equal to
+    the multiplication of its remaining dimension size(s).
+
+    Parameters
+    ----------
+        x : theano.tensor.var.TensorVariable
+            the variable that should be reshaped.
+
+        outdim : int
+            the number of dimensions of the returned variable
+
+    Returns
+    -------
+    theano.tensor.var.TensorVariable
+        the flattend variable with dimensionality of outdim
+    """
+    # Any input variable can be flattened to have outdim of 1,
+    # even if it's a scalar. Otherwise, outdim must be positive
+    # and smaller than x.ndim.
+    if outdim < 1 or (outdim > 1 and outdim > x.ndim):
+        raise ValueError('outdim %s out of bound [1, %d)'
+                         % (outdim, x.ndim + 1))
+
+    if outdim > 1:
+        dims = tuple(x.shape[:outdim - 1]) + (-1,)
+    else:
+        dims = (-1,)
+    x_reshaped = x.reshape(dims)
+    bcast_kept_dims = x.broadcastable[:outdim - 1]
+    bcast_new_dim = python_all(x.broadcastable[outdim - 1:])
+    broadcastable = bcast_kept_dims + (bcast_new_dim,)
+    x_reshaped = theano.tensor.addbroadcast(
+        x_reshaped, *filter(lambda i: broadcastable[i], range(outdim)))
+    return x_reshaped
 
 
 # class TileGrad(Op):
