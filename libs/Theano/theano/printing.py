@@ -22,25 +22,20 @@ from theano.gof import Op, Apply
 from theano.compile import Function, debugmode, SharedVariable
 from theano.compile.profilemode import ProfileMode
 
-# pydot-ng is a fork of pydot that is better maintained, and works
-# with more recent version of its dependencies (in particular pyparsing)
+pydot_imported = False
 try:
+    # pydot-ng is a fork of pydot that is better maintained
     import pydot_ng as pd
     if pd.find_graphviz():
         pydot_imported = True
-    else:
-        pydot_imported = False
-except Exception:
-    # Sometimes, a Windows-specific exception is raised
-    pydot_imported = False
-# Fall back on pydot if necessary
-if not pydot_imported:
+except ImportError:
     try:
+        # fall back on pydot if necessary
         import pydot as pd
         if pd.find_graphviz():
             pydot_imported = True
-    except Exception:
-        pass
+    except ImportError:
+        pass  # tests should not fail on optional dependency
 
 _logger = logging.getLogger("theano.printing")
 VALID_ASSOC = set(['left', 'right', 'either'])
@@ -733,7 +728,6 @@ def pydotprint(fct, outfile=None,
     if not pydot_imported:
         raise RuntimeError("Failed to import pydot. You must install pydot"
                            " and graphviz for `pydotprint` to work.")
-        return
 
     g = pd.Dot()
 
@@ -865,8 +859,8 @@ def pydotprint(fct, outfile=None,
     # it, we must copy it.
     outputs = list(outputs)
     if isinstance(fct, Function):
-        for i, fg_ii in reversed(zip(fct.maker.expanded_inputs,
-                                     fct.maker.fgraph.inputs)):
+        function_inputs = zip(fct.maker.expanded_inputs, fct.maker.fgraph.inputs)
+        for i, fg_ii in reversed(list(function_inputs)):
             if i.update is not None:
                 k = outputs.pop()
                 # Use the fgaph.inputs as it isn't the same as maker.inputs
@@ -1065,13 +1059,10 @@ def pydotprint_variables(vars,
     if outfile is None:
         outfile = os.path.join(config.compiledir, 'theano.pydotprint.' +
                                config.device + '.' + format)
-    try:
-        import pydot as pd
-    except ImportError:
-        err = ("Failed to import pydot. You must install pydot for " +
-               "`pydotprint_variables` to work.")
-        print(err)
-        return
+    if not pydot_imported:
+        raise RuntimeError("Failed to import pydot. You must install pydot"
+                           " and graphviz for `pydotprint_variables` to work.")
+
     g = pd.Dot()
     my_list = {}
     orphanes = []

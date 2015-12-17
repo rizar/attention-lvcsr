@@ -202,7 +202,7 @@ class GpuIncSubtensor(GpuKernelBase, IncSubtensor):
         op.create_iadd_node(ret)
         return ret
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.outputs[0].type.context
 
     def create_iadd_node(self, node):
@@ -372,7 +372,7 @@ class GpuIncSubtensor(GpuKernelBase, IncSubtensor):
         """ % locals()
         inputs = ["dst", "src"]
         outputs = ["ret"]
-        sub = {"fail": "return NULL;", "context": "dst->context"}
+        sub = {"fail": "return NULL;", "params": "dst->context"}
         ret += gop.c_code(self.iadd_node, sub_name, inputs, outputs, sub)
         ret += """
             return ret;
@@ -609,7 +609,7 @@ class GpuAdvancedIncSubtensor1_dev20(GpuKernelBase, GpuAdvancedIncSubtensor1):
 
         return gof.Apply(self, [x_, y_, ilist_], [x_.type()])
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.outputs[0].type.context
 
     def perform(self, node, inp, out, ctx):
@@ -626,13 +626,13 @@ class GpuAdvancedIncSubtensor1_dev20(GpuKernelBase, GpuAdvancedIncSubtensor1):
         return [os.path.dirname(__file__)]
 
     def c_code(self, node, name, inputs, outputs, sub):
-        ctx = self.get_context(node)
+        ctx = self.get_params(node)
         if ctx.kind != 'cuda':
             raise NotImplementedError("cuda only")
         if (self.set_instead_of_inc or
                 node.inputs[0].ndim != node.inputs[1].ndim or
                 node.inputs[0].ndim != 2 or
-                ctx.bin_id[-2] < '2'):
+                ctx.bin_id[-2] < b'2'):
             raise NotImplementedError("This case does not have C code yet.")
 
         x = inputs[0]

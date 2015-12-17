@@ -127,9 +127,12 @@ class GetCheckpoint:
     def __init__(self, history, fgraph):
         self.h = history
         self.fgraph = fgraph
+        self.nb = 0
 
     def __call__(self):
-        return len(self.h.history[self.fgraph])
+        self.h.history[self.fgraph] = []
+        self.nb += 1
+        return self.nb
 
 
 class LambdExtract:
@@ -147,6 +150,13 @@ class LambdExtract:
 
 
 class History(Feature):
+    """Keep an history of changes to an FunctionGraph.
+
+    This history can be reverted up to the last checkpoint.. We can
+    revert to only 1 point in the past. This limit was added to lower
+    the memory usage.
+
+    """
     pickle_rm_attr = ["checkpoint", "revert"]
 
     def __init__(self):
@@ -187,7 +197,8 @@ class History(Feature):
         """
         h = self.history[fgraph]
         self.history[fgraph] = None
-        while len(h) > checkpoint:
+        assert fgraph.checkpoint.nb == checkpoint
+        while h:
             f = h.pop()
             f()
         self.history[fgraph] = h
@@ -297,7 +308,18 @@ class ReplaceValidate(History, Validator):
                 msg = str(e)
                 s1 = 'The type of the replacement must be the same'
                 s2 = 'does not belong to this FunctionGraph'
-                if (s1 not in msg and s2 not in msg):
+                s3 = 'maximum recursion depth exceeded'
+                if s3 in msg:
+                    # There is nothing safe we can do to recover from this.
+                    # So don't revert as this raise a different error
+                    # that isn't helpful.
+                    e.args += (
+                        "Please, report this to theano-dev mailing list."
+                        " As a temporary work around, you can raise Python"
+                        " stack limit with:"
+                        " import sys; sys.setrecursionlimit(10000)",)
+                    raise
+                elif (s1 not in msg and s2 not in msg):
                     out = sys.stderr
                     print("<<!! BUG IN FGRAPH.REPLACE OR A LISTENER !!>>",
                           type(e), e, reason, file=out)
@@ -314,6 +336,7 @@ class ReplaceValidate(History, Validator):
             raise
         if verbose:
             print(reason, r, new_r)
+        # The return is needed by replace_all_validate_remove
         return chk
 
     def replace_all_validate_remove(self, fgraph, replacements,

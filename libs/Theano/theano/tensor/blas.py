@@ -129,6 +129,7 @@ import copy
 import logging
 import os
 import sys
+import textwrap
 import time
 import warnings
 
@@ -305,6 +306,13 @@ SOMEPATH/Canopy_64bit/User/lib/python2.7/site-packages/numpy/distutils/system_in
                 [])
             if GCC_compiler.try_flags(ret):
                 return ' '.join(ret)
+            # Try to add the anaconda lib directory to runtime loading of lib.
+            # This fix some case with Anaconda 2.3 on Linux.
+            if "Anaconda" in sys.version and "linux" in sys.platform:
+                lib_path = os.path.join(sys.prefix, 'lib')
+                ret.append('-Wl,-rpath,' + lib_path)
+                if GCC_compiler.try_flags(ret):
+                    return ' '.join(ret)
 
     except KeyError:
         pass
@@ -312,8 +320,31 @@ SOMEPATH/Canopy_64bit/User/lib/python2.7/site-packages/numpy/distutils/system_in
     # Even if we could not detect what was used for numpy, or if these
     # libraries are not found, most Linux systems have a libblas.so
     # readily available. We try to see if that's the case, rather
-    # than disable blas.
-    if GCC_compiler.try_flags(["-lblas"]):
+    # than disable blas. To test it correctly, we must load a program.
+    # Otherwise, there could be problem in the LD_LIBRARY_PATH.
+
+    test_code = textwrap.dedent("""\
+        extern "C" float sdot_(int*, float*, int*, float*, int*);
+        int main(int argc, char** argv)
+        {
+            int Nx = 5;
+            int Sx = 1;
+            float x[5] = {0, 1, 2, 3, 4};
+            float r = sdot_(&Nx, x, &Sx, x, &Sx);
+
+            if ((r - 30.f) > 1e-6 || (r - 30.f) < -1e-6)
+            {
+                return -1;
+            }
+            return 0;
+        }
+        """)
+    flags = ['-lblas']
+    flags.extend('-L'.join(theano.gof.cmodule.std_lib_dirs()))
+    res = GCC_compiler.try_compile_tmp(
+        test_code, tmp_prefix='try_blas_',
+        flags=flags, try_run=True)
+    if res and res[0] and res[1]:
         return "-lblas"
     else:
         return ""
@@ -1720,7 +1751,7 @@ class Dot22(GemmRelated):
             dims[0] = PyArray_DIMS(%(_x)s)[0];
             dims[1] = PyArray_DIMS(%(_y)s)[1];
             %(_zout)s = (PyArrayObject*)PyArray_SimpleNew(2, dims,
-                            PyArray_TYPE((PyArrayObject*) py_%(_x)s));
+                            PyArray_TYPE(%(_x)s));
             //fprintf(stderr, "Dot Allocating %%i %%i\\n", dims[0], dims[1]);
             if(!%(_zout)s) {
                 PyErr_SetString(PyExc_MemoryError,
@@ -1757,7 +1788,7 @@ class Dot22(GemmRelated):
     def c_code_cache_version(self):
         gv = self.build_gemm_version()
         if gv:
-            return (1,) + gv
+            return (2,) + gv
         else:
             return gv
 

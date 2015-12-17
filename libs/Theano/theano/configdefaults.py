@@ -146,6 +146,13 @@ AddConfigVar(
     in_c_key=False)
 
 
+AddConfigVar(
+    'enable_initial_driver_test',
+    "Tests the nvidia driver when a GPU device is initialized.",
+    BoolParam(True, allow_override=False),
+    in_c_key=False)
+
+
 def default_cuda_root():
     v = os.getenv('CUDA_ROOT', "")
     if v:
@@ -449,10 +456,14 @@ AddConfigVar(
 AddConfigVar(
     'traceback.limit',
     "The number of stack to trace. -1 mean all.",
-    # We default to 6 to be able to know where v1 + v2 is created in the
+    # We default to a number to be able to know where v1 + v2 is created in the
     # user script. The bigger this number is, the more run time it takes.
-    # We need to default to 7 to support theano.tensor.tensor(...).
-    IntParam(7),
+    # We need to default to 8 to support theano.tensor.tensor(...).
+    # import theano, numpy
+    # X = theano.tensor.matrix()
+    # y = X.reshape((5,3,1))
+    # assert y.tag.trace
+    IntParam(8),
     in_c_key=False)
 
 AddConfigVar('experimental.mrg',
@@ -460,31 +471,15 @@ AddConfigVar('experimental.mrg',
              BoolParam(False))
 
 AddConfigVar('experimental.unpickle_gpu_on_cpu',
-             "Allow unpickling of pickled CudaNdarrays as numpy.ndarrays. "
+             "Allow unpickling of pickled CudaNdarrays as numpy.ndarrays."
              "This is useful, if you want to open a CudaNdarray without "
-             "having cuda installed. "
-             "If you have cuda installed, this will force unpickling to "
-             "be done on the cpu to numpy.ndarray. "
-             "Please be aware that this may get you access to the data, "
-             "however, trying to unpicke gpu functions will not succeed. "
-             "This flag is experimental and may be removed any time, when "
-             "gpu<>cpu transparency is solved. "
-             "The flag 'device' MUST be set to 'cpu'.",
-             BoolParam(default=False),
-             in_c_key=False)
-
-AddConfigVar('experimental.unpickle_shared_gpu_on_cpu',
-             "When True, allow unpickling of pickled CudaNdarraySharedVariable"
-             " as TensorSharedVariable. "
-             "This is useful, if you want to load a model saved on GPU "
-             "when no GPU is available. "
-             "This do not solve all problems! It only works if you pickled "
-             "only Theano shared variables. If you pickle a graph or function "
-             "based on those shared variable, they won't work correctly. "
-             "Please be aware that this a work around that only works in some "
-             "condition. This flag is experimental and may be removed any "
-             "time, when gpu<>cpu transparency is solved. "
-             "The flag 'device' MUST be set to 'cpu'.",
+             "having cuda installed."
+             "If you have cuda installed, this will force unpickling to"
+             "be done on the cpu to numpy.ndarray."
+             "Please be aware that this may get you access to the data,"
+             "however, trying to unpicke gpu functions will not succeed."
+             "This flag is experimental and may be removed any time, when"
+             "gpu<>cpu transparency is solved.",
              BoolParam(default=False),
              in_c_key=False)
 
@@ -656,6 +651,16 @@ AddConfigVar(
     in_c_key=False)
 
 
+AddConfigVar(
+    'print_test_value',
+    ("If 'True', the __eval__ of a Theano variable will return its test_value "
+     "when this is available. This has the practical conseguence that, e.g., "
+     "in debugging `my_var` will print the same as `my_var.tag.test_value` "
+     "when a test value is defined."),
+    BoolParam(False),
+    in_c_key=False)
+
+
 AddConfigVar('compute_test_value_opt',
              ("For debugging Theano optimization only."
               " Same as compute_test_value, but is used"
@@ -760,3 +765,20 @@ AddConfigVar(
     "the first optimization, and could possibly still contains some bugs. "
     "Use at your own risks.",
     BoolParam(False))
+
+
+def good_seed_param(seed):
+    if seed == "random":
+        return True
+    try:
+        int(seed)
+    except Exception:
+        return False
+    return True
+
+
+AddConfigVar('unittests.rseed',
+             "Seed to use for randomized unit tests. "
+             "Special value 'random' means using a seed of None.",
+             StrParam(666, is_valid=good_seed_param),
+             in_c_key=False)
