@@ -28,9 +28,9 @@ def convert_svhn_format_1(directory, output_directory,
 
     This method assumes the existence of the files
     `{train,test,extra}.tar.gz`, which are accessible through the
-    official website [SVHN].
+    official website [SVHNSITE].
 
-    .. [SVHN] http://ufldl.stanford.edu/housenumbers/
+    .. [SVHNSITE] http://ufldl.stanford.edu/housenumbers/
 
     Parameters
     ----------
@@ -268,9 +268,7 @@ def convert_svhn_format_2(directory, output_directory,
 
     This method assumes the existence of the files
     `{train,test,extra}_32x32.mat`, which are accessible through the
-    official website [SVHN].
-
-    .. [SVHN] http://ufldl.stanford.edu/housenumbers/
+    official website [SVHNSITE].
 
     Parameters
     ----------
@@ -293,14 +291,17 @@ def convert_svhn_format_2(directory, output_directory,
     train_set = loadmat(os.path.join(directory, FORMAT_2_TRAIN_FILE))
     train_features = train_set['X'].transpose(3, 2, 0, 1)
     train_targets = train_set['y']
+    train_targets[train_targets == 10] = 0
 
     test_set = loadmat(os.path.join(directory, FORMAT_2_TEST_FILE))
     test_features = test_set['X'].transpose(3, 2, 0, 1)
     test_targets = test_set['y']
+    test_targets[test_targets == 10] = 0
 
     extra_set = loadmat(os.path.join(directory, FORMAT_2_EXTRA_FILE))
     extra_features = extra_set['X'].transpose(3, 2, 0, 1)
     extra_targets = extra_set['y']
+    extra_targets[extra_targets == 10] = 0
 
     data = (('train', 'features', train_features),
             ('test', 'features', test_features),
@@ -376,4 +377,4 @@ def fill_subparser(subparser):
     """
     subparser.add_argument(
         "which_format", help="which dataset format", type=int, choices=(1, 2))
-    subparser.set_defaults(func=convert_svhn)
+    return convert_svhn

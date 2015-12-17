@@ -18,9 +18,10 @@ from six.moves import range, zip, cPickle
 
 from fuel.converters.base import (fill_hdf5_file, check_exists,
                                   MissingInputFiles)
-from fuel.converters import (binarized_mnist, caltech101_silhouettes,
-                             cifar10, cifar100, mnist, svhn)
+from fuel.converters import (adult, binarized_mnist, caltech101_silhouettes,
+                             iris, cifar10, cifar100, mnist, svhn)
 from fuel.downloaders.caltech101_silhouettes import silhouettes_downloader
+from fuel.downloaders.base import default_downloader
 
 if six.PY3:
     getbuffer = memoryview
@@ -140,11 +141,10 @@ class TestMNIST(object):
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='mock_mnist.hdf5')
-        mnist.fill_subparser(subparser)
+        convert_function = mnist.fill_subparser(subparser)
         args = parser.parse_args(['mnist'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
         assert_equal(
             h5file['features'][...],
@@ -166,11 +166,10 @@ class TestMNIST(object):
         subparser = subparsers.add_parser('mnist')
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir)
-        mnist.fill_subparser(subparser)
+        convert_function = mnist.fill_subparser(subparser)
         args = parser.parse_args(['mnist'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         assert_equal(os.path.basename(filename), 'mnist.hdf5')
 
     def test_converter_no_filename(self):
@@ -179,11 +178,10 @@ class TestMNIST(object):
         subparser = subparsers.add_parser('mnist')
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir)
-        mnist.fill_subparser(subparser)
+        convert_function = mnist.fill_subparser(subparser)
         args = parser.parse_args(['mnist', '--dtype', 'bool'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         assert_equal(os.path.basename(filename), 'mnist_bool.hdf5')
 
     def test_wrong_image_magic(self):
@@ -206,6 +204,52 @@ class TestMNIST(object):
     def test_read_image_value_error(self):
         assert_raises(ValueError, mnist.read_mnist_images,
                       self.train_images_path, 'int32')
+
+
+class TestAdult(object):
+    def setUp(self):
+        self.tempdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir)
+
+    def test_fill_subparser(self):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        subparser = subparsers.add_parser('adult')
+        returned_conversion_func = adult.fill_subparser(subparser)
+        assert returned_conversion_func is adult.convert_adult
+
+    def test_convert(self):
+        tempdir = self.tempdir
+
+        cwd = os.getcwd()
+        os.chdir(tempdir)
+
+        assert_raises(IOError,
+                      adult.convert_adult,
+                      directory=tempdir,
+                      output_directory=tempdir)
+
+        default_downloader(
+            directory=tempdir,
+            urls=['https://archive.ics.uci.edu/ml/machine-learning-databases/'
+                  'adult/adult.data',
+                  'https://archive.ics.uci.edu/ml/machine-learning-databases/'
+                  'adult/adult.test'],
+            filenames=['adult.data', 'adult.test'])
+
+        adult.convert_adult(directory=tempdir,
+                            output_directory=tempdir)
+
+        os.chdir(cwd)
+
+        output_file = "adult.hdf5"
+        output_file = os.path.join(tempdir, output_file)
+
+        with h5py.File(output_file, 'r') as h5:
+            assert h5['features'].shape == (30162 + 15060, 104)
+            assert h5['targets'].shape[0] == h5['features'].shape[0]
 
 
 class TestBinarizedMNIST(object):
@@ -235,11 +279,10 @@ class TestBinarizedMNIST(object):
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='mock_binarized_mnist.hdf5')
-        binarized_mnist.fill_subparser(subparser)
+        convert_function = binarized_mnist.fill_subparser(subparser)
         args = parser.parse_args(['binarized_mnist'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
         assert_equal(h5file['features'][...],
                      numpy.vstack([self.train_mock, self.valid_mock,
@@ -291,11 +334,10 @@ class TestCIFAR10(object):
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='mock_cifar10.hdf5')
-        cifar10.fill_subparser(subparser)
+        convert_function = cifar10.fill_subparser(subparser)
         args = parser.parse_args(['cifar10'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
         assert_equal(
             h5file['features'][...],
@@ -356,11 +398,10 @@ class TestCIFAR100(object):
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='mock_cifar100.hdf5')
-        cifar100.fill_subparser(subparser)
+        convert_function = cifar100.fill_subparser(subparser)
         args = parser.parse_args(['cifar100'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
         assert_equal(
             h5file['features'][...],
@@ -391,6 +432,13 @@ class TestCalTech101Silhouettes(object):
     def tearDown(self):
         shutil.rmtree(self.tempdir)
 
+    def test_fill_subparser(self):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        subparser = subparsers.add_parser('caltech101_silhouettes')
+        convert_function = caltech101_silhouettes.fill_subparser(subparser)
+        assert convert_function is caltech101_silhouettes.convert_silhouettes
+
     def test_download_and_convert(self, size=16):
         tempdir = self.tempdir
 
@@ -419,9 +467,62 @@ class TestCalTech101Silhouettes(object):
 
         output_file = "caltech101_silhouettes{}.hdf5".format(size)
         output_file = os.path.join(tempdir, output_file)
+
         with h5py.File(output_file, 'r') as h5:
             assert h5['features'].shape == (8641, 1, size, size)
             assert h5['targets'].shape == (8641, 1)
+
+
+class TestIris(object):
+    def setUp(self):
+        self.tempdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir)
+
+    def test_fill_subparser(self):
+        parser = argparse.ArgumentParser()
+        subparsers = parser.add_subparsers()
+        subparser = subparsers.add_parser('iris')
+        convert_function = iris.fill_subparser(subparser)
+        assert convert_function is iris.convert_iris
+
+    def test_download_and_convert(self):
+        tempdir = self.tempdir
+
+        cwd = os.getcwd()
+        os.chdir(tempdir)
+
+        assert_raises(IOError,
+                      iris.convert_iris,
+                      directory=tempdir,
+                      output_directory=tempdir)
+
+        default_downloader(
+            directory=tempdir,
+            urls=['https://archive.ics.uci.edu/ml/machine-learning-databases/'
+                  'iris/iris.data'],
+            filenames=['iris.data'])
+
+        classes = {
+            b'Iris-setosa': 0, b'Iris-versicolor': 1, b'Iris-virginica': 2}
+        data = numpy.loadtxt(
+            os.path.join(tempdir, 'iris.data'),
+            converters={4: lambda x: classes[x]},
+            delimiter=',')
+        features = data[:, :-1].astype('float32')
+        targets = data[:, -1].astype('uint8').reshape((-1, 1))
+
+        iris.convert_iris(directory=tempdir,
+                          output_directory=tempdir)
+
+        os.chdir(cwd)
+
+        output_file = "iris.hdf5"
+        output_file = os.path.join(tempdir, output_file)
+        with h5py.File(output_file, 'r') as h5:
+            assert numpy.allclose(h5['features'], features)
+            assert numpy.allclose(h5['targets'], targets)
 
 
 class TestSVHN(object):
@@ -477,15 +578,15 @@ class TestSVHN(object):
         self.f2_train_features_mock = numpy.random.randint(
             0, 256, (32, 32, 3, 10)).astype('uint8')
         self.f2_train_targets_mock = numpy.random.randint(
-            0, 10, (10, 1)).astype('uint8')
+            1, 11, (10, 1)).astype('uint8')
         self.f2_test_features_mock = numpy.random.randint(
             0, 256, (32, 32, 3, 10)).astype('uint8')
         self.f2_test_targets_mock = numpy.random.randint(
-            0, 10, (10, 1)).astype('uint8')
+            1, 11, (10, 1)).astype('uint8')
         self.f2_extra_features_mock = numpy.random.randint(
             0, 256, (32, 32, 3, 10)).astype('uint8')
         self.f2_extra_targets_mock = numpy.random.randint(
-            0, 10, (10, 1)).astype('uint8')
+            1, 11, (10, 1)).astype('uint8')
         savemat('train_32x32.mat', {'X': self.f2_train_features_mock,
                                     'y': self.f2_train_targets_mock})
         savemat('test_32x32.mat', {'X': self.f2_test_features_mock,
@@ -501,14 +602,13 @@ class TestSVHN(object):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers()
         subparser = subparsers.add_parser('svhn')
-        svhn.fill_subparser(subparser)
+        convert_function = svhn.fill_subparser(subparser)
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='svhn_format_1.hdf5')
         args = parser.parse_args(['svhn', '1'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
 
         expected_features = sum((self.f1_mock[split]['image']
@@ -531,25 +631,34 @@ class TestSVHN(object):
         parser = argparse.ArgumentParser()
         subparsers = parser.add_subparsers()
         subparser = subparsers.add_parser('svhn')
-        svhn.fill_subparser(subparser)
+        convert_function = svhn.fill_subparser(subparser)
         subparser.set_defaults(
             directory=self.tempdir, output_directory=self.tempdir,
             output_filename='svhn_format_2.hdf5')
         args = parser.parse_args(['svhn', '2'])
         args_dict = vars(args)
-        func = args_dict.pop('func')
-        filename, = func(**args_dict)
+        filename, = convert_function(**args_dict)
         h5file = h5py.File(filename, mode='r')
         assert_equal(
             h5file['features'][...],
             numpy.vstack([self.f2_train_features_mock.transpose(3, 2, 0, 1),
                           self.f2_test_features_mock.transpose(3, 2, 0, 1),
                           self.f2_extra_features_mock.transpose(3, 2, 0, 1)]))
+
+        f2_train_targets_mock = self.f2_train_targets_mock
+        f2_train_targets_mock[f2_train_targets_mock == 10] = 0
+        f2_test_targets_mock = self.f2_test_targets_mock
+        f2_test_targets_mock[f2_test_targets_mock == 10] = 0
+        f2_extra_targets_mock = self.f2_extra_targets_mock
+        f2_extra_targets_mock[f2_extra_targets_mock == 10] = 0
         assert_equal(
             h5file['targets'][...],
-            numpy.vstack([self.f2_train_targets_mock,
-                          self.f2_test_targets_mock,
-                          self.f2_extra_targets_mock]))
+            numpy.vstack([f2_train_targets_mock,
+                          f2_test_targets_mock,
+                          f2_extra_targets_mock]))
+        assert h5file['targets'][...].max() < 10
+        assert h5file['targets'][...].min() >= 0
+
         assert_equal(str(h5file['features'].dtype), 'uint8')
         assert_equal(str(h5file['targets'].dtype), 'uint8')
         assert_equal(tuple(dim.label for dim in h5file['features'].dims),
