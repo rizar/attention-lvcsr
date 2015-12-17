@@ -8,6 +8,7 @@ from six.moves import range, cPickle
 
 from fuel.datasets.hdf5 import PytablesDataset, H5PYDataset
 from fuel.streams import DataStream
+from fuel.schemes import SequentialScheme
 
 
 class TestPytablesDataset(object):
@@ -130,15 +131,6 @@ class TestH5PYDataset(object):
         assert (all(source in all_sources for source in sources) and
                 all(source in sources for source in all_sources))
 
-    def test_unsorted_fancy_index_1(self):
-        indexable = numpy.arange(10)
-        assert_equal(H5PYDataset.unsorted_fancy_index([0], indexable), [0])
-
-    def test_unsorted_fancy_index_gt_1(self):
-        indexable = numpy.arange(10)
-        assert_equal(H5PYDataset.unsorted_fancy_index([0, 5, 2], indexable),
-                     [0, 5, 2])
-
     def test_axis_labels(self):
         dataset = H5PYDataset(self.h5file, which_sets=('train',))
         assert dataset.axis_labels == {'features': ('batch', 'feature'),
@@ -153,12 +145,17 @@ class TestH5PYDataset(object):
             h5file.attrs['split'] = H5PYDataset.create_split_array(split_dict)
             dataset = cPickle.loads(
                 cPickle.dumps(H5PYDataset(h5file, which_sets=('train',))))
+            # Make sure _out_of_memory_{open,close} accesses
+            # external_file_handle rather than _external_file_handle
+            dataset._out_of_memory_open()
+            dataset._out_of_memory_close()
             assert dataset.data_sources is None
         finally:
             os.remove('file.hdf5')
 
     def test_data_stream_pickling(self):
-        stream = DataStream(H5PYDataset(self.h5file, which_sets=('train',)))
+        stream = DataStream(H5PYDataset(self.h5file, which_sets=('train',)),
+                            iteration_scheme=SequentialScheme(100, 10))
         cPickle.loads(cPickle.dumps(stream))
         stream.close()
 
@@ -184,10 +181,19 @@ class TestH5PYDataset(object):
         train_set.close(train_handle)
         test_set.close(test_handle)
 
-    def test_multiple_split(self):
-        dataset = H5PYDataset(self.h5file, which_sets=('train', 'test'))
+    def test_multiple_split_in_memory(self):
+        dataset = H5PYDataset(self.h5file, which_sets=('train', 'test'),
+                              load_in_memory=True)
         handle = dataset.open()
         assert_equal(dataset.get_data(handle, slice(0, 30)),
+                     (self.features[:30], self.targets[:30]))
+        dataset.close(handle)
+
+    def test_multiple_split_out_of_memory_list_request(self):
+        dataset = H5PYDataset(self.h5file, which_sets=('train', 'test'),
+                              load_in_memory=False)
+        handle = dataset.open()
+        assert_equal(dataset.get_data(handle, list(range(30))),
                      (self.features[:30], self.targets[:30]))
         dataset.close(handle)
 
@@ -224,15 +230,6 @@ class TestH5PYDataset(object):
             sort_indices=False)
         handle = dataset.open()
         assert_raises(TypeError, dataset.get_data, handle, [7, 4, 6, 2, 5])
-        dataset.close(handle)
-
-    def test_subset_step_gt_1(self):
-        dataset = H5PYDataset(
-            self.h5file, which_sets=('train',), subset=slice(0, 10, 2))
-        handle = dataset.open()
-        assert_equal(dataset.get_data(handle, [0, 1, 2, 3, 4]),
-                     (self.features[slice(0, 10, 2)],
-                      self.targets[slice(0, 10, 2)]))
         dataset.close(handle)
 
     def test_value_error_on_unequal_sources(self):
@@ -316,12 +313,13 @@ class TestH5PYDataset(object):
         dataset.close(handle)
 
     def test_index_subset_unsorted(self):
+        # A subset should have the same ordering no matter how you specify it.
         dataset = H5PYDataset(
             self.h5file, which_sets=('train',), subset=[0, 4, 2])
         handle = dataset.open()
         request = slice(0, 3)
         assert_equal(dataset.get_data(handle, request),
-                     (self.features[[0, 4, 2]], self.targets[[0, 4, 2]]))
+                     (self.features[[0, 2, 4]], self.targets[[0, 2, 4]]))
         dataset.close(handle)
 
     def test_vlen_axis_labels(self):
