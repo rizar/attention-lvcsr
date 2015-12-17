@@ -19,7 +19,6 @@ from theano.tensor import (raw_random, TensorType, as_tensor_variable,
 from theano.tensor import sqrt, log, sin, cos, join, prod
 from theano.compile import optdb
 from theano.gof import local_optimizer
-
 from . import multinomial
 
 from theano.sandbox.cuda import cuda_available, cuda_enabled, GpuOp
@@ -199,7 +198,7 @@ MASK12 = numpy.int32(511)                      #2^9 - 1
 MASK13 = numpy.int32(16777215)                 #2^24 - 1
 MASK2 = numpy.int32(65535)                     #2^16 - 1
 MULT2 = numpy.int32(21069)
-NORM = 4.656612873077392578125e-10;            #1./2^31
+NORM = 4.656612873077392578125e-10  #1./2^31
 
 # A1p0 = numpy.asarray([[0, 4194304, 129], [1, 0, 0], [0, 1, 0]],
 #                      dtype='int64')
@@ -445,7 +444,9 @@ class mrg_uniform(mrg_uniform_base):
             }
         }
         Py_XDECREF(%(o_rstate)s);
-        %(o_rstate)s = (PyArrayObject*)PyArray_FromAny(py_%(rstate)s, NULL, 0, 0, %(o_rstate_requirement)s,NULL);
+        %(o_rstate)s = (PyArrayObject*)PyArray_FromAny(
+            (PyObject*)%(rstate)s,
+            NULL, 0, 0, %(o_rstate_requirement)s,NULL);
 
         if (PyArray_NDIM(%(o_rstate)s) != 2)
         {
@@ -526,7 +527,7 @@ class mrg_uniform(mrg_uniform_base):
         """ % locals()
 
     def c_code_cache_version(self):
-        return (2,)
+        return (3,)
 
 
 class GPU_mrg_uniform(mrg_uniform_base, GpuOp):
@@ -655,7 +656,7 @@ class GPU_mrg_uniform(mrg_uniform_base, GpuOp):
         int n_elements = 1;
         int n_streams, n_streams_used_in_this_call;
         int must_alloc_sample = ((NULL == %(o_sample)s)
-                || !CudaNdarray_Check(py_%(o_sample)s)
+                || !CudaNdarray_Check((PyObject*)%(o_sample)s)
                 || !CudaNdarray_is_c_contiguous(%(o_sample)s)
                 || (CudaNdarray_NDIM(%(o_sample)s) != %(ndim)s));
 
@@ -691,7 +692,7 @@ class GPU_mrg_uniform(mrg_uniform_base, GpuOp):
                 %(fail)s;
             }
         }
-        if (!CudaNdarray_Check(py_%(rstate)s))
+        if (!CudaNdarray_Check((PyObject*)%(rstate)s))
         {
             PyErr_Format(PyExc_ValueError, "rstate must be cudandarray");
             %(fail)s;
@@ -764,14 +765,14 @@ class GPU_mrg_uniform(mrg_uniform_base, GpuOp):
         """ % locals()
 
     def c_code_cache_version(self):
-        return (9,)
+        return (10,)
 
 
 class GPUA_mrg_uniform(GpuKernelBase, mrg_uniform_base):
     # GpuArray version
     _f16_ok = True
 
-    def get_context(self, node):
+    def get_params(self, node):
         return node.inputs[0].type.context
 
     @classmethod
@@ -904,6 +905,7 @@ class GPUA_mrg_uniform(GpuKernelBase, mrg_uniform_base):
         ndim = self.output_type.ndim
         o_type_num = numpy.asarray(0, dtype=self.output_type.dtype).dtype.num
         fail = sub['fail']
+        ctx = sub['params']
         kname = self.gpu_kernels(node, nodename)[0].objvar
         otypecode = str(self.output_type.typecode)
 
@@ -912,7 +914,7 @@ class GPUA_mrg_uniform(GpuKernelBase, mrg_uniform_base):
         unsigned int n_elements = 1;
         unsigned int n_streams;
         int must_alloc_sample = ((NULL == %(o_sample)s)
-                || !pygpu_GpuArray_Check(py_%(o_sample)s)
+                || !pygpu_GpuArray_Check((PyObject*)%(o_sample)s)
                 || !(%(o_sample)s->ga.flags & GA_C_CONTIGUOUS)
                 || (PyGpuArray_NDIM(%(o_sample)s) != %(ndim)s));
 
@@ -943,13 +945,13 @@ class GPUA_mrg_uniform(GpuKernelBase, mrg_uniform_base):
         {
             Py_XDECREF(%(o_sample)s);
             %(o_sample)s = pygpu_empty(%(ndim)s, odims, %(otypecode)s, GA_C_ORDER,
-                                       pygpu_default_context(), Py_None);
+                                       %(ctx)s, Py_None);
             if(!%(o_sample)s)
             {
                 %(fail)s;
             }
         }
-        if (!pygpu_GpuArray_Check(py_%(rstate)s))
+        if (!pygpu_GpuArray_Check((PyObject*)%(rstate)s))
         {
             PyErr_Format(PyExc_ValueError, "rstate must be gpuarray");
             %(fail)s;
@@ -1014,7 +1016,7 @@ class GPUA_mrg_uniform(GpuKernelBase, mrg_uniform_base):
         """ % locals()
 
     def c_code_cache_version(self):
-        return (7, self.GpuKernelBase_version)
+        return (8,)
 
 
 def guess_n_streams(size, warn=False):
@@ -1315,11 +1317,12 @@ class MRG_RandomStreams(object):
     def multinomial(self, size=None, n=1, pvals=None, ndim=None, dtype='int64',
                     nstreams=None):
         """
-        Sample `n` (currently `n` needs to be 1) times from a multinomial
+        Sample `n` (`n` needs to be >= 1, default 1) times from a multinomial
         distribution defined by probabilities pvals.
 
-        Example : pvals = [[.98, .01, .01], [.01, .98, .01]] will
-        probably result in [[1,0,0],[0,1,0]].
+        Example : pvals = [[.98, .01, .01], [.01, .49, .50]] and n=1 will
+        probably result in [[1,0,0],[0,0,1]]. When setting n=2, this
+        will probably result in [[2,0,0],[0,1,1]].
 
         Notes
         -----
@@ -1342,25 +1345,23 @@ class MRG_RandomStreams(object):
                     "The specified size contains a dimension with value <= 0",
                     size)
 
-        if n == 1 and pvals.ndim == 2:
-            if size is not None:
-                raise ValueError("Provided a size argument to "
-                        "MRG_RandomStreams.multinomial, which does not use "
-                        "the size argument.")
-            if ndim is not None:
-                raise ValueError("Provided an ndim argument to "
-                        "MRG_RandomStreams.multinomial, which does not use "
-                        "the ndim argument.")
-            ndim, size, bcast = raw_random._infer_ndim_bcast(
-                    ndim, size, pvals[:, 0])
-            assert ndim == 1
-            bcast = bcast + (pvals.type.broadcastable[-1],)
+        if size is not None:
+            raise ValueError("Provided a size argument to "
+                             "MRG_RandomStreams.multinomial, which does not use "
+                             "the size argument.")
+        if ndim is not None:
+            raise ValueError("Provided an ndim argument to "
+                             "MRG_RandomStreams.multinomial, which does not use "
+                             "the ndim argument.")
+        if pvals.ndim == 2:
+            size = pvals[:,0].shape * n
             unis = self.uniform(size=size, ndim=1, nstreams=nstreams)
             op = multinomial.MultinomialFromUniform(dtype)
-            return op(pvals, unis)
+            n_samples = as_tensor_variable(n)
+            return op(pvals, unis, n_samples)
         else:
             raise NotImplementedError(("MRG_RandomStreams.multinomial only"
-                " implemented with n == 1 and pvals.ndim = 2"))
+                                       " implemented for pvals.ndim = 2"))
 
     def normal(self, size, avg=0.0, std=1.0, ndim=None,
                dtype=None, nstreams=None):

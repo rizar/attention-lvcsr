@@ -92,7 +92,7 @@ class HostFromGpu(GpuOp):
 
     def R_op(self, inputs, eval_points):
         ev, = eval_points
-        return self(ev)
+        return [self(ev)]
 
     def infer_shape(self, node, xshp):
         return xshp
@@ -152,7 +152,7 @@ class GpuFromHost(GpuOp):
 
     def R_op(self, inputs, eval_points):
         ev, = eval_points
-        self(ev)
+        [self(ev)]
 
     def infer_shape(self, node, xshp):
         return xshp
@@ -2888,7 +2888,7 @@ class GpuAdvancedIncSubtensor1(tensor.AdvancedIncSubtensor1, GpuOp):
         out[0] = x
 
     def c_code_cache_version(self):
-        return (5,)
+        return (6,)
 
     def c_code(self, node, name, inputs, outputs, sub):
         if (self.set_instead_of_inc) or \
@@ -2951,7 +2951,7 @@ class GpuAdvancedIncSubtensor1(tensor.AdvancedIncSubtensor1, GpuOp):
              } else {
                  y_rowind_obj = PyInt_FromLong(j);
              }
-             row_y = CudaNdarray_Subscript(py_%(y)s, y_rowind_obj);
+             row_y = CudaNdarray_Subscript((PyObject*)%(y)s, y_rowind_obj);
 
              if (row_y == NULL) {
                   Py_XDECREF(row_y);
@@ -3302,7 +3302,7 @@ class GpuIncSubtensor(tensor.IncSubtensor, GpuOp):
 
         return """
         PyObject * add_result = CudaNdarray_inplace_add((PyObject *) zview,
-                                                        (PyObject *) py_%(x)s);
+                                                        (PyObject *) %(x)s);
 
         if (! add_result )
         {
@@ -3318,7 +3318,7 @@ class GpuIncSubtensor(tensor.IncSubtensor, GpuOp):
     def c_code_cache_version(self):
         parent_version = super(GpuIncSubtensor, self).c_code_cache_version()
         if parent_version:
-            return parent_version + (1,)
+            return parent_version + (2,)
         return ()
 
 
@@ -3326,7 +3326,14 @@ class GpuFlatten(gof.HideC, tensor.Flatten, GpuOp):
     """
     Implement Flatten on the gpu.
 
+    .. note:: The interface GpuFlatten is deprecated, you should use gpu_flatten.
     """
+    def __init__(self):
+        warnings.warn(
+            "GpuFlatten class is deprecated, "
+            "please use gpu_flatten method instead.",
+            DeprecationWarning,
+            stacklevel=4)
 
     def make_node(self, x):
         assert isinstance(x.type, CudaNdarrayType)
@@ -3334,6 +3341,36 @@ class GpuFlatten(gof.HideC, tensor.Flatten, GpuOp):
         host_out_broadcastable = rval.outputs[0].type.broadcastable
         out_type = CudaNdarrayType(broadcastable=host_out_broadcastable)
         return Apply(self, [x], [out_type()])
+
+
+
+def gpu_flatten(x, outdim=1):
+    """
+    Implement flatten on the gpu.
+    Reshapes the variable x by keeping
+    the first outdim-1 dimension size(s) of x the same,
+    and making the last dimension size of x equal to
+    the multiplication of its remaining dimension size(s).
+
+    Parameters
+    ----------
+        x : theano.tensor.var.TensorVariable
+            the variable that should be reshaped.
+
+        outdim : int
+            the number of dimensions of the returned variable
+
+    Returns
+    -------
+    theano.tensor.var.TensorVariable
+        the flattend variable with dimensionality of outdim
+    """
+    x = as_cuda_ndarray_variable(x)
+    if outdim > 1:
+        dims = tuple(x.shape[:outdim-1])+(-1,)
+    else:
+        dims = (-1,)
+    return  GpuReshape(outdim)(x, dims)
 
 
 class GpuShape(tensor.Shape, GpuOp):

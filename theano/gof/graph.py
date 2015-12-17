@@ -12,6 +12,7 @@ from copy import copy
 from itertools import count
 
 import theano
+from theano import config
 from theano.gof import utils
 from six import string_types, integer_types, iteritems
 from theano.misc.ordered_set import OrderedSet
@@ -22,7 +23,7 @@ __docformat__ = "restructuredtext en"
 is_same_graph_with_merge = None
 equal_computations = None
 
-NoContext = object()
+NoParams = object()
 
 
 class Node(utils.object2):
@@ -123,14 +124,14 @@ class Apply(Node):
             else:
                 raise TypeError("The 'outputs' argument to Apply must contain Variable instances with no owner, not %s" % output)
 
-    def run_context(self):
+    def run_params(self):
         """
-        Returns the context for the node, or NoContext if no context is set.
+        Returns the params for the node, or NoParams if no params is set.
 
         """
-        if hasattr(self.op, 'get_context'):
-            return self.op.get_context(self)
-        return NoContext
+        if hasattr(self.op, 'get_params'):
+            return self.op.get_params(self)
+        return NoParams
 
     def __getstate__(self):
         d = self.__dict__
@@ -263,7 +264,7 @@ class Apply(Node):
     Property: Number of outputs.
 
     """
-    context_type = property(lambda self: self.op.context_type, doc='type to use for the context')
+    params_type = property(lambda self: self.op.params_type, doc='type to use for the params')
 
 
 class Variable(Node):
@@ -390,8 +391,10 @@ class Variable(Node):
         self.name = name
         self.auto_name = 'auto_' + str(next(self.__count__))
 
-    def _str_impl(self):
-        """WRITEME"""
+    def __str__(self):
+        """Return a str representation of the Variable.
+
+        """
         if self.name is not None:
             return self.name
         if self.owner is not None:
@@ -403,17 +406,29 @@ class Variable(Node):
         else:
             return "<%s>" % str(self.type)
 
-    def __str__(self):
-        return self._str_impl()
+    def __repr_test_value__(self):
+        """Return a repr of the test value.
 
-    def __repr__(self):
-        str_descr = self._str_impl()
+        Return a printable representation of the test value. It can be
+        overridden by classes with non printable test_value to provide a
+        suitable representation of the test_value.
+        """
+        return repr(theano.gof.op.get_test_value(self))
 
-        tag_str = ''
-        if hasattr(self.tag,'test_value'):
-            tag_str=':%s\n' % repr(self.tag.test_value)
+    def __repr__(self, firstPass=True):
+        """Return a repr of the Variable.
 
-        return "%s:%s%s" %(str_descr, repr(self.type), tag_str)
+        Return a printable name or description of the Variable. If
+        config.print_test_value is True it will also print the test_value if
+        any.
+        """
+        to_print = [str(self)]
+        if config.print_test_value and firstPass:
+            try:
+                to_print.append(self.__repr_test_value__())
+            except AttributeError:
+                pass
+        return '\n'.join(to_print)
 
     def clone(self):
         """
