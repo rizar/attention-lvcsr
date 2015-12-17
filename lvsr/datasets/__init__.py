@@ -202,7 +202,7 @@ class Data(object):
 
     def _get_dataset(self, part, add_sources=()):
         return self.dataset_class(
-            os.path.join(fuel.config.data_path,  self.dataset),
+            os.path.join(fuel.config.data_path[0],  self.dataset),
             which_sets=(self.name_mapping.get(part, part), ),
             sources=(self.recordings_source,
                      self.labels_source) + tuple(add_sources))
