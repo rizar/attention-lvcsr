@@ -305,19 +305,19 @@ def initialize_all(config, save_path, bokeh_name,
     r = recognizer
     energies, = VariableFilter(
         applications=[r.generator.readout.readout], name="output_0")(
-        cost_cg)
+            cost_cg)
     bottom_output = VariableFilter(
         applications=[r.bottom.apply], name="output")(
-        cost_cg)[-1]
+            cost_cg)[-1]
     attended, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended")(
-        cost_cg)
+            cost_cg)
     attended_mask, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended_mask")(
-        cost_cg)
+            cost_cg)
     weights, = VariableFilter(
         applications=[r.generator.evaluate], name="weights")(
-        cost_cg)
+            cost_cg)
     max_recording_length = named_copy(r.recordings.shape[0],
                                       "max_recording_length")
     # To exclude subsampling related bugs
@@ -544,26 +544,26 @@ def initialize_all(config, save_path, bokeh_name,
     validation = DataStreamMonitoring(
         attach_aggregation_schemes(validation_observables),
         data.get_stream("valid", shuffle=False), prefix="valid").set_conditions(
-        before_first_epoch=not fast_start,
-        every_n_epochs=mon_conf['validate_every_epochs'],
-        every_n_batches=mon_conf['validate_every_batches'],
-        after_training=False)
+            before_first_epoch=not fast_start,
+            every_n_epochs=mon_conf['validate_every_epochs'],
+            every_n_batches=mon_conf['validate_every_batches'],
+            after_training=False)
     extensions.append(validation)
     per = PhonemeErrorRate(recognizer, data, **config['monitoring']['search'])
     per_monitoring = DataStreamMonitoring(
         [per], data.get_stream("valid", batches=False, shuffle=False),
         prefix="valid").set_conditions(
-        before_first_epoch=not fast_start,
-        every_n_epochs=mon_conf['search_every_epochs'],
-        every_n_batches=mon_conf['search_every_batches'],
-        after_training=False)
+            before_first_epoch=not fast_start,
+            every_n_epochs=mon_conf['search_every_epochs'],
+            every_n_batches=mon_conf['search_every_batches'],
+            after_training=False)
     extensions.append(per_monitoring)
     track_the_best_per = TrackTheBest(
         per_monitoring.record_name(per)).set_conditions(
-        before_first_epoch=True, after_epoch=True)
+            before_first_epoch=True, after_epoch=True)
     track_the_best_cost = TrackTheBest(
         validation.record_name(cost)).set_conditions(
-        before_first_epoch=True, after_epoch=True)
+            before_first_epoch=True, after_epoch=True)
     extensions += [track_the_best_cost, track_the_best_per]
     extensions.append(AdaptiveClipping(
         algorithm.total_gradient_norm.name,
@@ -606,13 +606,13 @@ def initialize_all(config, save_path, bokeh_name,
                    save_separately=["model", "log"],
                    use_cpickle=True)
             .add_condition(
-            ['after_epoch'],
-            OnLogRecord(track_the_best_per.notification_name),
-            (root_path + "_best" + extension,))
+                ['after_epoch'],
+                OnLogRecord(track_the_best_per.notification_name),
+                (root_path + "_best" + extension,))
             .add_condition(
-            ['after_epoch'],
-            OnLogRecord(track_the_best_cost.notification_name),
-            (root_path + "_best_ll" + extension,)),
+                ['after_epoch'],
+                OnLogRecord(track_the_best_cost.notification_name),
+                (root_path + "_best_ll" + extension,)),
         ProgressBar()]
     if config['net']['criterion']['name'].startswith('mse'):
         extensions.append(
