@@ -17,7 +17,14 @@ monitoring:
 stages:
     pretraining:
         training:
-            num_epochs: 50
+            num_epochs: 30
         net:
             criterion:
                 min_reward: -1
+    pretraining2:
+        number: 50
+        data:
+            batch_size: 8
+        training:
+            num_epochs: 30
+            restart_from: _best_ll
