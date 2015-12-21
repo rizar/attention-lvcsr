@@ -44,6 +44,8 @@ map:
                 type: bool
     net:
         map:
+            bidir:
+                type: bool
             dim_dec:
                 type: int
             dim_matcher:
