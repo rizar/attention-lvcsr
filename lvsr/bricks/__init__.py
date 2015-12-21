@@ -53,32 +53,34 @@ class InitializableSequence(Sequence, Initializable):
 
 class Encoder(Initializable):
 
-    def __init__(self, enc_transition, dims, dim_input, subsample, **kwargs):
+    def __init__(self, enc_transition, dims, dim_input, subsample, bidir, **kwargs):
         super(Encoder, self).__init__(**kwargs)
         self.subsample = subsample
 
-        for layer_num, (dim_under, dim) in enumerate(
-                zip([dim_input] + list(2 * numpy.array(dims)), dims)):
-            bidir = Bidirectional(
-                RecurrentWithFork(
+        dims_under = [dim_input] + list((2 if bidir else 1) * numpy.array(dims))
+        for layer_num, (dim_under, dim) in enumerate(zip(dims_under, dims)):
+            layer = RecurrentWithFork(
                     enc_transition(dim=dim, activation=Tanh()).apply,
                     dim_under,
-                    name='with_fork'),
-                name='bidir{}'.format(layer_num))
-            self.children.append(bidir)
+                    name='with_fork{}'.format(layer_num))
+            if bidir:
+                layer = Bidirectional(layer, name='bidir{}'.format(layer_num))
+            self.children.append(layer)
+        self.dim_encoded = (2 if bidir else 1) * dims[-1]
 
     @application(outputs=['encoded', 'encoded_mask'])
     def apply(self, input_, mask=None):
-        for bidir, take_each in zip(self.children, self.subsample):
-            #No need to pad if all we do is subsample!
-            #input_ = pad_to_a_multiple(input_, take_each, 0.)
-            #if mask:
-            #    mask = pad_to_a_multiple(mask, take_each, 0.)
-            input_ = bidir.apply(input_, mask)
+        for layer, take_each in zip(self.children, self.subsample):
+            input_ = layer.apply(input_, mask)
             input_ = input_[::take_each]
             if mask:
                 mask = mask[::take_each]
         return input_, (mask if mask else tensor.ones_like(input_[:, :, 0]))
+
+    def get_dim(self, name):
+        if name == self.apply.outputs[0]:
+            return self.dim_encoded
+        return super(Encoder, self).get_dim(name)
 
 
 class OneOfNFeedback(AbstractFeedback, Initializable):
