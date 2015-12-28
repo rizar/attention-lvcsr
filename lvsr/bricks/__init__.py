@@ -140,6 +140,13 @@ class RewardRegressionEmitter(AbstractEmitter):
                 correct_mask[tensor.arange(temp_shape[0]), outputs.flatten()], 1)
             correct_mask = correct_mask.reshape(readouts.shape)
 
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            # WARNING:
+            # this code only makes sense when the actual groundtruths
+            # are plugged for groundtruths.
+            #
+            # This happens in SpeechRecognizer.get_cost_graph()
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             groundtruth = outputs.copy()
             groundtruth.name = self.GROUNDTRUTH
 
