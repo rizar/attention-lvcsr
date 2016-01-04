@@ -10,6 +10,7 @@ import sys
 
 import numpy
 import matplotlib
+from blocks.extensions.stopping import Patience
 matplotlib.use('Agg')
 import theano
 from theano import tensor
@@ -618,6 +619,12 @@ def initialize_all(config, save_path, bokeh_name,
         extensions.append(
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
+
+    if train_conf.get('patience_on'):
+        extensions.append(
+            Patience(notification_name=train_conf['patience_on'],
+                     min_epochs=train_conf['patience_min_epochs'],
+                     patience_factor=train_conf['patience_factor']))
 
     extensions.append(Printing(every_n_batches=1,
                                attribute_filter=PrintingFilterList()))
