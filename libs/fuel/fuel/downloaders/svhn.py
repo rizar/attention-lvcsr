@@ -16,9 +16,7 @@ def fill_subparser(subparser):
     """Sets up a subparser to download the SVHN dataset files.
 
     The SVHN dataset files (`{train,test,extra}{.tar.gz,_32x32.mat}`)
-    are downloaded from the official website [SVHN].
-
-    .. [SVHN] http://ufldl.stanford.edu/housenumbers/
+    are downloaded from the official website [SVHNSITE].
 
     Parameters
     ----------
@@ -28,4 +26,4 @@ def fill_subparser(subparser):
     """
     subparser.add_argument(
         "which_format", help="which dataset format", type=int, choices=(1, 2))
-    subparser.set_defaults(func=svhn_downloader)
+    return svhn_downloader

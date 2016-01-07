@@ -20,8 +20,8 @@ def fill_subparser(subparser):
 
     The following CalTech 101 Silhouette dataset files can be downloaded
     from Benjamin M. Marlin's website [MARLIN]:
-        `caltech101_silhouettes_16_split1.mat` and
-        `caltech101_silhouettes_28_split1.mat`.
+    `caltech101_silhouettes_16_split1.mat` and
+    `caltech101_silhouettes_28_split1.mat`.
 
     .. [MARLIN] https://people.cs.umass.edu/~marlin/data.shtml
 
@@ -34,5 +34,4 @@ def fill_subparser(subparser):
     subparser.add_argument(
         "size", type=int, choices=(16, 28),
         help="height/width of the datapoints")
-    subparser.set_defaults(
-        func=silhouettes_downloader)
+    return silhouettes_downloader

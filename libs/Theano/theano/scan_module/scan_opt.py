@@ -693,12 +693,9 @@ class PushOutScanOutput(gof.Optimizer):
         args = scan_args(node.inputs, node.outputs,
                          op.inputs, op.outputs, op.info)
 
-        local_fgraph = gof.FunctionGraph(args.inner_inputs,
-                                         args.inner_outputs,
-                                         clone=False)
-
         new_scan_node = None
-        local_fgraph_topo = local_fgraph.toposort()
+        local_fgraph_topo = theano.gof.graph.io_toposort(op.inputs, op.outputs)
+
         for nd in local_fgraph_topo:
             if (isinstance(nd.op, theano.tensor.Dot) and
                     nd.out in args.inner_out_nit_sot):
@@ -860,7 +857,6 @@ class PushOutScanOutput(gof.Optimizer):
                             reason="scanOp_pushout_output")
 
                         break
-
         return new_scan_node
 
     def inner_sitsot_only_last_step_used(self, var, scan_args):
@@ -1444,8 +1440,7 @@ class ScanSaveMem(gof.Optimizer):
                         last_sitsot_idx = (node.op.n_mit_mot +
                                            node.op.n_mit_sot +
                                            node.op.n_sit_sot - 1)
-                        preallocable_output = (i >= first_mitsot_idx and
-                                               i <= last_sitsot_idx)
+                        preallocable_output = (first_mitsot_idx <= i <= last_sitsot_idx)
 
                         if (prealloc_outs and preallocable_output):
                             pval = select_max(nw_steps - start + init_l[i],

@@ -97,7 +97,7 @@ class FST(object):
         return next_states
 
     def explain(self, input_):
-        input_ = ['<eol>'] + list(input_) + ['<eol>']
+        input_ = list(input_)
         states = {self.fst.start: 0}
         print("Initial states: {}".format(states))
         states = self.expand(states)

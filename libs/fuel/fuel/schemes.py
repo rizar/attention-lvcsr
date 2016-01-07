@@ -18,6 +18,12 @@ class IterationScheme(object):
     sequential batches, shuffled batches, etc. for datasets that choose to
     support them.
 
+    Attributes
+    ----------
+    requests_examples : bool
+        Whether requests produced by this scheme correspond to single
+        examples (as opposed to batches).
+
     Notes
     -----
     Iteration schemes implement the :meth:`get_request_iterator` method,
@@ -47,6 +53,7 @@ class BatchSizeScheme(IterationScheme):
     that only provide the number of examples that should be in a batch.
 
     """
+    requests_examples = False
 
 
 @add_metaclass(ABCMeta)
@@ -75,6 +82,8 @@ class BatchScheme(IterationScheme):
         multiple of `batch_size`.
 
     """
+    requests_examples = False
+
     def __init__(self, examples, batch_size):
         if isinstance(examples, Iterable):
             self.indices = examples
@@ -95,12 +104,24 @@ class ConcatenatedScheme(IterationScheme):
         A list of :class:`IterationSchemes`, whose request iterators
         are to be concatenated in the order given.
 
+    Notes
+    -----
+    All schemes being concatenated must produce the same type of
+    requests (batches or examples).
+
     """
     def __init__(self, schemes):
+        if not len(set(scheme.requests_examples for scheme in schemes)) == 1:
+            raise ValueError('all schemes must produce the same type of '
+                             'requests (batches or examples)')
         self.schemes = schemes
 
     def get_request_iterator(self):
         return chain(*[sch.get_request_iterator() for sch in self.schemes])
+
+    @property
+    def requests_examples(self):
+        return self.schemes[0].requests_examples
 
 
 @add_metaclass(ABCMeta)
@@ -111,6 +132,8 @@ class IndexScheme(IterationScheme):
     but where we want to return single examples instead of batches.
 
     """
+    requests_examples = True
+
     def __init__(self, examples):
         if isinstance(examples, Iterable):
             self.indices = examples
@@ -271,8 +294,8 @@ def cross_validation(scheme_class, num_examples, num_folds, strict=True,
     for i in xrange(num_folds):
         begin = num_examples * i // num_folds
         end = num_examples * (i+1) // num_folds
-        train = scheme_class(chain(xrange(0, begin),
-                                   xrange(end, num_examples)),
+        train = scheme_class(list(chain(xrange(0, begin),
+                                        xrange(end, num_examples))),
                              **kwargs)
         valid = scheme_class(xrange(begin, end), **kwargs)
 

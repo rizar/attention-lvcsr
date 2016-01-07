@@ -1,23 +1,99 @@
 """
 Define abstract conv2d interface
 """
+
 import logging
-
 import theano
-from theano.tensor import (as_tensor_variable, patternbroadcast)
-from theano.tensor import TensorType
-from theano.gof import Apply, Op
-from theano.gof import local_optimizer
-from theano.tensor.opt import register_specialize_device
 
-# Cpu implementation
-from theano.tensor.nnet import conv2d as cpu_conv2d, ConvOp
-from theano.tensor.nnet.ConvGrad3D import convGrad3D
-from theano.tensor.nnet.ConvTransp3D import convTransp3D
+from theano.tensor import as_tensor_variable, patternbroadcast
+from theano.gof import Apply, Op
+
 
 __docformat__ = "restructuredtext en"
-
 _logger = logging.getLogger("theano.tensor.nnet.conv2d")
+
+
+def get_conv_output_shape(image_shape, kernel_shape,
+                          border_mode, subsample):
+    """
+    This function compute the output shape of convolution operation.
+
+    Parameters
+    ----------
+    image_shape: tuple of int (symbolic or numeric) corresponding to the input
+        image shape. Its four (or five) element must correspond respectively
+        to: batch size, number of input channels, height and width (and
+        possibly depth) of the image. None where undefined.
+    kernel_shape: tuple of int (symbolic or numeric) corresponding to the
+        kernel shape. Its four (or five) elements must correspond respectively
+        to: number of output channels, number of input channels, height and
+        width (and possibly depth) of the kernel. None where undefined.
+    border_mode: string, int (symbolic or numeric) or tuple of int (symbolic
+        or numeric). If it is a string, it must be 'valid', 'half' or 'full'.
+        If it is a tuple, its two (or three) elements respectively correspond
+        to the padding on height and width (and possibly depth) axis.
+    subsample: tuple of int (symbolic or numeric). Its or three elements
+        espectively correspond to the subsampling on height and width (and
+        possibly depth) axis.
+
+    Returns
+    -------
+    output_shape: tuple of int corresponding to the output image shape. Its
+        four element must correspond respectively to: batch size, number of
+        output channels, height and width of the image. None where undefined.
+
+    """
+    bsize, imshp = image_shape[0], image_shape[2:]
+    nkern, kshp = kernel_shape[0], kernel_shape[2:]
+    if isinstance(border_mode, tuple):
+        out_shp = tuple(get_conv_shape_1axis(
+            imshp[i], kshp[i], border_mode[i], subsample[i])
+            for i in range(len(subsample)))
+    else:
+        out_shp = tuple(get_conv_shape_1axis(
+            imshp[i], kshp[i], border_mode, subsample[i])
+            for i in range(len(subsample)))
+    return (bsize, nkern) + out_shp
+
+
+def get_conv_shape_1axis(image_shape, kernel_shape,
+                         border_mode, subsample):
+    """
+    This function compute the output shape of convolution operation.
+
+    Parameters
+    ----------
+    image_shape: int or None. Corresponds to the input image shape on a
+        given axis. None if undefined.
+    kernel_shape: int or None. Corresponds to the kernel shape on a given
+        axis. None if undefined.
+    border_mode: string or int. If it is a string, it must be
+        'valid', 'half' or 'full'. If it is an integer, it must correspond to
+        the padding on the considered axis.
+    subsample: int. It must correspond to the subsampling on the
+        considered axis.
+
+    Returns
+    -------
+    out_shp: int corresponding to the output image shape on the
+        considered axis. None if undefined.
+
+    """
+    if None in [image_shape, kernel_shape, border_mode, subsample]:
+        return None
+    if border_mode == "half":
+        pad = kernel_shape // 2
+    elif border_mode == "full":
+        pad = kernel_shape - 1
+    elif border_mode == "valid":
+        pad = 0
+    else:
+        pad = border_mode
+        if pad < 0:
+            raise ValueError("border_mode must be >= 0")
+    out_shp = (image_shape + 2 * pad - kernel_shape) // subsample + 1
+
+    return out_shp
 
 
 def conv2d(input,
@@ -27,10 +103,10 @@ def conv2d(input,
            border_mode='valid',
            subsample=(1, 1),
            filter_flip=True):
-    """
-    This function will build the symbolic graph for convolving a mini-batch of a
-    stack of 2D inputs with a set of 2D filters. The implementation is modelled
-    after Convolutional Neural Networks (CNN).
+    """This function will build the symbolic graph for convolving a
+    mini-batch of a stack of 2D inputs with a set of 2D filters. The
+    implementation is modelled after Convolutional Neural Networks
+    (CNN).
 
     :type input: symbolic 4D tensor
     :param input: mini-batch of feature map stacks, of shape
@@ -77,11 +153,20 @@ def conv2d(input,
     :param filter_flip: If ``True``, will flip the filter rows and columns
         before sliding them over the input. This operation is normally referred
         to as a convolution, and this is the default. If ``False``, the filters
-        are not flipped and the operation is referred to as a cross-correlation.
+        are not flipped and the operation is referred to as a
+        cross-correlation.
 
     :rtype: symbolic 4D tensor
     :return: set of feature maps generated by convolutional layer. Tensor is
         of shape (batch size, output channels, output rows, output columns)
+
+    :note: If CuDNN is available, it will be used on the
+        GPU. Otherwise, it is the *CorrMM* convolution that will be used
+        "caffe style convolution".
+
+    :note: This is only supported in Theano 0.8 or the development
+        version until it is released.
+
     """
 
     conv_op = AbstractConv2d(imshp=input_shape,
@@ -93,9 +178,10 @@ def conv2d(input,
 
 
 class BaseAbstractConv2d(Op):
-    """
-    Base class for AbstractConv
-    Define an abstract convolution op that will be replaced with the appropriate implementation
+    """Base class for AbstractConv
+
+    Define an abstract convolution op that will be replaced with the
+    appropriate implementation
 
     :type imshp: None, tuple/list of len 4 of int or Constant variable
     :param imshp: The shape of the input parameter.
@@ -110,6 +196,7 @@ class BaseAbstractConv2d(Op):
         You can give ``None`` for any element of the list to specify that this
         element is not known at compile time.
         kshp is defined w.r.t the forward conv.
+
 
     :type border_mode: str, int or tuple of two int
     :param border_mode: Either of the following:
@@ -134,7 +221,9 @@ class BaseAbstractConv2d(Op):
     :param filter_flip: If ``True``, will flip the filter rows and columns
         before sliding them over the input. This operation is normally referred
         to as a convolution, and this is the default. If ``False``, the filters
-        are not flipped and the operation is referred to as a cross-correlation.
+        are not flipped and the operation is referred to as a
+        cross-correlation.
+
     """
     check_broadcast = False
     __props__ = ('border_mode', 'subsample', 'filter_flip', 'imshp', 'kshp')
@@ -143,6 +232,7 @@ class BaseAbstractConv2d(Op):
                  imshp=None, kshp=None,
                  border_mode="valid", subsample=(1, 1),
                  filter_flip=True):
+
         if isinstance(border_mode, int):
             border_mode = (border_mode, border_mode)
         if isinstance(border_mode, tuple):
@@ -155,8 +245,8 @@ class BaseAbstractConv2d(Op):
                 '"valid", "full", "half", an integer or a pair of'
                 ' integers'.format(border_mode))
 
-        self.imshp = imshp
-        self.kshp = kshp
+        self.imshp = tuple(imshp) if imshp else None
+        self.kshp = tuple(kshp) if kshp else None
         self.border_mode = border_mode
         self.filter_flip = filter_flip
 
@@ -179,6 +269,11 @@ class BaseAbstractConv2d(Op):
         flops *= inputs[1] * filters[0] * inputs[0]
         return flops
 
+    def do_constant_folding(self, node):
+        # Disable constant folding since there is no implementation.
+        # This may change in the future.
+        return False
+
 
 class AbstractConv2d(BaseAbstractConv2d):
     """
@@ -192,7 +287,8 @@ class AbstractConv2d(BaseAbstractConv2d):
                  subsample=(1, 1),
                  filter_flip=True):
         super(AbstractConv2d, self).__init__(imshp, kshp,
-                                             border_mode, subsample, filter_flip)
+                                             border_mode, subsample,
+                                             filter_flip)
 
     def make_node(self, img, kern):
         if img.type.ndim != 4:
@@ -207,7 +303,10 @@ class AbstractConv2d(BaseAbstractConv2d):
         return Apply(self, [img, kern], [output])
 
     def perform(self, node, inp, out_):
-        raise NotImplementedError('AbstractConv2d theano optimization failed')
+        raise NotImplementedError(
+            'AbstractConv2d theano optimization failed. '
+            'Did you exclude both "conv_dnn" and "conv_gemm" from '
+            'the optimizer?')
 
     def grad(self, inp, grads):
         bottom, weights = inp
@@ -221,8 +320,30 @@ class AbstractConv2d(BaseAbstractConv2d):
                                                self.border_mode,
                                                self.subsample,
                                                self.filter_flip)(
+
             bottom, top, weights.shape[-2:])
+
+        # Make sure that the broadcastable pattern of the inputs is used
+        # for the gradients, even if the grad opts are not able to infer
+        # that the dimensions are broadcastable.
+        d_bottom = patternbroadcast(d_bottom, bottom.broadcastable)
+        d_weights = patternbroadcast(d_weights, weights.broadcastable)
         return d_bottom, d_weights
+
+    def infer_shape(self, node, input_shapes):
+        imshp = input_shapes[0]
+        kshp = input_shapes[1]
+
+        # replace symbolic shapes with known constant shapes
+        if self.imshp is not None:
+            imshp = [imshp[i] if self.imshp[i] is None else self.imshp[i]
+                     for i in range(4)]
+        if self.kshp is not None:
+            kshp = [kshp[i] if self.kshp[i] is None else self.kshp[i]
+                    for i in range(4)]
+        res = get_conv_output_shape(imshp, kshp, self.border_mode,
+                                    self.subsample)
+        return [res]
 
 
 class AbstractConv2d_gradWeights(BaseAbstractConv2d):
@@ -240,7 +361,9 @@ class AbstractConv2d_gradWeights(BaseAbstractConv2d):
                  subsample=(1, 1),
                  filter_flip=True):
         super(AbstractConv2d_gradWeights, self).__init__(imshp, kshp,
-                                                         border_mode, subsample, filter_flip)
+                                                         border_mode,
+                                                         subsample,
+                                                         filter_flip)
 
     # Update shape/height_width
     def make_node(self, img, topgrad, shape):
@@ -257,7 +380,10 @@ class AbstractConv2d_gradWeights(BaseAbstractConv2d):
         return Apply(self, [img, topgrad, shape], [output])
 
     def perform(self, node, inp, out_):
-        raise NotImplementedError('AbstractConv2d_gradWeight theano optimization failed')
+        raise NotImplementedError(
+            'AbstractConv2d_gradWeights theano optimization failed. '
+            'Did you exclude both "conv_dnn" and "conv_gemm" from '
+            'the optimizer?')
 
     def grad(self, inp, grads):
         bottom, top = inp[:2]
@@ -265,17 +391,39 @@ class AbstractConv2d_gradWeights(BaseAbstractConv2d):
         d_bottom = AbstractConv2d_gradInputs(self.imshp, self.kshp,
                                              self.border_mode,
                                              self.subsample,
-                                             self.filter_flip)(weights, top, bottom.shape[-2:])
+                                             self.filter_flip)(
+                                                 weights,
+                                                 top,
+                                                 bottom.shape[-2:])
         d_top = AbstractConv2d(self.imshp,
                                self.kshp,
                                self.border_mode,
                                self.subsample,
                                self.filter_flip)(bottom, weights)
+        # Make sure that the broadcastable pattern of the inputs is used
+        # for the gradients, even if the grad opts are not able to infer
+        # that the dimensions are broadcastable.
+        d_bottom = patternbroadcast(d_bottom, bottom.broadcastable)
+        d_top = patternbroadcast(d_top, top.broadcastable)
+
         d_height_width = (theano.gradient.DisconnectedType()(),)
         return (d_bottom, d_top) + d_height_width
 
     def connection_pattern(self, node):
         return [[1], [1], [0]]  # no connection to height, width
+
+    def infer_shape(self, node, input_shapes):
+        # We use self.kshp (that was passed when creating the Op) if possible,
+        # or fall back to the `shape` input of the node.
+        # TODO: when there is no subsampling, try to infer the kernel shape
+        # from the shapes of inputs.
+        imshp = input_shapes[0]
+        topshp = input_shapes[1]
+        kshp = self.kshp[:] if self.kshp is not None else [None] * 4
+        fallback_kshp = [topshp[1], imshp[1], node.inputs[2][0], node.inputs[2][1]]
+        kshp = [fallback_kshp[i] if kshp[i] is None else kshp[i]
+                for i in range(4)]
+        return [kshp]
 
 
 class AbstractConv2d_gradInputs(BaseAbstractConv2d):
@@ -294,7 +442,9 @@ class AbstractConv2d_gradInputs(BaseAbstractConv2d):
                  subsample=(1, 1),
                  filter_flip=True):
         super(AbstractConv2d_gradInputs, self).__init__(imshp, kshp,
-                                                        border_mode, subsample, filter_flip)
+                                                        border_mode,
+                                                        subsample,
+                                                        filter_flip)
 
     # Update shape/height_width
     def make_node(self, kern, topgrad, shape):
@@ -311,233 +461,44 @@ class AbstractConv2d_gradInputs(BaseAbstractConv2d):
         return Apply(self, [kern, topgrad, shape], [output])
 
     def perform(self, node, inp, out_):
-        raise NotImplementedError('AbstractConv2d_gradWeight theano optimization failed')
+        raise NotImplementedError(
+            'AbstractConv2d_gradInputs theano optimization failed. '
+            'Did you exclude both "conv_dnn" and "conv_gemm" from '
+            'the optimizer?')
 
     def grad(self, inp, grads):
         weights, top = inp[:2]
         bottom, = grads
         d_weights = AbstractConv2d_gradWeights(self.imshp, self.kshp,
                                                self.border_mode,
-                                               self.subsample)(bottom, top, weights.shape[-2:])
+                                               self.subsample)(
+                                                   bottom, top,
+                                                   weights.shape[-2:])
         d_top = AbstractConv2d(self.imshp, self.kshp,
-                               self.border_mode, self.subsample)(bottom, weights)
+                               self.border_mode, self.subsample)(
+                                   bottom, weights)
+        # Make sure that the broadcastable pattern of the inputs is used
+        # for the gradients, even if the grad opts are not able to infer
+        # that the dimensions are broadcastable.
+        d_weights = patternbroadcast(d_weights, weights.broadcastable)
+        d_top = patternbroadcast(d_top, top.broadcastable)
+
         d_height_width = (theano.gradient.DisconnectedType()(),)
         return (d_weights, d_top) + d_height_width
 
     def connection_pattern(self, node):
         return [[1], [1], [0]]  # no connection to height, width
 
-
-# Cpu Optmization
-@local_optimizer([AbstractConv2d])
-def local_conv2d_cpu(node):
-
-    if not isinstance(node.op, AbstractConv2d):
-        return None
-
-    img, kern = node.inputs
-    if ((not isinstance(img.type, TensorType) or
-         not isinstance(kern.type, TensorType))):
-        return None
-    if node.op.border_mode not in ['full', 'valid']:
-        return None
-    if not node.op.filter_flip:
-        # Not tested yet
-        return None
-
-    rval = cpu_conv2d(img, kern,
-                      node.op.imshp, node.op.kshp,
-                      border_mode=node.op.border_mode,
-                      subsample=node.op.subsample)
-    return [rval]
-register_specialize_device(local_conv2d_cpu, 'fast_compile')
-
-
-@local_optimizer([AbstractConv2d_gradWeights])
-def local_conv2d_gradweight_cpu(node):
-
-    img, topgrad, shape = node.inputs
-
-    if ((not isinstance(img.type, TensorType) or
-         not isinstance(topgrad.type, TensorType))):
-        return None
-    if node.op.border_mode not in ['full', 'valid']:
-        return None
-    if not node.op.filter_flip:
-        # Not tested yet
-        return
-
-    if node.op.border_mode == 'valid' and \
-            (node.op.subsample != (1, 1)):
-        # Use the gradient as defined in conv3D, because the implementation
-        # by Conv is slow (about 3x slower than conv3D, and probably 10x
-        # slower than it could be), nad incorrect when subsample > 2.
-        # build a "node", that should be equivalent to the one given by
-        # self.make_node, but using convGrad3D instead.
-        shuffled_img = img.dimshuffle(0, 2, 3, 'x', 1)
-        shuffled_topgrad = topgrad.dimshuffle(0, 2, 3, 'x', 1)
-        rval = convGrad3D(V=shuffled_img,
-                          d=(node.op.subsample[0], node.op.subsample[1], 1),
-                          WShape=(shuffled_topgrad.shape[4],
-                                  shape[0], shape[1], 1,
-                                  shuffled_img.shape[4]),
-                          dCdH=shuffled_topgrad)
-
-        rval = theano.tensor.addbroadcast(rval, 3)
-        rval = rval.dimshuffle(0, 4, 1, 2)
-        rval = rval[:, :, ::-1, ::-1]
-        rval = patternbroadcast(rval, node.outputs[0].broadcastable)
-        return [rval]
-
-    dx, dy = node.op.subsample
-    if dx not in (1, 2) or dy not in (1, 2):
-        # Not implemented in the gradient of ConvOp
-        return None
-
-    if node.op.imshp is None:
-        op_imshp = (None, None, None, None)
-    else:
-        op_imshp = node.op.imshp
-
-    if node.op.kshp is None:
-        op_kshp = (None, None, None, None)
-    else:
-        op_kshp = node.op.kshp
-
-    if None in op_imshp or None in op_kshp:
-        if (dx, dy) != (1, 1):
-            # We cannot infer the shapes
-            return None
-
-    # Determine gradient on kernels
-    assert len(op_imshp) == 4 and len(op_kshp) == 4
-
-    outshp = ConvOp.getOutputShape(op_imshp[2:],
-                                   op_kshp[2:], node.op.subsample,
-                                   node.op.border_mode)
-    fulloutshp = ConvOp.getOutputShape(op_imshp[2:],
-                                       op_kshp[2:], (1, 1),
-                                       node.op.border_mode)
-
-    newimg = img.dimshuffle((1, 0, 2, 3))
-    newtopgrad = topgrad.dimshuffle((1, 0, 2, 3))
-
-    if node.op.border_mode == 'valid':
-        (img, filters) = (newimg, newtopgrad)
-        kshp_logical = fulloutshp
-        kshp_logical_top_aligned = False
-        imshp_logical = None
-        (bsize, nkern) = (op_imshp[1], op_kshp[0])
-        imshp = (op_imshp[0], op_imshp[2], op_imshp[3])
-        kshp = outshp
-    elif node.op.border_mode == 'full':
-        (img, filters) = (newtopgrad, newimg)
-        kshp_logical = None
-        kshp_logical_top_aligned = True
-        imshp_logical = (op_imshp[0],
-                         fulloutshp[0],
-                         fulloutshp[1])
-        (bsize, nkern) = (op_kshp[0], op_imshp[1])
-        imshp = (op_imshp[0], outshp[0], outshp[1])
-        kshp = op_imshp[2:]
-    else:
-        raise NotImplementedError(
-            'Only [full,valid] modes are currently supported.')
-
-    # Flip the kernels
-    filters = filters[:, :, ::-1, ::-1]
-
-    dw = ConvOp(imshp, kshp, nkern, bsize, 1, 1, output_mode='valid',
-                unroll_batch=None, unroll_kern=None, unroll_patch=None,
-                imshp_logical=imshp_logical,
-                kshp_logical=kshp_logical,
-                kshp_logical_top_aligned=kshp_logical_top_aligned,
-                direction_hint='bprop weights')
-    res = dw(img, filters)
-    if node.op.border_mode == 'valid':
-        res = res.dimshuffle((1, 0, 2, 3))
-        res = res[:, :, ::-1, ::-1]
-
-    res = patternbroadcast(res, node.outputs[0].broadcastable)
-    return [res]
-register_specialize_device(local_conv2d_gradweight_cpu, 'fast_compile')
-
-
-@local_optimizer([AbstractConv2d_gradInputs])
-def local_conv2d_gradinputs_cpu(node):
-    kern, topgrad, shape = node.inputs
-
-    if ((not isinstance(kern.type, TensorType) or
-         not isinstance(topgrad.type, TensorType))):
-        return None
-    if node.op.border_mode not in ['full', 'valid']:
-        return None
-    if not node.op.filter_flip:
-        # Not tested yet
-        return None
-
-    # Conv 3d implementation, needed when subsample > 2
-    if node.op.border_mode == 'valid' and node.op.subsample != (1, 1):
-        kern = kern[:, :, ::-1, ::-1]
-        shuffled_kern = kern.dimshuffle(0, 2, 3, 'x', 1)
-        shuffled_topgrad = topgrad.dimshuffle(0, 2, 3, 'x', 1)
-        b = theano.tensor.zeros_like(shuffled_kern[0, 0, 0, 0, :])
-        rval = convTransp3D(W=shuffled_kern, b=b,
-                            d=(node.op.subsample[0], node.op.subsample[1], 1),
-                            H=shuffled_topgrad,
-                            RShape=(shape[0], shape[1], 1))
-        rval = theano.tensor.addbroadcast(rval, 3)
-        rval = rval.dimshuffle(0, 4, 1, 2)
-        rval = patternbroadcast(rval, node.outputs[0].broadcastable)
-        return [rval]
-
-    # Conv2d Implementation
-    dx, dy = node.op.subsample
-    if dx not in (1, 2) or dy not in (1, 2):
-        # Not implemented in the gradient of ConvOp
-        return None
-
-    if node.op.imshp is None:
-        op_imshp = (None, None, None, None)
-    else:
-        op_imshp = node.op.imshp
-
-    if node.op.kshp is None:
-        op_kshp = (None, None, None, None)
-    else:
-        op_kshp = node.op.kshp
-
-    if None in op_imshp or None in op_kshp:
-        if (dx, dy) != (1, 1):
-            return None
-
-    mode = 'valid'
-    if not node.op.border_mode == 'full':
-        mode = 'full'
-    filters = kern.dimshuffle((1, 0, 2, 3))
-    filters = filters[:, :, ::-1, ::-1]
-
-    outshp = ConvOp.getOutputShape(op_imshp[2:],
-                                   op_kshp[2:], node.op.subsample,
-                                   node.op.border_mode)
-    fulloutshp = ConvOp.getOutputShape(op_imshp[2:],
-                                       op_kshp[2:], (1, 1),
-                                       node.op.border_mode)
-    nkern = op_imshp[1]
-    imshp = (op_kshp[0], outshp[0], outshp[1])
-    imshp_logical = (op_kshp[0], fulloutshp[0], fulloutshp[1])
-    din = ConvOp(imshp,
-                 op_kshp[2:],
-                 nkern,
-                 op_imshp[0],
-                 1, 1, output_mode=mode,
-                 unroll_batch=None, unroll_kern=None,
-                 unroll_patch=None,
-                 imshp_logical=imshp_logical,
-                 kshp_logical=None,
-                 version=-1,
-                 direction_hint='bprop inputs')
-    din = din(topgrad, filters)
-    din = patternbroadcast(din, node.outputs[0].broadcastable)
-    return [din]
-register_specialize_device(local_conv2d_gradinputs_cpu, 'fast_compile')
+    def infer_shape(self, node, input_shapes):
+        # We use self.imshp (that was passed when creating the Op) if possible,
+        # or fall back to the `shape` input of the node.
+        # TODO: when there is no subsampling, try to infer the image shape
+        # from the shapes of inputs.
+        kshp = input_shapes[0]
+        topshp = input_shapes[1]
+        imshp = self.imshp[:] if self.imshp is not None else [None] * 4
+        fallback_imshp = [topshp[0], kshp[1], node.inputs[2][0],
+                          node.inputs[2][1]]
+        imshp = [fallback_imshp[i] if imshp[i] is None else imshp[i]
+                 for i in range(4)]
+        return [imshp]
