@@ -148,14 +148,12 @@ class SpeechRecognizer(Initializable):
                                       else dim_output_embedding)
         else:
             feedback = OneOfNFeedback(num_phonemes + 1)
-        if lm:
-            # In case we use LM it is Readout that is responsible
-            # for normalization.
-            if criterion['name'] != 'log_likelihood':
-                raise ValueError('LM integration only for log-likelihood')
-            emitter = LMEmitter()
         if criterion['name'] == 'log_likelihood':
             emitter = SoftmaxEmitter(initial_output=num_phonemes, name="emitter")
+            if lm:
+                # In case we use LM it is Readout that is responsible
+                # for normalization.
+                emitter = LMEmitter()
         elif criterion['name'].startswith('mse'):
             emitter = RewardRegressionEmitter(
                 criterion['name'], eos_label, num_phonemes,
