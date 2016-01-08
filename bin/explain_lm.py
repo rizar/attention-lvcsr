@@ -9,7 +9,7 @@ Explain the cost assigned to a string STR by the fst FST.
 def main(fst_path, string):
     fst = FST(fst_path)
     s = string.replace('<noise>', '%')
-    subst = {' ': '<spc>', '%': '<noise>'}
+    subst = {'^': '<bol>', '$': '<eol>', ' ': '<spc>', '%': '<noise>'}
     fst.explain([subst.get(c, c) for c in s])
 
 if __name__ == "__main__":
