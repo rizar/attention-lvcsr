@@ -1,17 +1,21 @@
 #!/usr/bin/env python
 """
-explain_lm FST UTT
+Usage: explain_lm FST STR
 
-Explain the cost assigned to an utternace  UTT by the fst FST.
+Explain the cost assigned to a string STR by the fst FST.
 """
 
-import sys
 
-from lvsr.ops import FST
+def main(fst_path, string):
+    fst = FST(fst_path)
+    s = string.replace('<noise>', '%')
+    subst = {' ': '<spc>', '%': '<noise>'}
+    fst.explain([subst.get(c, c) for c in s])
 
-fst = FST(sys.argv[1])
-s = sys.argv[2]
-s = s.replace('<noise>', '%')
-subst = {'^' : '<bol>', '$' : '<eol>', ' ' : '<spc>', '%': '<noise>'}
-path = [subst.get(c, c) for c in s]
-fst.explain(path)
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2:
+        print __doc__
+        sys.exit(1)
+    from lvsr.ops import FST
+    main(*sys.argv)
