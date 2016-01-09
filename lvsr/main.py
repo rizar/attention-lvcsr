@@ -11,6 +11,8 @@ import sys
 import numpy
 import matplotlib
 from blocks.extensions.stopping import Patience
+from lvsr.algorithms import BurnIn
+from blocks.log.log import ListLog, NDarrayLog
 matplotlib.use('Agg')
 import theano
 from theano import tensor
@@ -461,6 +463,10 @@ def initialize_all(config, save_path, bokeh_name,
         max_norm_rules = [
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                      maxnorm_subjects)]
+    burn_in = []
+    if train_conf.get('burn_in_steps', 0):
+        burn_in.append(
+            BurnIn(num_steps=train_conf['burn_in_steps']))
     algorithm = GradientDescent(
         cost=train_cost,
         parameters=parameters.values(),
@@ -469,7 +475,7 @@ def initialize_all(config, save_path, bokeh_name,
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
             # when nans are encountered.
-            [RemoveNotFinite(0.0)]),
+            [RemoveNotFinite(0.0)] + burn_in),
         on_unused_sources='warn')
 
     logger.debug("Scan Ops in the gradients")
@@ -521,6 +527,8 @@ def initialize_all(config, save_path, bokeh_name,
             else:
                 result.append(var)
         return result
+
+    #import IPython; IPython.embed()
 
     mon_conf = config['monitoring']
 
@@ -642,7 +650,8 @@ def train(config, save_path, bokeh_name,
         load_log, fast_start)
 
     # Save the config into the status
-    log = TrainingLog()
+    #log = TrainingLog()
+    log = NDarrayLog()
     log.status['_config'] = repr(config)
     main_loop = MainLoop(
         model=model, log=log, algorithm=algorithm,

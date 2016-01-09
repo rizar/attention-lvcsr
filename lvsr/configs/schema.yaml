@@ -154,6 +154,8 @@ map:
                 type: int
             patience_on:
                 type: str
+            burn_in_steps:
+                type: int
     monitoring:
         map:
             validate_every_epochs:

@@ -65,6 +65,7 @@ training:
     num_epochs: 100000
     patience_factor: 1.5
     patience_min_epochs: 0
+    burn_in_steps: 0
 
 stages:
     pretraining:
