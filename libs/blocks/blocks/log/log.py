@@ -1,10 +1,14 @@
 """The event-based main loop of Blocks."""
 from abc import ABCMeta
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from numbers import Integral
 from uuid import uuid4
 
 import six
+import array
+import collections
+from bisect import bisect_left
+import numpy
 
 
 @six.add_metaclass(ABCMeta)
@@ -133,3 +137,182 @@ class TrainingLog(defaultdict, TrainingLogBase):
     def __setitem__(self, time, value):
         self._check_time(time)
         return super(TrainingLog, self).__setitem__(time, value)
+
+
+class _NotFound(object):
+    pass
+
+
+class _KeyedDict(collections.Mapping):
+    def __init__(self, log_row, list_log):
+        self._row = log_row
+        self._keys = list_log.keys
+        assert isinstance(self._keys, OrderedDict)
+
+    def __getitem__(self, item):
+        try:
+            val = self._row[self._keys[item]]
+        except:
+            raise KeyError
+        if val == _NotFound:
+            raise KeyError
+        return val
+
+    def __iter__(self):
+        for k, v in zip(self._keys.iterkeys(), self._row):
+            if v != _NotFound:
+                yield k
+
+    def __len__(self):
+        l = 0
+        for v in self._row:
+            if v != _NotFound:
+                l += 1
+        return l
+
+
+class ListLog(TrainingLogBase):
+    """Better Training log
+
+    Rows are stored as lists
+
+    """
+    def __init__(self):
+        self.keys = OrderedDict()
+        self.status = {}
+        self.iters = array.array('i')
+        self.rows = []
+        TrainingLogBase.__init__(self)
+
+    def __getitem__(self, time):
+        self._check_time(time)
+        idx = bisect_left(self.iters, time)
+        if idx == len(self.iters):
+            self.iters.append(time)
+            self.rows.append({})
+            idx1 = idx-1
+            if idx1 >= 0 and isinstance(self.rows[idx1], dict):
+                row1 = self.rows[idx1]
+                row_len = 0
+                keys = self.keys
+                for k in row1.iterkeys():
+                    row_len = max(row_len,
+                                  keys.setdefault(k, len(keys)))
+                row = [_NotFound] * (row_len + 1)
+                for k, v in row1.iteritems():
+                    row[keys[k]] = v
+                self.rows[idx1] = row
+
+        ret = self.rows[idx]
+
+        if isinstance(ret, dict):
+            return ret
+        else:
+            return _KeyedDict(ret, self)
+
+    def __setitem__(self, time, value):
+        self._check_time(time)
+        return super(ListLog, self).__setitem__(time, value)
+
+
+class _TimeSlice(collections.Mapping):
+    def __init__(self, time, log):
+        self._time = time
+        self._columns = log.columns
+        assert isinstance(self._columns, OrderedDict)
+
+    def __getitem__(self, item):
+        ndarr = self._columns[item]
+        time = self._time
+        idx = ndarr['idx'].searchsorted(time)
+        if idx < ndarr.shape[0]:
+            row = ndarr[idx]
+            if row['idx'] == time:
+                return row['val']
+        raise KeyError
+
+    def __iter__(self):
+        time = self._time
+        for k, ndarr in self._columns.iteritems():
+            times = ndarr['idx']
+            idx = times.searchsorted(time)
+            if idx < times.shape[0] and times['idx'] == time:
+                return k
+
+    def __len__(self):
+        l = 0
+        time = self._time
+        for ndarr in self._columns.itervalues():
+            times = ndarr['idx']
+            idx = times.searchsorted(time)
+            if idx < times.shape[0] and times['idx'] == time:
+                l += 1
+        return l
+
+
+class NDarrayLog(TrainingLogBase):
+    """Better Training log
+
+    Columns are stored as ndarrays. Binary search is used to find
+    historical times.
+
+    """
+
+    def get_dtype(self, obj):
+        if hasattr(obj, 'dtype'):
+            return (obj.dtype, obj.shape)
+        DTYPES = {
+            int: numpy.int,
+            float: numpy.float,
+            bool: numpy.bool}
+        return DTYPES.get(type(obj), numpy.dtype('object'))
+
+    def __init__(self):
+        self.columns = OrderedDict()
+        self.col_tops = {}
+        self.status = {}
+        self.current_time = -1
+        self.current_dict = None
+        TrainingLogBase.__init__(self)
+
+    def __getitem__(self, time):
+        self._check_time(time)
+        if time == self.current_time:
+            return self.current_dict
+        elif time > self.current_time:
+            # Append the last value to column arrays
+            if self.current_time >= 0:
+                for k, v in self.current_dict.iteritems():
+                    if k in self.columns:
+                        col = self.columns[k]
+                        idx = self.col_tops[k]
+                        self.col_tops[k] = idx + 1
+                        if idx >= col.shape[0]:
+                            col2 = numpy.empty((1.3 * idx), col.dtype)
+                            col2[:idx] = col
+                            col2[idx:]['idx'] = 2147483647
+                            col = col2
+                            self.columns[k] = col2
+                        col['idx'][idx] = self.current_time
+                        col['val'][idx] = v
+                    else:
+                        self.columns[k] = numpy.empty(
+                            (10,),
+                            dtype=[('idx', numpy.int32),
+                                   ('val', self.get_dtype(v))])
+                        self.columns[k]['idx'][:] = 2147483647
+                        self.columns[k]['idx'][0] = self.current_time
+                        self.columns[k]['val'][0] = v
+                        self.col_tops[k] = 1
+            self.current_time = time
+            self.current_dict = {}
+            return self.current_dict
+        else:
+            return _TimeSlice(time, self)
+
+    def __setitem__(self, time, value):
+        self._check_time(time)
+        if time == self.current_time:
+            self.current_dict = value
+        else:
+            raise KeyError("Can't modify log entries for the past")
