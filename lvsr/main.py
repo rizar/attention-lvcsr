@@ -12,7 +12,8 @@ import numpy
 import matplotlib
 from blocks.extensions.stopping import Patience
 from lvsr.algorithms import BurnIn
-from blocks.log.log import ListLog, NDarrayLog
+from blocks.log.log import NDarrayLog
+from blocks.extras.extensions.embed_ipython import EmbedIPython
 matplotlib.use('Agg')
 import theano
 from theano import tensor
@@ -623,14 +624,17 @@ def initialize_all(config, save_path, bokeh_name,
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar()]
+    extensions.append(EmbedIPython(use_main_loop_run_caller_env=True))
     if config['net']['criterion']['name'].startswith('mse'):
         extensions.append(
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
 
-    if train_conf.get('patience_on'):
+    if train_conf.get('patience_min_epochs'):
         extensions.append(
-            Patience(notification_name=train_conf['patience_on'],
+            Patience(notification_names=[
+                track_the_best_per.notification_name,
+                track_the_best_cost.notification_name],
                      min_epochs=train_conf['patience_min_epochs'],
                      patience_factor=train_conf['patience_factor']))
 
