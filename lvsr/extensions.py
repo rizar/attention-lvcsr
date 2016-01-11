@@ -9,7 +9,8 @@ from picklable_itertools.extras import equizip
 
 from theano.scan_module.scan_op import Scan
 
-from blocks.extensions import TrainingExtension, SimpleExtension
+from blocks.extensions import TrainingExtension, SimpleExtension,\
+    FinishAfter
 from blocks.filter import VariableFilter
 from blocks.roles import INPUT
 from blocks.utils import shared_floatx_zeros
@@ -151,3 +152,83 @@ class LogInputsGains(SimpleExtension):
                               % tuple(gain_used)))
                 logger.debug((("%+0.1f" * reward_used.shape[0])
                               % tuple(reward_used)))
+
+
+class Patience(FinishAfter):
+    """Stop after improvements have ceased for a given period.
+
+    Parameters
+    ----------
+    notification_names : list of str
+        The names of the log record to look for which indicate that a new
+        best performer has been found.  Note that the value of this
+        record is not inspected.
+    min_iterations : int, optional
+        The minimum number of iterations to perform. Exactly one of
+        `iterations` or `epochs` must be not `None` (default).
+    min_epochs : int, optional
+        The minimum number of epochs to perform. Exactly one of
+        `iterations` or `epochs` must be not `None` (default).
+    patience_factor : float
+        The factor by which to expand the number of iterations to do after
+        after an improvement.
+    patience_log_record : str, optional
+        The name under which to record the number of iterations we
+        are currently willing to wait for a new best performer.
+        Defaults to `notification_name + '_patience_epochs'` or
+        `notification_name + '_patience_iterations'`, depending
+        which measure is being used.
+
+    Notes
+    -----
+    By default, runs after each epoch. This can be manipulated via
+    keyword arguments (see :class:`blocks.extensions.SimpleExtension`).
+
+    """
+    def __init__(self, notification_names, min_iterations=None,
+                 min_epochs=None, patience_factor=1.5,
+                 patience_log_record=None, **kwargs):
+        if (min_epochs is None) == (min_iterations is None):
+            raise ValueError("Need exactly one of epochs or iterations "
+                             "to be specified")
+        self.notification_names = notification_names
+        self.min_iterations = min_iterations
+        self.min_epochs = min_epochs
+        self.patience_factor = patience_factor
+        kwargs.setdefault('after_epoch', True)
+        kwargs.setdefault('before_first_epoch', True)
+        self.last_best_iter = self.last_best_epoch = 0
+        if patience_log_record is None:
+            self.patience_log_record = ('patience' +
+                                        ('_epochs' if self.min_epochs is not None
+                                         else '_iterations'))
+        else:
+            self.patience_log_record = patience_log_record
+        super(Patience, self).__init__(**kwargs)
+
+    def update_best(self):
+        # Here mainly so we can easily subclass different criteria.
+        matched = False
+        for not_name in self.notification_names:
+            if not_name in self.main_loop.log.current_row:
+                matched = True
+                break
+
+        if matched:
+            self.last_best_iter = self.main_loop.log.status['iterations_done']
+            self.last_best_epoch = self.main_loop.log.status['epochs_done']
+
+    def do(self, which_callback, *args):
+        self.update_best()
+        if self.min_epochs is not None:
+            to_do = max(self.min_epochs,
+                        int(self.patience_factor * self.last_best_epoch+0.5))
+            self.main_loop.log.status[self.patience_log_record] = to_do
+            if to_do <= self.main_loop.log.status['epochs_done']:
+                super(Patience, self).do(which_callback, *args)
+        else:
+            to_do = max(self.min_iterations,
+                        int(self.patience_factor * self.last_best_iter+0.5))
+            self.main_loop.log.status[self.patience_log_record] = to_do
+            if to_do <= self.main_loop.log.status['iterations_done']:
+                super(Patience, self).do(which_callback, *args)

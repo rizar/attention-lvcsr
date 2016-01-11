@@ -10,9 +10,7 @@ import sys
 
 import numpy
 import matplotlib
-from blocks.extensions.stopping import Patience
 from lvsr.algorithms import BurnIn
-from blocks.log.log import NDarrayLog
 from blocks.extras.extensions.embed_ipython import EmbedIPython
 matplotlib.use('Agg')
 import theano
@@ -50,12 +48,13 @@ from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
 from lvsr.extensions import (
-    CGStatistics, AdaptiveClipping, LogInputsGains)
+    CGStatistics, AdaptiveClipping, LogInputsGains, Patience)
 from lvsr.error_rate import wer
 from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel, rename
 from blocks.serialization import load_parameter_values
+from lvsr.log_backends import NDarrayLog
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -529,8 +528,6 @@ def initialize_all(config, save_path, bokeh_name,
                 result.append(var)
         return result
 
-    #import IPython; IPython.embed()
-
     mon_conf = config['monitoring']
 
     # Build main loop.
@@ -630,13 +627,14 @@ def initialize_all(config, save_path, bokeh_name,
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
 
-    if train_conf.get('patience_min_epochs'):
-        extensions.append(
-            Patience(notification_names=[
+    if train_conf.get('patience'):
+        patience_conf = train_conf['patience']
+        if not patience_conf.get('notification_names'):
+            # setdefault will not work for empty list
+            patience_conf['notification_names'] = [
                 track_the_best_per.notification_name,
-                track_the_best_cost.notification_name],
-                     min_epochs=train_conf['patience_min_epochs'],
-                     patience_factor=train_conf['patience_factor']))
+                track_the_best_cost.notification_name]
+        extensions.append(Patience(**patience_conf))
 
     extensions.append(Printing(every_n_batches=1,
                                attribute_filter=PrintingFilterList()))
@@ -654,7 +652,6 @@ def train(config, save_path, bokeh_name,
         load_log, fast_start)
 
     # Save the config into the status
-    #log = TrainingLog()
     log = NDarrayLog()
     log.status['_config'] = repr(config)
     main_loop = MainLoop(

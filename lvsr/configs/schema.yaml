@@ -148,10 +148,15 @@ map:
                 type: str
             restart_from:
                 type: str
-            patience_factor:
-                type: float
-            patience_min_epochs:
-                type: int
+            patience:
+                map:
+                    min_epochs:
+                        type: int
+                    patience_factor:
+                        type: float
+                    notification_names:
+                        sequence:
+                            - type: str
             burn_in_steps:
                 type: int
     monitoring:

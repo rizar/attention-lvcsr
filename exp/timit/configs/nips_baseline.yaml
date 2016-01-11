@@ -63,8 +63,9 @@ training:
     gradient_threshold: 1000.0
     num_batches: 100000000
     num_epochs: 100000
-    patience_factor: 1.5
-    patience_min_epochs: 10
+    patience:
+        patience_factor: 1.5
+        min_epochs: 10
     burn_in_steps: 0
 
 stages:
