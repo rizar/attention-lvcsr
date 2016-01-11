@@ -30,5 +30,5 @@ $LVSR/exp/wsj/extract_for_kaldi.sh $report | sed -e 's/<noise>/<NOISE>/g' | \
 $KL/wer_hyp_filter $dir/tmp > $dir/$part-decoded-text.out
 
 # Score
-compute-wer --text --mode=all ark:$dir/$part-groundtruth-text.txt ark:$dir/$part-decoded-text.out $dir/$part-text.errs > $dir/$part-text.wer
+compute-wer --text --mode=all ark:$dir/$part-groundtruth-text.txt ark:$dir/$part-decoded-text.out > $dir/$part-text.wer
 cat $dir/$part-text.wer
