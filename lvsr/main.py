@@ -236,8 +236,8 @@ def add_exploration(recognizer, data, train_conf):
 
 
 def initialize_all(config, save_path, bokeh_name,
-          params, bokeh_server, bokeh, test_tag, use_load_ext,
-          load_log, fast_start):
+                   params, bokeh_server, bokeh, test_tag, use_load_ext,
+                   load_log, fast_start):
     root_path, extension = os.path.splitext(save_path)
 
     data = Data(**config['data'])
@@ -606,13 +606,13 @@ def initialize_all(config, save_path, bokeh_name,
                    save_separately=["model", "log"],
                    use_cpickle=True)
             .add_condition(
-                ['after_epoch'],
-                OnLogRecord(track_the_best_per.notification_name),
-                (root_path + "_best" + extension,))
+            ['after_epoch'],
+            OnLogRecord(track_the_best_per.notification_name),
+            (root_path + "_best" + extension,))
             .add_condition(
-                ['after_epoch'],
-                OnLogRecord(track_the_best_cost.notification_name),
-                (root_path + "_best_ll" + extension,)),
+            ['after_epoch'],
+            OnLogRecord(track_the_best_cost.notification_name),
+            (root_path + "_best_ll" + extension,)),
         ProgressBar()]
     if config['net']['criterion']['name'].startswith('mse'):
         extensions.append(
