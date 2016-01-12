@@ -87,7 +87,7 @@ else
 fi
 
 {
-	#possibly eat <bol>
+	#possibly eat <bol> (in a case if the initial readout is <bol>)
 	echo "0 1 $initial_readout <eps>";
 	#then loop through the rest of the input tape
 	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' | grep -v '<bol>' |\
@@ -115,45 +115,32 @@ fstcompile \
 	cat	> $DIR/eol_to_spc_bin.fst
 
 if `$deterministic`; then
-    fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
-        fstdeterminizestar --use-log=true        | \
-        fstminimizeencoded > $DIR/LG.fst
-
-    fstpush --push_weights=true $DIR/LG.fst | \
-        fstrmepsilon > $DIR/LG_pushed.fst
-
-    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
-        fstcompile --isymbols=$DIR/chars.txt                 \
-            --osymbols=$DIR/words.txt                       \
-            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
-
-    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
-        fstcompile --isymbols=$DIR/chars.txt                 \
-            --osymbols=$DIR/words.txt                       \
-            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+    determinize="fstdeterminizestar --use-log=true"
 else
-    fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
-        # fstminimizeencoded | \
-        # fstdeterminizestar --use-log=true        | \
-        fstminimizeencoded > $DIR/LG.fst
-
-    fstpush --push_weights=true $DIR/LG.fst | \
-        fstrmepsilon > $DIR/LG_pushed.fst
-
-    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
-        fstcompile --isymbols=$DIR/chars.txt                 \
-            --osymbols=$DIR/words.txt                       \
-            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
-
-    fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
-        fstcompile --isymbols=$DIR/chars.txt                 \
-            --osymbols=$DIR/words.txt                       \
-            --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
-
-    fstprint $DIR/LG_withsyms.fst | \
-        fstcompile --isymbols=$DIR/chars.txt --osymbols=$DIR/words.txt \
-            --keep_isymbols=true --keep_osymbols=true --arc_type=log \
-        > $DIR/LG_log_withsyms.fst
-    fstpush --push_weights=true $DIR/LG_log_withsyms.fst \
-        $DIR/LG_log_pushed_withsyms.fst
+    determinize="cat"
 fi
+
+fsttablecompose $DIR/eol_to_spc_bin.fst $DIR/LG_no_eol.fst | \
+    $determinize | \
+    fstminimizeencoded > $DIR/LG.fst
+
+fstpush --push_weights=true $DIR/LG.fst | \
+    fstrmepsilon > $DIR/LG_pushed.fst
+
+fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG.fst | \
+    fstcompile --isymbols=$DIR/chars.txt                 \
+        --osymbols=$DIR/words.txt                       \
+        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_withsyms.fst
+
+fstprint -isymbols=$DIR/chars_disambig.txt -osymbols=$DIR/words.txt $DIR/LG_pushed.fst | \
+    fstcompile --isymbols=$DIR/chars.txt                 \
+        --osymbols=$DIR/words.txt                       \
+        --keep_isymbols=true --keep_osymbols=true > $DIR/LG_pushed_withsyms.fst
+
+fstprint $DIR/LG_withsyms.fst | \
+    fstcompile --isymbols=$DIR/chars.txt --osymbols=$DIR/words.txt \
+        --keep_isymbols=true --keep_osymbols=true --arc_type=log \
+    > $DIR/LG_log_withsyms.fst
+fstpush --push_weights=true $DIR/LG_log_withsyms.fst \
+    $DIR/LG_log_pushed_withsyms.fst
+
