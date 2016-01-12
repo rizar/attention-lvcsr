@@ -78,7 +78,7 @@ gzip -cd $LMFILE | \
 	gzip -c  > $NLM
 
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
-lm2fst.sh --use-bol true $NLM $NDIR
+lm2fst.sh --use-bol true --deterministic true $NLM $NDIR
 
 for fst in $NDIR/LG*.fst; do
 	remove_fst_weights.py $fst
@@ -100,7 +100,7 @@ gzip -cd $LMFILE | \
 	gzip -c  > $NLM
 
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
-lm2fst.sh --use-bol true $NLM $NDIR
+lm2fst.sh --use-bol true --deterministic true $NLM $NDIR
 
 NDIR=$LMSDIR/wsj_bigram_with_initial_eos
 NLM=$NDIR/lm_bg.arpa.gz
@@ -108,7 +108,7 @@ mkdir -p $NDIR
 cp $LMFILE $NLM
 
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
-lm2fst.sh --use-bol true $NLM $NDIR
+lm2fst.sh --use-bol true --deterministic true $NLM $NDIR
 
 NDIR=$LMSDIR/wsj_trigram_with_initial_eos
 NLM=$NDIR/lm_tg.arpa.gz
