@@ -65,7 +65,7 @@ lm2fst.sh --use-bol true $NLM $NDIR
 NDIR=$LMSDIR/wsj_trigram_no_initial_eos
 NLM=$NDIR/lm_tg.arpa.gz
 mkdir -p $NDIR
-cp $FUEL_DATA_PATH/WSJ/lm_tg.arpa.gz $NLM
+cp $LMFILE $NLM
 
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh $NLM $NDIR
@@ -113,7 +113,7 @@ lm2fst.sh --use-bol true --deterministic true $NLM $NDIR
 NDIR=$LMSDIR/wsj_trigram_with_initial_eos
 NLM=$NDIR/lm_tg.arpa.gz
 mkdir -p $NDIR
-cp $FUEL_DATA_PATH/WSJ/lm_tg.arpa.gz $NLM
+cp $LMFILE $NLM
 
 $WSJDIR/create_character_lexicon.sh $NLM $NDIR
 lm2fst.sh --use-bol true $NLM $NDIR
