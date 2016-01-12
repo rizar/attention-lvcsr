@@ -22,7 +22,7 @@ if [ $# -ne 2 ]; then
 	echo "		--lm_opts 'opts'			#opts about the LM"
 	echo "Example:"
 	cat << EOF
-BLOCKS_CONFIG=`pwd`/blocks_conf.yaml THEANO_FLAGS=device=gpu exp/wsj/decode_and_score.sh --beam-search-opts "--beam-search-normalize" --lm-opts "net.lm.path './wsj_unigram_no_initial_eos/LG_pushed_withsyms.fst' net.lm.weight 0.0" wsj_models/wsj11/wsj_jan_best.zip jch11-vanilla "
+BLOCKS_CONFIG=`pwd`/blocks_conf.yaml THEANO_FLAGS=device=gpu exp/wsj/decode_and_score.sh --beam-search-opts "--beam-search-normalize" --lm-opts "net.lm.path './wsj_unigram_no_bos/LG_pushed_withsyms.fst' net.lm.weight 0.0" wsj_models/wsj11/wsj_jan_best.zip jch11-vanilla "
 EOF
 	exit 1
 fi

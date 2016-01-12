@@ -5,7 +5,7 @@ MODEL=$1
 PART=$2
 BEAM_SIZE=$3
 LM=${LM:=nolm}
-LM_PATH=${LM_PATH:=data/lms/wsj_trigram_no_initial_eos}
+LM_PATH=${LM_PATH:=data/lms/wsj_trigram_no_bos}
 
 ls $MODEL/reports || mkdir $MODEL/reports
 
