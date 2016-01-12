@@ -3,17 +3,16 @@
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=false
+use_bol=false
 
 . $KU/parse_options.sh
 
 if [ $# -ne 2 ]; then
 	echo "usage: `basename $0` <lm_file> <dir>"
 	echo "options:"
-	echo "		--use-initial-eol (true|false)        #default: false, if true the graph will accout for initial eol symbol"
+	echo "		--use-bol (true|false)        #default: false, if true the graph will accout for bol symbol"
 	exit 1
 fi
-
 
 LMFILE=$1
 DIR=$2
@@ -23,7 +22,7 @@ WSJDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 mkdir -p $DIR
 
 $WSJDIR/create_character_lexicon.sh $LMFILE $DIR
-lm2fst.sh --use-initial-eol $use_initial_eol $LMFILE $DIR
+lm2fst.sh --use-bol $use_bol $LMFILE $DIR
 
 lm_num_lines=`wc -l $LMFILE`
 if [ `cat $LMFILE | wc -l` -le 50 ]; then
