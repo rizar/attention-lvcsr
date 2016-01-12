@@ -162,14 +162,7 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-def train(config, save_path, bokeh_name,
-          params, bokeh_server, bokeh, test_tag, use_load_ext,
-          load_log, fast_start):
-    root_path, extension = os.path.splitext(save_path)
-
-    train_conf = config['training']
-
-    data = Data(**config['data'])
+def create_model(config, data, test_tag):
 
     # Build the main brick and initialize all parameters.
     recognizer = SpeechRecognizer(
@@ -198,26 +191,10 @@ def train(config, save_path, bokeh_name,
         recognizer.labels.tag.test_value = __data[data.labels_source]
         recognizer.labels_mask.tag.test_value = __data[data.labels_source + '_mask']
         theano.config.compute_test_value = 'warn'
+    return recognizer
 
-    # Separate attention_params to be handled differently
-    # when regularization is applied
-    attention = recognizer.generator.transition.attention
-    attention_params = Selector(attention).get_parameters().values()
 
-    logger.info(
-        "Initialization schemes for all bricks.\n"
-        "Works well only in my branch with __repr__ added to all them,\n"
-        "there is an issue #463 in Blocks to do that properly.")
-
-    def show_init_scheme(cur):
-        result = dict()
-        for attr in dir(cur):
-            if attr.endswith('_init'):
-                result[attr] = getattr(cur, attr)
-        for child in cur.children:
-            result[child.name] = show_init_scheme(child)
-        return result
-    logger.info(pprint.pformat(show_init_scheme(recognizer)))
+def add_exploration(recognizer, data, train_conf):
 
     prediction = None
     prediction_mask = None
@@ -254,6 +231,40 @@ def train(config, save_path, bokeh_name,
         prediction_mask = theano.gradient.disconnected_grad(prediction_mask)
     elif explore_conf != 'imitative':
         raise ValueError
+
+    return prediction, prediction_mask
+
+
+def initialize_all(config, save_path, bokeh_name,
+                   params, bokeh_server, bokeh, test_tag, use_load_ext,
+                   load_log, fast_start):
+    root_path, extension = os.path.splitext(save_path)
+
+    data = Data(**config['data'])
+    train_conf = config['training']
+    recognizer = create_model(config, data, test_tag)
+
+    # Separate attention_params to be handled differently
+    # when regularization is applied
+    attention = recognizer.generator.transition.attention
+    attention_params = Selector(attention).get_parameters().values()
+
+    logger.info(
+        "Initialization schemes for all bricks.\n"
+        "Works well only in my branch with __repr__ added to all them,\n"
+        "there is an issue #463 in Blocks to do that properly.")
+
+    def show_init_scheme(cur):
+        result = dict()
+        for attr in dir(cur):
+            if attr.endswith('_init'):
+                result[attr] = getattr(cur, attr)
+        for child in cur.children:
+            result[child.name] = show_init_scheme(child)
+        return result
+    logger.info(pprint.pformat(show_init_scheme(recognizer)))
+
+    prediction, prediction_mask = add_exploration(recognizer, data, train_conf)
 
     #
     # Observables:
@@ -294,19 +305,19 @@ def train(config, save_path, bokeh_name,
     r = recognizer
     energies, = VariableFilter(
         applications=[r.generator.readout.readout], name="output_0")(
-                cost_cg)
+            cost_cg)
     bottom_output = VariableFilter(
         applications=[r.bottom.apply], name="output")(
-                cost_cg)[-1]
+            cost_cg)[-1]
     attended, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended")(
-                cost_cg)
+            cost_cg)
     attended_mask, = VariableFilter(
         applications=[r.generator.transition.apply], name="attended_mask")(
-                cost_cg)
+            cost_cg)
     weights, = VariableFilter(
         applications=[r.generator.evaluate], name="weights")(
-                cost_cg)
+            cost_cg)
     max_recording_length = named_copy(r.recordings.shape[0],
                                       "max_recording_length")
     # To exclude subsampling related bugs
@@ -334,7 +345,6 @@ def train(config, save_path, bokeh_name,
         mean_attended, mean_bottom_output,
         batch_size, max_num_phonemes,
         mask_density])
-
     # Regularization. It is applied explicitly to all variables
     # of interest, it could not be applied to the cost only as it
     # would not have effect on auxiliary variables, see Blocks #514.
@@ -376,7 +386,7 @@ def train(config, save_path, bokeh_name,
             parameters=SpeechModel(regularized_cg.outputs[0]
                                    ).get_parameter_dict().values(),
             **reg_config.get('adaptive_noise')
-            )
+        )
         train_cost.name = 'train_cost'
         adapt_noise_cg = ComputationGraph(train_cost)
         model_prior_mean = named_copy(
@@ -420,7 +430,7 @@ def train(config, save_path, bokeh_name,
     logger.info("Parameters:\n" +
                 pprint.pformat(
                     [(key, parameters[key].get_value().shape) for key
-                        in sorted(parameters.keys())],
+                     in sorted(parameters.keys())],
                     width=120))
 
     # Define the training algorithm.
@@ -443,13 +453,13 @@ def train(config, save_path, bokeh_name,
                                 if not isinstance(get_brick(v), LookupTable)]
         logger.info("Parameters covered by MaxNorm:\n"
                     + pprint.pformat([name for name, p in parameters.items()
-                                        if p in maxnorm_subjects]))
+                                      if p in maxnorm_subjects]))
         logger.info("Parameters NOT covered by MaxNorm:\n"
                     + pprint.pformat([name for name, p in parameters.items()
-                                        if not p in maxnorm_subjects]))
+                                      if not p in maxnorm_subjects]))
         max_norm_rules = [
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
-                        maxnorm_subjects)]
+                     maxnorm_subjects)]
     algorithm = GradientDescent(
         cost=train_cost,
         parameters=parameters.values(),
@@ -524,7 +534,7 @@ def train(config, save_path, bokeh_name,
         Timing(after_batch=True),
         CGStatistics(),
         #CodeVersion(['lvsr']),
-        ]
+    ]
     extensions.append(TrainingDataMonitoring(
         primary_observables, after_batch=True))
     average_monitoring = TrainingDataMonitoring(
@@ -565,23 +575,23 @@ def train(config, save_path, bokeh_name,
             after_n_batches=train_conf.get('stop_filtering')),
         FinishAfter(after_n_batches=train_conf['num_batches'],
                     after_n_epochs=train_conf['num_epochs'])
-        .add_condition(["after_batch"], _gradient_norm_is_none),
-        ]
+            .add_condition(["after_batch"], _gradient_norm_is_none),
+    ]
     channels = [
         # Plot 1: training and validation costs
         [average_monitoring.record_name(train_cost),
-        validation.record_name(cost)],
+         validation.record_name(cost)],
         # Plot 2: gradient norm,
         [average_monitoring.record_name(algorithm.total_gradient_norm),
-        average_monitoring.record_name(clipping.threshold)],
+         average_monitoring.record_name(clipping.threshold)],
         # Plot 3: phoneme error rate
         [per_monitoring.record_name(per)],
         # Plot 4: training and validation mean weight entropy
         [average_monitoring._record_name('weights_entropy_per_label'),
-        validation._record_name('weights_entropy_per_label')],
+         validation._record_name('weights_entropy_per_label')],
         # Plot 5: training and validation monotonicity penalty
         [average_monitoring._record_name('weights_penalty_per_recording'),
-        validation._record_name('weights_penalty_per_recording')]]
+         validation._record_name('weights_penalty_per_recording')]]
     if bokeh:
         extensions += [
             Plot(bokeh_name if bokeh_name
@@ -595,11 +605,11 @@ def train(config, save_path, bokeh_name,
                    every_n_batches=train_conf.get('save_every_n_batches'),
                    save_separately=["model", "log"],
                    use_cpickle=True)
-        .add_condition(
+            .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_per.notification_name),
             (root_path + "_best" + extension,))
-        .add_condition(
+            .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
@@ -611,6 +621,18 @@ def train(config, save_path, bokeh_name,
 
     extensions.append(Printing(every_n_batches=1,
                                attribute_filter=PrintingFilterList()))
+
+    return model, algorithm, data, extensions
+
+
+def train(config, save_path, bokeh_name,
+          params, bokeh_server, bokeh, test_tag, use_load_ext,
+          load_log, fast_start):
+
+    model, algorithm, data, extensions = initialize_all(
+        config, save_path, bokeh_name,
+        params, bokeh_server, bokeh, test_tag, use_load_ext,
+        load_log, fast_start)
 
     # Save the config into the status
     log = TrainingLog()
