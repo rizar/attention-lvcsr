@@ -87,18 +87,18 @@ else
 fi
 
 {
-	#possibly eat <bol> (in a case if the initial readout is <bol>)
+	# possibly eat <bol> (in a case if the initial readout is <bol>)
 	echo "0 1 $initial_readout <eps>";
+
+    # possibly add transition <bol>:<eps> from state 1 to 1, since utterance can
+    # have multiple bos symbols at the beginning of the line
+    echo "0 0 $initial_readout $initial_readout"
 	#then loop through the rest of the input tape
 	cat $DIR/chars.txt | grep -v '<eps>' | grep -v '<eol>' | grep -v '<bol>' |\
 	    cut -d ' ' -f 1 | \
         while read p; do
             echo "1 1 $p $p"
         done
-
-    # add transition <bol>:<eps> from state 1 to 1, since utterance can have
-    # multiple bos symbols at the beginning of the line
-    echo "1 1 <bol> <eps>"
 
 	#the <eol> transition to the final state emit a space
 	echo "1 2 <eol> <spc>"
