@@ -63,6 +63,10 @@ training:
     gradient_threshold: 1000.0
     num_batches: 100000000
     num_epochs: 100000
+    patience:
+        patience_factor: 1.5
+        min_epochs: 10
+    burn_in_steps: 0
 
 stages:
     pretraining:
@@ -72,7 +76,7 @@ stages:
         regularization:
             max_norm: 1.0
         training:
-            num_epochs: 15
+            num_epochs: 50
     main:
         number: 100
         regularization:
@@ -81,7 +85,7 @@ stages:
                 init_sigma: 1.0e-12
         training:
             restart_from: _best_ll
-            num_epochs: 1000
+            num_epochs: 500
     annealing:
         number: 200
         regularization:
@@ -91,4 +95,4 @@ stages:
         training:
             epsilon: 1.0e-10
             restart_from: _best_ll
-            num_epochs: 1000
+            num_epochs: 500

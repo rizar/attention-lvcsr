@@ -10,6 +10,8 @@ import sys
 
 import numpy
 import matplotlib
+from lvsr.algorithms import BurnIn
+from blocks.extras.extensions.embed_ipython import EmbedIPython
 matplotlib.use('Agg')
 import theano
 from theano import tensor
@@ -46,12 +48,13 @@ from lvsr.datasets import Data
 from lvsr.expressions import (
     monotonicity_penalty, entropy, weights_std)
 from lvsr.extensions import (
-    CGStatistics, AdaptiveClipping, LogInputsGains)
+    CGStatistics, AdaptiveClipping, LogInputsGains, Patience)
 from lvsr.error_rate import wer
 from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
 from lvsr.utils import SpeechModel, rename
 from blocks.serialization import load_parameter_values
+from lvsr.log_backends import NDarrayLog
 
 floatX = theano.config.floatX
 logger = logging.getLogger(__name__)
@@ -460,6 +463,10 @@ def initialize_all(config, save_path, bokeh_name,
         max_norm_rules = [
             Restrict(VariableClipping(reg_config['max_norm'], axis=0),
                      maxnorm_subjects)]
+    burn_in = []
+    if train_conf.get('burn_in_steps', 0):
+        burn_in.append(
+            BurnIn(num_steps=train_conf['burn_in_steps']))
     algorithm = GradientDescent(
         cost=train_cost,
         parameters=parameters.values(),
@@ -468,7 +475,7 @@ def initialize_all(config, save_path, bokeh_name,
             [clipping] + core_rules + max_norm_rules +
             # Parameters are not changed at all
             # when nans are encountered.
-            [RemoveNotFinite(0.0)]),
+            [RemoveNotFinite(0.0)] + burn_in),
         on_unused_sources='warn')
 
     logger.debug("Scan Ops in the gradients")
@@ -605,19 +612,29 @@ def initialize_all(config, save_path, bokeh_name,
                    every_n_batches=train_conf.get('save_every_n_batches'),
                    save_separately=["model", "log"],
                    use_cpickle=True)
-            .add_condition(
+        .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_per.notification_name),
             (root_path + "_best" + extension,))
-            .add_condition(
+        .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
         ProgressBar()]
+    extensions.append(EmbedIPython(use_main_loop_run_caller_env=True))
     if config['net']['criterion']['name'].startswith('mse'):
         extensions.append(
             LogInputsGains(
                 labels, cg, recognizer.generator.readout.emitter, data))
+
+    if train_conf.get('patience'):
+        patience_conf = train_conf['patience']
+        if not patience_conf.get('notification_names'):
+            # setdefault will not work for empty list
+            patience_conf['notification_names'] = [
+                track_the_best_per.notification_name,
+                track_the_best_cost.notification_name]
+        extensions.append(Patience(**patience_conf))
 
     extensions.append(Printing(every_n_batches=1,
                                attribute_filter=PrintingFilterList()))
@@ -635,7 +652,7 @@ def train(config, save_path, bokeh_name,
         load_log, fast_start)
 
     # Save the config into the status
-    log = TrainingLog()
+    log = NDarrayLog()
     log.status['_config'] = repr(config)
     main_loop = MainLoop(
         model=model, log=log, algorithm=algorithm,
@@ -754,7 +771,7 @@ def search(config, params, load_path, part, decode_only, report,
 
         if config.get('vocabulary'):
             wer_error = min(1, wer(to_words(groundtruth_text),
-                                    to_words(recognized_text)))
+                                   to_words(recognized_text)))
             total_wer_errors += len(groundtruth) * wer_error
             total_word_length += len(groundtruth)
 
@@ -788,6 +805,7 @@ def search(config, params, load_path, part, decode_only, report,
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
+
 def sample(config, params, load_path, part):
     data = Data(**config['data'])
 
@@ -800,7 +818,7 @@ def sample(config, params, load_path, part):
 
     dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
     stream = data.get_stream(part, batches=False, shuffle=False,
-                                add_sources=(data.uttid_source,))
+                             add_sources=(data.uttid_source,))
     it = stream.get_epoch_iterator()
 
     print_to = sys.stdout
