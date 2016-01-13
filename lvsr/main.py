@@ -612,11 +612,11 @@ def initialize_all(config, save_path, bokeh_name,
                    every_n_batches=train_conf.get('save_every_n_batches'),
                    save_separately=["model", "log"],
                    use_cpickle=True)
-            .add_condition(
+        .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_per.notification_name),
             (root_path + "_best" + extension,))
-            .add_condition(
+        .add_condition(
             ['after_epoch'],
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
@@ -771,7 +771,7 @@ def search(config, params, load_path, part, decode_only, report,
 
         if config.get('vocabulary'):
             wer_error = min(1, wer(to_words(groundtruth_text),
-                                    to_words(recognized_text)))
+                                   to_words(recognized_text)))
             total_wer_errors += len(groundtruth) * wer_error
             total_word_length += len(groundtruth)
 
@@ -805,6 +805,7 @@ def search(config, params, load_path, part, decode_only, report,
 
         #assert_allclose(search_costs[0], costs_recognized.sum(), rtol=1e-5)
 
+
 def sample(config, params, load_path, part):
     data = Data(**config['data'])
 
@@ -817,7 +818,7 @@ def sample(config, params, load_path, part):
 
     dataset = data.get_dataset(part, add_sources=(data.uttid_source,))
     stream = data.get_stream(part, batches=False, shuffle=False,
-                                add_sources=(data.uttid_source,))
+                             add_sources=(data.uttid_source,))
     it = stream.get_epoch_iterator()
 
     print_to = sys.stdout
