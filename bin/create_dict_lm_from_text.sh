@@ -11,8 +11,6 @@ set -e
 
 KU=$KALDI_ROOT/egs/wsj/s5/utils
 
-use_initial_eol=false
-
 . $KU/parse_options.sh
 
 if [ $# -ne 2 ]; then

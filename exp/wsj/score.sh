@@ -16,7 +16,7 @@ part=$1
 dir=$2
 
 report=$dir/report.txt
-#lexicon=data/lms/wsj_dict_no_initial_eos/lexicon.txt
+#lexicon=data/lms/wsj_dict_no_bos/lexicon.txt
 
 # Get groundtruth
 $LVSR/bin/kaldi2fuel.py $dataset read_raw_text --subset $part kaldi_text $dir/tmp
