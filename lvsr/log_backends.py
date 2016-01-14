@@ -67,8 +67,8 @@ class NDarrayLog(TrainingLogBase):
         self._columns = OrderedDict()
         self._col_tops = {}
         self.status = {}
-        self._current_time = -1
-        self._current_dict = None
+        self._current_time = 0
+        self._current_dict = {}
         TrainingLogBase.__init__(self)
 
     def __getitem__(self, time):
@@ -77,29 +77,34 @@ class NDarrayLog(TrainingLogBase):
             return self._current_dict
         elif time > self._current_time:
             # Append the last value to column arrays
-            if self._current_time >= 0:
-                for k, v in self._current_dict.iteritems():
-                    if k in self._columns:
+            for k, v in self._current_dict.iteritems():
+                if k in self._columns:
+                    col = self._columns[k]
+                    if col.dtype[1] != self.get_dtype(v):
+                        new_dtype = [
+                            ('idx', col.dtype[0]),
+                            ('val', numpy.promote_types(col.dtype[1],
+                                                        self.get_dtype(v)))
+                            ]
+                        self._columns[k] = col.astype(new_dtype, copy=False)
                         col = self._columns[k]
-                        idx = self._col_tops[k]
-                        self._col_tops[k] = idx + 1
-                        if idx >= col.shape[0]:
-                            col2 = numpy.empty((1.3 * idx), col.dtype)
-                            col2[:idx] = col
-                            col2[idx:]['idx'] = 2147483647
-                            col = col2
-                            self._columns[k] = col2
-                        col['idx'][idx] = self._current_time
-                        col['val'][idx] = v
-                    else:
-                        self._columns[k] = numpy.empty(
-                            (10,),
-                            dtype=[('idx', numpy.int32),
-                                   ('val', self.get_dtype(v))])
-                        self._columns[k]['idx'][:] = 2147483647
-                        self._columns[k]['idx'][0] = self._current_time
-                        self._columns[k]['val'][0] = v
-                        self._col_tops[k] = 1
+                    idx = self._col_tops[k]
+                    self._col_tops[k] = idx + 1
+                    if idx >= col.shape[0]:
+                        col2 = numpy.empty((1.3 * idx), col.dtype)
+                        col2[:idx] = col
+                        col2[idx:]['idx'] = 2147483647
+                        col = col2
+                        self._columns[k] = col2
+                    col[idx] = (self._current_time, v)
+                else:
+                    self._columns[k] = numpy.empty(
+                        (10,),
+                        dtype=[('idx', numpy.int32),
+                               ('val', self.get_dtype(v))])
+                    self._columns[k]['idx'][:] = 2147483647
+                    self._columns[k][0] = (self._current_time, v)
+                    self._col_tops[k] = 1
             self._current_time = time
             self._current_dict = {}
             return self._current_dict
