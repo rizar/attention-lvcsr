@@ -330,7 +330,8 @@ class SpeechRecognizer(Initializable):
                 bricks=[self.generator], name="weights")(cg)
             self._analyze = theano.function(
                 input_variables,
-                [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output)
+                [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output,
+                on_unused_input='warn')
         return self._analyze(*input_values)
 
     def init_beam_search(self, beam_size):
