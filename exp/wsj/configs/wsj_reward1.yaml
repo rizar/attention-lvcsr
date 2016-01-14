@@ -3,6 +3,8 @@ net:
     criterion:
         name: mse_gain
         min_reward: -5
+    lm:
+        normalize_am_weights: False
 training:
     scale: 0.01
 initialization:
@@ -20,4 +22,12 @@ stages:
     pretraining:
         training:
             num_epochs: 4
+        net:
+            lm: null
+    main:
+        net:
+            lm: null
+    annealing1:
+        net:
+            lm: null
     annealing2: null
