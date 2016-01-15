@@ -64,8 +64,6 @@ Check that `$LVSR` environment variable points to this repository and
     ```
     $LVSR/exp/wsj/score.sh <part> <model>/reports/valid_trigram_200/
     ```
-    Where `<part>` is `test-dev93` for the development set and `test-eval92`
-    for the test set.
     
     This script produces `<part>-text.wer` and `<part>-text.errs` files in the
     corresponding directory. The first one contains WER and the second one
