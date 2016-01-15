@@ -49,8 +49,13 @@ Check that `$LVSR` environment variable points to this repository and
 4. Decode the model on the validation and training datasets.
 
    ```
-   $LVSR/exp/wsj/decode.sh <model> <part> <beam-size>
+   $LVSR/exp/wsj/decode.sh wsj_paper7 <part> <beam-size>
    ```
+   or 
+   ```
+   $LVSR/exp/wsj/decode_tle.sh wsj_reward6 <part> <beam-size>
+   ```
+   for the task loss estimation model.
 
    We typically use beam size 200 to get the best performance. However, with beam size
    the scores are typically only 10\% worse and decoding is **much** faster.

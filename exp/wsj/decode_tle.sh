@@ -13,8 +13,8 @@ if [ $LM == nolm ]
 then
     LM_CONF="monitoring.search.char_discount 0.1"
 else
-    LM_CONF="monitoring.search.beam_size $BEAM_SIZE monitoring.search.char_discount 0.1"
-    LM_CONF+=" net.lm.weight 0.075 net.lm.no_transition_cost 20000"
+    LM_CONF="monitoring.search.beam_size $BEAM_SIZE"
+    LM_CONF+=" net.lm.weight 0.15"
     LM_CONF+=" net.lm.path '$LM_PATH/LG_pushed_withsyms.fst'"
 fi
 
