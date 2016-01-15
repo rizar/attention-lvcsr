@@ -6,7 +6,9 @@ End-to-End Attention-based Large Vocabulary Speech Recognition.
 _Dzmitry Bahdanau, Jan Chorowski, Dmitriy Serdyuk, Philemon Brakel, 
 Yoshua Bengio_
 ([arxiv draft](http://arxiv.org/pdf/1508.04395), ICASSP 2016)
+
 and
+
 Task Loss Estimation for Sequence Prediction.
 _Dzmitry Bahdanau, Dmitriy Serdyuk, Philémon Brakel, Nan Rosemary Ke, 
 Jan Chorowski, Aaron Courville, Yoshua Bengio_
