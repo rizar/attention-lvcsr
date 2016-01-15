@@ -1,11 +1,17 @@
 # Attention-based Speech Recognizer
 
-The reference implementation for the paper
+The reference implementation for the papers
 
 End-to-End Attention-based Large Vocabulary Speech Recognition.
-_Dzmitry Bahdanau, Jan Chorowski, Dmitriy Serdyuk, Philemon Brakel, Yoshua Bengio_.
+_Dzmitry Bahdanau, Jan Chorowski, Dmitriy Serdyuk, Philemon Brakel, 
+Yoshua Bengio_
+([arxiv draft](http://arxiv.org/pdf/1508.04395), ICASSP 2016)
+and
+Task Loss Estimation for Sequence Prediction.
+_Dzmitry Bahdanau, Dmitriy Serdyuk, Philémon Brakel, Nan Rosemary Ke, 
+Jan Chorowski, Aaron Courville, Yoshua Bengio_
+([arxiv draft](http://arxiv.org/pdf/1511.06456), submitted to ICLR 2016).
 
-([arxiv draft](http://arxiv.org/pdf/1508.04395), submitted to ICASSP 2016).
 
 ### How to use
 
