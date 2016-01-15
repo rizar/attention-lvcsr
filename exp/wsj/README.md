@@ -14,10 +14,10 @@ Check that `$LVSR` environment variable points to this repository and
 ## Steps
 1. Compile a Fuel-compatible dataset file in HDF5 format. This step requires
    kaldi and kaldi-python.
-
+   
    First, run prepare data part from the WSJ recipe. You'll get all
    `*.scp` files which link waves and text.
-
+   
    Then, run
    ```
    $LVSR/exp/wsj/write_hdf_dataset.sh
@@ -28,23 +28,34 @@ Check that `$LVSR` environment variable points to this repository and
    This step requires kaldi.
 
    `$LVSR/exp/wsj/make_all_wsj_graphs.sh <lmfile> <lmsdir>`
-
+   
    where `<lmfile>` is the arpa languge model which goes with WSJ dataset.
    (we placed it to `$FUEL_DATA_PATH/WSJ/lm_bg.arpa.gz`) and `<lmsdir>` is a
    directry to place FST language models (we use `data/lms`).
-
+   
 3. Train the model. You don't need kaldi for training and it doesn't use any
    scripts from the recipe.
 
-   `$LVSR/bin/run.py train wsj_paper6 $LVSR/exp/wsj/configs/wsj_paper6.yaml`
+   For the End-to-End Attention-based Large Vocabulary Speech Recognition use
+   the `model=wsj_paper7` and for the Task Loss Estimation for Sequence 
+   Prediction use `model=wsj_reward6` in the following script:
+   ```
+   $LVSR/bin/run.py train <model> $LVSR/exp/wsj/configs/<model>.yaml
+   ```
+   ```
 
-   This will start training and save the model to the folder `wsj_paper6`.
+   This will start training and save the model to the folder `<model>`.
 
 4. Decode the model on the validation and training datasets.
 
    ```
-   $LVSR/exp/wsj/decode.sh wsj_paper6 <beam-size>
+   $LVSR/exp/wsj/decode.sh wsj_paper7 <part> <beam-size>
    ```
+   or 
+   ```
+   $LVSR/exp/wsj/decode_tle.sh wsj_reward6 <part> <beam-size>
+   ```
+   for the task loss estimation model.
 
    We typically use beam size 200 to get the best performance. However, with beam size
    the scores are typically only 10\% worse and decoding is **much** faster.
@@ -56,8 +67,9 @@ Check that `$LVSR` environment variable points to this repository and
 5. Score the recognized transcripts:
 
     ```
-    $LVSR/exp/wsj/score.sh <part> wsj_paper6/reports/valid_trigram_200/
+    $LVSR/exp/wsj/score.sh <part> <model>/reports/valid_trigram_200/
     ```
+    
     This script produces `<part>-text.wer` and `<part>-text.errs` files in the
     corresponding directory. The first one contains WER and the second one
     the report of `compute-wer` kadli script.

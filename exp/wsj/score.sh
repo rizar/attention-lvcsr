@@ -14,6 +14,11 @@ fi
 dataset=$FUEL_DATA_PATH/wsj.h5
 part=$1
 dir=$2
+if [ $part = "valid" ]; then
+    part=test_dev93;
+else
+    part=test_eval92;
+fi;
 
 report=$dir/report.txt
 #lexicon=data/lms/wsj_dict_no_bos/lexicon.txt
