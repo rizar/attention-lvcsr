@@ -11,7 +11,7 @@ ls $MODEL/reports || mkdir $MODEL/reports
 
 if [ $LM == nolm ]
 then
-    LM_CONF="monitoring.search.char_discount 0.1"
+    LM_CONF=""
 else
     LM_CONF="monitoring.search.beam_size $BEAM_SIZE"
     LM_CONF+=" net.lm.weight 0.15"
