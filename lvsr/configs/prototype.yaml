@@ -4,7 +4,13 @@ data:
 net:
     dim_dec: 100
     dims_bidir: [100]
-    dims_bottom: [100]
+    input_sources:
+        - recordings
+    bottom:
+        bottom_class: !!python/name:lvsr.bricks.recognizer.SpeechBottom
+        dims: [100]
+        activation: !!python/object/apply:blocks.bricks.Rectifier []
+
     enc_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     attention_type: content

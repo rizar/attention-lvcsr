@@ -9,10 +9,10 @@ from fuel.schemes import (
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack, Filter,
-    FilterSources, Transformer)
+    FilterSources, Transformer, Rename)
 
 from lvsr.datasets.h5py import H5PYAudioDataset
-from lvsr.preprocessing import log_spectrogram
+from blocks.utils import dict_subset
 
 
 def switch_first_two_axes(batch):
@@ -25,41 +25,43 @@ def switch_first_two_axes(batch):
     return tuple(result)
 
 
-def _length(example):
-    return len(example[0])
+class _Length(object):
+    def __init__(self, index):
+        self.index = index
 
-
-def apply_preprocessing(preprocessing, example):
-    recording, label = example
-    return (numpy.asarray(preprocessing(recording)), label)
+    def __call__(self, example):
+        return len(example[self.index])
 
 
 class _AddLabel(object):
 
-    def __init__(self, label, append=True, times=1):
+    def __init__(self, label, index, append=True, times=1):
         self.label = label
         self.append = append
         self.times = times
+        self.index = index
 
     def __call__(self, example):
         example = list(example)
+        i = self.index
         if self.append:
             # Not using `list.append` to avoid having weird mutable
             # example objects.
-            example[1] = numpy.hstack([example[1], self.times * [self.label]])
+            example[i] = numpy.hstack([example[i], self.times * [self.label]])
         else:
-            example[1] = numpy.hstack([self.times * [self.label], example[1]])
+            example[i] = numpy.hstack([self.times * [self.label], example[1]])
         return example
 
 
 class _LengthFilter(object):
 
-    def __init__(self, max_length):
+    def __init__(self, index, max_length):
+        self.index = index
         self.max_length = max_length
 
     def __call__(self, example):
         if self.max_length:
-            return len(example[0]) <= self.max_length
+            return len(example[self.index]) <= self.max_length
         return True
 
 
@@ -92,10 +94,12 @@ class Data(object):
     ----------
     dataset : str
         Dataset name.
-    recordings_source : str
-        Source name for recording.
-    labels_source : str
-        Source name for labels.
+    name_mapping : dict
+        A map from conceptual split names (train, test) into concrete split
+        names (e.g. 93eval).
+    sources_map: dict
+        A map from conceptual source names, such as "labels" or "recordings"
+        into names of dataset entries.
     batch_size : int
         Batch size.
     validation_batch_size : int
@@ -105,32 +109,24 @@ class Data(object):
         Maximum length of input, longer sequences will be filtered.
     normalization : str
         Normalization file name to use.
-    uttid_source : str
-        Utterance id source name.
-    feature_name : str
-        `wav` or `fbank_and_delta_delta`.
-    preprocess_features : str
-        Now supports only `log_spectrogram` value.
     add_eos : bool
         Add end of sequence symbol.
     add_bos : int
         Add this many beginning-of-sequence tokens.
     eos_label : int
         Label to use for eos symbol.
-    preprocess_text : bool
-        Preprocess text for WSJ.
-
+    default_sources : list
+        Default sources to include in created datasets
+    dataset_class : object
+        Class for this particulat dataset kind (WSJ, TIMIT)
     """
-    def __init__(self, dataset, name_mapping,
-                 recordings_source, labels_source,
+    def __init__(self, dataset, name_mapping, sources_map,
                  batch_size, validation_batch_size=None,
                  sort_k_batches=None,
                  max_length=None, normalization=None,
-                 uttid_source='uttids',
-                 feature_name='wav', preprocess_features=None,
                  add_eos=True, eos_label=None,
                  add_bos=0, prepend_eos=False,
-                 preprocess_text=False,
+                 default_sources=None,
                  dataset_class=H5PYAudioDataset):
         assert not prepend_eos
 
@@ -141,25 +137,32 @@ class Data(object):
         self.dataset = dataset
         self.dataset_class = dataset_class
         self.name_mapping = name_mapping
-        self.recordings_source = recordings_source
-        self.labels_source = labels_source
-        self.uttid_source = uttid_source
+        self.sources_map = sources_map
+        if default_sources is None:
+            self.default_sources = sources_map.keys()
+
         self.normalization = normalization
         self.batch_size = batch_size
         if validation_batch_size is None:
             validation_batch_size = batch_size
         self.validation_batch_size = validation_batch_size
         self.sort_k_batches = sort_k_batches
-        self.feature_name = feature_name
         self.max_length = max_length
         self.add_eos = add_eos
         self.prepend_eos = prepend_eos
         self._eos_label = eos_label
         self.add_bos = add_bos
-        self.preprocess_text = preprocess_text
-        self.preprocess_features = preprocess_features
         self.dataset_cache = {}
-        self.length_filter = _LengthFilter(self.max_length)
+        #
+        # Hardcode the number of source for length at 0
+        # this typixcally works, as main.get_net_config
+        # will properly set default_sources, such that the label is last
+        # Unfortunately, we cannot query for a source name, as the
+        # list of sources will differ....
+        #
+        self.length_filter = _LengthFilter(
+            index=0,
+            max_length=self.max_length)
 
     @property
     def info_dataset(self):
@@ -173,9 +176,8 @@ class Data(object):
     def character_map(self):
         return self.info_dataset.char2num
 
-    @property
-    def num_features(self):
-        return self.info_dataset.num_features
+    def num_features(self, feature_name):
+        return self.info_dataset.num_features(feature_name)
 
     @property
     def eos_label(self):
@@ -190,25 +192,28 @@ class Data(object):
     def decode(self, labels):
         return self.info_dataset.decode(labels)
 
-    def pretty_print(self, labels):
-        return self.info_dataset.pretty_print(labels)
+    def pretty_print(self, labels, example):
+        return self.info_dataset.pretty_print(labels, example)
 
     def get_dataset(self, part, add_sources=()):
         """Returns dataset from the cache or creates a new one"""
-        key = (part, add_sources)
+        sources = []
+        for src in self.default_sources + list(add_sources):
+            sources.append(self.sources_map.get(src, src))
+        sources = tuple(sources)
+        key = (part, sources)
         if key not in self.dataset_cache:
-            self.dataset_cache[key] = self._get_dataset(*key)
+            self.dataset_cache[key] = self.dataset_class(
+                file_or_path=os.path.join(fuel.config.data_path[0], self.dataset),
+                which_sets=(self.name_mapping.get(part, part), ),
+                sources_map=self.sources_map,
+                sources=sources)
         return self.dataset_cache[key]
-
-    def _get_dataset(self, part, add_sources=()):
-        return self.dataset_class(
-            os.path.join(fuel.config.data_path[0],  self.dataset),
-            which_sets=(self.name_mapping.get(part, part), ),
-            sources=(self.recordings_source,
-                     self.labels_source) + tuple(add_sources))
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
                    num_examples=None, rng=None, seed=None):
+
+        stream_filters = {}
 
         dataset = self.get_dataset(part, add_sources=add_sources)
         if num_examples is None:
@@ -222,30 +227,42 @@ class Data(object):
         stream = DataStream(
             dataset, iteration_scheme=iteration_scheme)
 
-        stream = FilterSources(stream, (self.recordings_source,
-                                        self.labels_source)+tuple(add_sources))
         if self.add_eos:
-            stream = Mapping(stream, _AddLabel(self.eos_label))
+            stream = Mapping(stream, _AddLabel(
+                self.eos_label,
+                index=stream.sources.index(self.sources_map['labels'])))
         if self.add_bos:
-            stream = Mapping(stream, _AddLabel(self.bos_label, append=False,
-                                               times=self.add_bos))
-        if self.preprocess_text:
-            stream = Mapping(stream, lvsr.datasets.wsj.preprocess_text)
-        stream = Filter(stream, self.length_filter)
+            if self.bos_label is None:
+                raise Exception('No bos label given')
+            stream = Mapping(stream, _AddLabel(
+                self.bos_label, append=False, times=self.add_bos,
+                index=stream.sources.index(self.sources_map['labels'])))
+
+        if self.max_length:
+            stream = Filter(stream, self.length_filter)
+
         if self.sort_k_batches and batches:
             stream = Batch(stream,
                            iteration_scheme=ConstantScheme(
                                self.batch_size * self.sort_k_batches))
-            stream = Mapping(stream, SortMapping(_length))
+            #
+            # Hardcode 0 for source on which to sort. This will be good, as
+            # most source lengths are correlated and, furthermore, the
+            # labels will typically be the last source, thus in a single-input
+            # case this sorts on input lengths
+            #
+            stream = Mapping(stream, SortMapping(_Length(
+                index=0)))
             stream = Unpack(stream)
 
-        if self.preprocess_features == 'log_spectrogram':
-            stream = Mapping(
-                stream, functools.partial(apply_preprocessing,
-                                          log_spectrogram))
         if self.normalization:
             stream = self.normalization.wrap_stream(stream)
         stream = ForceFloatX(stream)
+        stream = Rename(stream,
+                        names=dict_subset({v: k for (k, v)
+                                           in self.sources_map.items()},
+                                          stream.sources,
+                                          must_have=False))
         if not batches:
             return stream
 

@@ -1,6 +1,6 @@
 parent: $LVSR/exp/wsj/configs/wsj_prior_conv.yaml
 training:
-    rules: 
+    rules:
         - momentum
         - adadelta
     scale: 0.1
@@ -8,7 +8,12 @@ training:
     epsilon: 1.0e-8
 net:
     use_states_for_readout: True
-    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
+    bottom:
+        activation: !!python/object/apply:blocks.bricks.Rectifier []
 data:
-    preprocess_text: True
-    preprocess_features: log_spectrogram
+    # JCh: These options were removed in 1.2016. They should be overriden in
+    # Configurations that are based on this one
+    #
+    # preprocess_text: True
+    # preprocess_features: log_spectrogram
+    batch_size: 10

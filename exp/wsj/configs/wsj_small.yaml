@@ -3,7 +3,8 @@ net:
     dims_bidir: [100]
     post_merge_dims: []
     subsample: [1]
-    dims_bottom: []
+    bottom:
+        dims: []
     prior:
         type: window_around_median
         before: 400

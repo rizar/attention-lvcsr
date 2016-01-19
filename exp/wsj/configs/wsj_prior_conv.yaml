@@ -7,13 +7,17 @@ data:
         valid: test_dev93
         test:  test_eval92
 
+    sources_map:
+        recordings: recordings
+        labels: labels
+
     normalization: wsj_norm.pkl
-    recordings_source: recordings
-    labels_source: labels
 net:
     dim_dec: 250
     dims_bidir: [250]
-    dims_bottom: [250]
+    bottom:
+        dims: [250]
+
     attention_type: content_and_conv
     conv_n: 100
     prior:

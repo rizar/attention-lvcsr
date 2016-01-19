@@ -28,6 +28,87 @@ from lvsr.utils import global_push_initialization_config, SpeechModel
 logger = logging.getLogger(__name__)
 
 
+class Bottom(Initializable):
+    """
+    A bottom class that mergers possibly many input sources into one
+    sequence.
+
+    The bottom is responsible for allocating variables for single and
+    multiple sequences in a batch.
+
+    In speech recognition this will typically be the identity transformation
+    ro a small MLP.
+
+    Parameters
+    ----------
+
+    input_sources: list
+        list of source names meaningful to the chosen Bottom class,
+        such as "recordings" or "ivectors".
+
+    """
+    def __init__(self, input_sources,
+                 **kwargs):
+        super(Bottom, self).__init__(**kwargs)
+        self.input_sources = input_sources
+
+
+class SpeechBottom(Bottom):
+    """
+    A Bottom specialized for speech recognition that accets only one input
+    - the recordings.
+    """
+    def __init__(self, input_sources_dims, activation, dims, **kwargs):
+        super(SpeechBottom, self).__init__(**kwargs)
+        self.input_sources_dims = input_sources_dims
+        if not self.input_sources == ['recordings']:
+            raise Exception("The SpeechBottom handles only recordings")
+        self.recordings_source = 'recordings'
+        self.num_features = self.input_sources_dims['recordings']
+
+        if activation is None:
+            activation = Tanh()
+
+        if dims:
+            child = MLP([activation] * len(dims),
+                        [self.num_features] + dims,
+                        name="bottom")
+            self.output_dim = child.output_dim
+        else:
+            child = Identity(name='bottom')
+            self.output_dim = self.num_features
+        self.children.append(child)
+
+    @application(inputs=['recordings'])
+    def apply(self, recordings):
+        return self.children[0].apply(recordings)
+
+    @application(inputs=['recordings'])
+    def batch_size(self, recordings):
+        return recordings.shape[1]
+
+    @application(inputs=['recordings'])
+    def num_time_steps(self, recordings):
+        return recordings.shape[0]
+
+    def get_batch_inputs(self):
+        return {'recordings': tensor.tensor3(self.recordings_source)}
+
+    def get_mask(self):
+        return tensor.matrix(self.recordings_source + "_mask")
+
+    def get_single_sequence_inputs(self):
+        return {'recordings': tensor.matrix(self.recordings_source)}
+
+    def single_to_batch_inputs(self, inputs):
+        # Note: this code supports many inputs, which are all sequences
+        inputs = {n: v[:, None, :] if v.ndim == 2 else v[:, None]
+                  for (n, v) in inputs.items()}
+        inputs_mask = tensor.ones((self.num_time_steps(**inputs),
+                                   self.batch_size(**inputs)))
+        return inputs, inputs_mask
+
+
 class SpeechRecognizer(Initializable):
     """Encapsulate all reusable logic.
 
@@ -44,19 +125,23 @@ class SpeechRecognizer(Initializable):
     receives everything from the "net" section of the config.
 
     """
-    def __init__(self, recordings_source, labels_source, eos_label,
-                 num_features, num_phonemes,
-                 dim_dec, dims_bidir, dims_bottom,
+
+    def __init__(self,
+                 input_sources,
+                 input_sources_dims,
+                 eos_label,
+                 num_phonemes,
+                 dim_dec, dims_bidir,
                  enc_transition, dec_transition,
                  use_states_for_readout,
                  attention_type,
                  criterion,
+                 bottom,
                  lm=None, character_map=None,
                  bidir=True,
                  subsample=None,
                  dims_top=None,
                  prior=None, conv_n=None,
-                 bottom_activation=None,
                  post_merge_activation=None,
                  post_merge_dims=None,
                  dim_matcher=None,
@@ -65,15 +150,15 @@ class SpeechRecognizer(Initializable):
                  dec_stack=1,
                  conv_num_filters=1,
                  data_prepend_eos=True,
-                 energy_normalizer=None,  # softmax is the default set in SequenceContentAndConvAttention
+                 # softmax is the default set in SequenceContentAndConvAttention
+                 energy_normalizer=None,
+                 # for speech this is the approximate phoneme duration in frames
+                 max_decoded_length_scale=3,
                  **kwargs):
-        if bottom_activation is None:
-            bottom_activation = Tanh()
+
         if post_merge_activation is None:
             post_merge_activation = Tanh()
         super(SpeechRecognizer, self).__init__(**kwargs)
-        self.recordings_source = recordings_source
-        self.labels_source = labels_source
         self.eos_label = eos_label
         self.data_prepend_eos = data_prepend_eos
 
@@ -86,25 +171,25 @@ class SpeechRecognizer(Initializable):
 
         self.criterion = criterion
 
-        bottom_activation = bottom_activation
+        self.max_decoded_length_scale = max_decoded_length_scale
+
         post_merge_activation = post_merge_activation
 
         if dim_matcher is None:
             dim_matcher = dim_dec
 
         # The bottom part, before BiRNN
-        if dims_bottom:
-            bottom = MLP([bottom_activation] * len(dims_bottom),
-                         [num_features] + dims_bottom,
-                         name="bottom")
-        else:
-            bottom = Identity(name='bottom')
+        bottom_class = bottom.pop('bottom_class')
+        bottom = bottom_class(input_sources=input_sources,
+                              input_sources_dims=input_sources_dims,
+                              name='bottom',
+                              **bottom)
 
         # BiRNN
         if not subsample:
             subsample = [1] * len(dims_bidir)
         encoder = Encoder(self.enc_transition, dims_bidir,
-                          dims_bottom[-1] if len(dims_bottom) else num_features,
+                          bottom.output_dim,
                           subsample, bidir=bidir)
         dim_encoded = encoder.get_dim(encoder.apply.outputs[0])
 
@@ -218,14 +303,14 @@ class SpeechRecognizer(Initializable):
         self.children = [encoder, top, bottom, generator]
 
         # Create input variables
-        self.recordings = tensor.tensor3(self.recordings_source)
-        self.recordings_mask = tensor.matrix(self.recordings_source + "_mask")
-        self.labels = tensor.lmatrix(self.labels_source)
-        self.labels_mask = tensor.matrix(self.labels_source + "_mask")
-        self.batch_inputs = [self.recordings, self.recordings_source,
-                             self.labels, self.labels_mask]
-        self.single_recording = tensor.matrix(self.recordings_source)
-        self.single_transcription = tensor.lvector(self.labels_source)
+        self.inputs = self.bottom.get_batch_inputs()
+        self.inputs_mask = self.bottom.get_mask()
+
+        self.labels = tensor.lmatrix('labels')
+        self.labels_mask = tensor.matrix("labels_mask")
+
+        self.single_inputs = self.bottom.get_single_sequence_inputs()
+        self.single_labels = tensor.lvector('labels')
         self.n_steps = tensor.lscalar('n_steps')
 
     def push_initialization_config(self):
@@ -240,27 +325,35 @@ class SpeechRecognizer(Initializable):
             global_push_initialization_config(self,
                                               {'initial_states_init': self.initial_states_init})
 
-    @application(inputs=['recordings', 'recordings_mask',
-                         'labels', 'labels_mask'])
-    def cost(self, recordings, recordings_mask, labels, labels_mask):
-        bottom_processed = self.bottom.apply(recordings)
+    @application
+    def cost(self, **kwargs):
+        # pop inputs we know about
+        inputs_mask = kwargs.pop('inputs_mask')
+        labels = kwargs.pop('labels')
+        labels_mask = kwargs.pop('labels_mask')
+
+        # the rest is for bottom
+        bottom_processed = self.bottom.apply(**kwargs)
         encoded, encoded_mask = self.encoder.apply(
             input_=bottom_processed,
-            mask=recordings_mask)
+            mask=inputs_mask)
         encoded = self.top.apply(encoded)
         return self.generator.cost_matrix(
             labels, labels_mask,
             attended=encoded, attended_mask=encoded_mask)
 
     @application
-    def generate(self, recordings, recordings_mask, n_steps=None):
+    def generate(self, **kwargs):
+        inputs_mask = kwargs.pop('inputs_mask')
+        n_steps = kwargs.pop('n_steps')
+
         encoded, encoded_mask = self.encoder.apply(
-            input_=self.bottom.apply(recordings),
-            mask=recordings_mask)
+            input_=self.bottom.apply(**kwargs),
+            mask=inputs_mask)
         encoded = self.top.apply(encoded)
         return self.generator.generate(
             n_steps=n_steps if n_steps is not None else self.n_steps,
-            batch_size=recordings.shape[1],
+            batch_size=encoded.shape[1],
             attended=encoded,
             attended_mask=encoded_mask,
             as_dict=True)
@@ -271,40 +364,54 @@ class SpeechRecognizer(Initializable):
         SpeechModel(generated['outputs']).set_parameter_values(param_values)
 
     def get_generate_graph(self, use_mask=True, n_steps=None):
-        return self.generate(self.recordings, self.recordings_mask if use_mask else None,
-                             n_steps)
+        inputs_mask = None
+        if use_mask:
+            inputs_mask = self.inputs_mask
+        bottom_inputs = self.inputs
+        return self.generate(n_steps=n_steps,
+                             inputs_mask=inputs_mask,
+                             **bottom_inputs)
 
     def get_cost_graph(self, batch=True,
                        prediction=None, prediction_mask=None):
+
         if batch:
-            recordings = self.recordings
-            recordings_mask = self.recordings_mask
+            inputs = self.inputs
+            inputs_mask = self.inputs_mask
             groundtruth = self.labels
             groundtruth_mask = self.labels_mask
         else:
-            recordings = self.single_recording[:, None, :]
-            recordings_mask = tensor.ones_like(recordings[:, :, 0])
-            groundtruth = self.single_transcription[:, None]
+            inputs, inputs_mask = self.bottom.single_to_batch_inputs(
+                self.single_inputs)
+            groundtruth = self.single_labels[:, None]
             groundtruth_mask = None
+
         if not prediction:
             prediction = groundtruth
         if not prediction_mask:
             prediction_mask = groundtruth_mask
-        cost = self.cost(recordings, recordings_mask,
-                         prediction, prediction_mask)
+
+        cost = self.cost(inputs_mask=inputs_mask,
+                         labels=prediction,
+                         labels_mask=prediction_mask,
+                         **inputs)
         cost_cg = ComputationGraph(cost)
         if self.criterion['name'].startswith("mse"):
             placeholder, = VariableFilter(theano_name='groundtruth')(cost_cg)
             cost_cg = cost_cg.replace({placeholder: groundtruth})
         return cost_cg
 
-    def analyze(self, recording, groundtruth, prediction=None):
+    def analyze(self, inputs, groundtruth, prediction=None):
         """Compute cost and aligment."""
-        input_values = [recording, groundtruth]
+
+        input_values_dict = dict(inputs)
+        input_values_dict['groundtruth'] = groundtruth
         if prediction is not None:
-            input_values.append(prediction)
+            input_values_dict['prediction'] = prediction
         if not hasattr(self, "_analyze"):
-            input_variables = [self.single_recording, self.single_transcription]
+            input_variables = list(self.single_inputs.values())
+            input_variables.append(self.single_labels.copy(name='groundtruth'))
+
             prediction_variable = tensor.lvector('prediction')
             if prediction is not None:
                 input_variables.append(prediction_variable)
@@ -313,26 +420,30 @@ class SpeechRecognizer(Initializable):
             else:
                 cg = self.get_cost_graph(batch=False)
             cost = cg.outputs[0]
+
+            weights, = VariableFilter(
+                bricks=[self.generator], name="weights")(cg)
+
             energies = VariableFilter(
                 bricks=[self.generator], name="energies")(cg)
             energies_output = [energies[0][:, 0, :] if energies
-                               else tensor.zeros((self.single_transcription.shape[0],
-                                                  self.single_recording.shape[0]))]
+                               else tensor.zeros_like(weights)]
+
             states, = VariableFilter(
                 applications=[self.encoder.apply], roles=[OUTPUT],
                 name="encoded")(cg)
+
             ctc_matrix_output = []
             # Temporarily disabled for compatibility with LM code
             # if len(self.generator.readout.source_names) == 1:
             #    ctc_matrix_output = [
             #        self.generator.readout.readout(weighted_averages=states)[:, 0, :]]
-            weights, = VariableFilter(
-                bricks=[self.generator], name="weights")(cg)
+
             self._analyze = theano.function(
                 input_variables,
                 [cost[:, 0], weights[:, 0, :]] + energies_output + ctc_matrix_output,
                 on_unused_input='warn')
-        return self._analyze(*input_values)
+        return self._analyze(**input_values_dict)
 
     def init_beam_search(self, beam_size):
         """Compile beam search and set the beam size.
@@ -351,28 +462,42 @@ class SpeechRecognizer(Initializable):
         self._beam_search = BeamSearch(beam_size, samples)
         self._beam_search.compile()
 
-    def beam_search(self, recording, **kwargs):
+    def beam_search(self, inputs, **kwargs):
         # When a recognizer is unpickled, self.beam_size is available
         # but beam search has to be recompiled.
+
         self.init_beam_search(self.beam_size)
-        input_ = recording[:,numpy.newaxis,:]
+        inputs = dict(inputs)
+        max_length = int(self.bottom.num_time_steps(**inputs) /
+                         self.max_decoded_length_scale)
+        search_inputs = {}
+        for var in self.inputs.values():
+            search_inputs[var] = inputs.pop(var.name)[:, numpy.newaxis, ...]
+        if inputs:
+            raise Exception(
+                'Unknown inputs passed to beam search: {}'.format(
+                    inputs.keys()))
         outputs, search_costs = self._beam_search.search(
-            {self.recordings: input_}, self.eos_label, input_.shape[0] / 3,
+            search_inputs, self.eos_label,
+            max_length,
             ignore_first_eol=self.data_prepend_eos,
             **kwargs)
         return outputs, search_costs
 
     def init_generate(self):
         generated = self.get_generate_graph(use_mask=False)
-        self._do_generate = theano.function(
-            [self.recordings, self.n_steps], generated)
+        inputs = [v.copy(name=n) for (n, v) in self.inputs.items()]
+        inputs.append(self.n_steps.copy(name='n_steps'))
+        self._do_generate = theano.function(inputs, generated)
 
-    def sample(self, recording, n_steps=None):
+    def sample(self, inputs, n_steps=None):
         if not hasattr(self, '_do_generate'):
             self.init_generate()
-        batch = recording[:, None, :]
-        return self._do_generate(
-            batch, n_steps if n_steps is not None else recording.shape[0] / 3)
+        batch, unused_mask = self.bottom.single_to_batch_inputs(inputs)
+        batch['n_steps'] = n_steps if n_steps is not None \
+            else int(self.bottom.num_time_steps(**batch) /
+                     self.max_decoded_length_scale)
+        return self._do_generate(**batch)
 
     def __getstate__(self):
         state = dict(self.__dict__)

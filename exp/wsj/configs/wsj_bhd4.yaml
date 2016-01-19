@@ -2,7 +2,8 @@ parent: $LVSR/exp/wsj/configs/wsj_jan_baseline.yaml
 net:
     dims_bidir: [250, 250, 250, 250]
     subsample: [1, 1, 2, 2]
-    dims_bottom: []
+    bottom:
+      dims: []
     # 0.5 times respective settings from wsj_jan_baseline.yaml
     prior:
         before: 100

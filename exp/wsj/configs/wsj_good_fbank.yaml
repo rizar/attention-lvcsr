@@ -7,12 +7,13 @@ data:
         valid: test_dev93
         test:  test_eval92
 
+    sources_map:
+        recordings: fbank_dd
+        labels: characters
+
     normalization: ""
-    recordings_source: fbank_dd
-    labels_source: characters
     add_eos: True
-    preprocess_text: False
-    preprocess_features: ""
+
 net:
     # 0.8 times respective settings from wsj_good_fbank.yaml
     prior:

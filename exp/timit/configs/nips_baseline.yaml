@@ -8,13 +8,13 @@ data:
         valid: dev
         test:  test
 
-    recordings_source: fbank40_dd
+    sources_map:
+        recordings: fbank40_dd
+        labels: phones60
+
     max_length: 10000000000000
     normalization: ''
-    preprocess_features: ''
 
-    labels_source: phones60
-    preprocess_text: False
     add_eos: True
     prepend_eos: False
 
@@ -34,8 +34,9 @@ initialization:
             !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
 
 net:
-    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
-    dims_bottom: []
+    bottom:
+        activation: !!python/object/apply:blocks.bricks.Rectifier []
+        dims: []
 
     enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     dims_bidir: [256, 256, 256]
