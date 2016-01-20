@@ -11,7 +11,7 @@ import sys
 import numpy
 import matplotlib
 from lvsr.algorithms import BurnIn
-from blocks.extras.extensions.embed_ipython import EmbedIPython
+from blocks_extras.extensions.embed_ipython import EmbedIPython
 matplotlib.use('Agg')
 import theano
 from theano import tensor
@@ -31,7 +31,7 @@ from blocks.extensions import (
 from blocks.extensions.saveload import Checkpoint, Load
 from blocks.extensions.monitoring import (
     TrainingDataMonitoring, DataStreamMonitoring)
-from blocks.extras.extensions.plot import Plot
+from blocks_extras.extensions.plot import Plot
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
