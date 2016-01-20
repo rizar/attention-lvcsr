@@ -5,7 +5,7 @@ from numpy.testing import assert_allclose
 from theano import tensor
 
 from blocks.algorithms import BasicMomentum
-from blocks.extras.algorithms import BasicNesterovMomentum, NesterovMomentum
+from blocks_extras.algorithms import BasicNesterovMomentum, NesterovMomentum
 from blocks.utils import shared_floatx
 
 

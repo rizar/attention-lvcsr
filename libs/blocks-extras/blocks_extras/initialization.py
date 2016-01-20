@@ -1,7 +1,7 @@
 import numpy
 import theano
 
-from blocks.extras.utils import check_valid_permutation
+from blocks_extras.utils import check_valid_permutation
 from blocks.initialization import NdarrayInitialization
 
 

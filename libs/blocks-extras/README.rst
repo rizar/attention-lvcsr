@@ -41,9 +41,6 @@ Note that you `might have problems`_ with namespace packages if you try to insta
 Usage
 -----
 
-``blocks-extras`` is a namespace package, which means that everything can be
-imported from ``blocks.extras``. For example, you can use:
-
 .. code-block:: python
 
-   from blocks.extras.extensions.plotting import Plot
+   from blocks_extras.extensions.plotting import Plot

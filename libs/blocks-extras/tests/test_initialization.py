@@ -2,7 +2,7 @@
 import numpy
 from numpy.testing import assert_raises, assert_allclose
 
-from blocks.extras.initialization import PermutationMatrix
+from blocks_extras.initialization import PermutationMatrix
 
 
 def test_permutation():

@@ -13,7 +13,7 @@ from blocks.main_loop import MainLoop
 from blocks.serialization import load
 
 try:
-    from pandas import DataFrame
+    import pandas
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
@@ -95,7 +95,7 @@ def match_column_specs(experiments, column_specs):
                           " install it with pip.")
     # We iterate over all column and match each spec to the
     # channels of all experiments.
-    df = DataFrame()
+    df = pandas.DataFrame()
     for spec in column_specs:
         if ":" in spec:
             exp_spec, column_spec = spec.split(":")
@@ -111,6 +111,8 @@ def match_column_specs(experiments, column_specs):
                     continue
 
                 column_name = "{}:{}".format(i, column)
-                df[column_name] = exp[column]
+
+                exp = exp.rename(columns={column: column_name})
+                df = pandas.concat((df, exp[column_name]), axis=1)
 
     return df

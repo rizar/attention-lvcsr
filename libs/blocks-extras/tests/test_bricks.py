@@ -2,7 +2,7 @@ import numpy
 from numpy.testing import assert_equal
 import theano
 from theano import tensor
-from blocks.extras.bricks import FixedPermutation
+from blocks_extras.bricks import FixedPermutation
 
 
 def test_fixed_permutation():
