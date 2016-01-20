@@ -1,8 +1,9 @@
 import tempfile
-import blocks.extras.scripts.plot as plot
+import blocks_extras.scripts.plot as plot
 
 from collections import OrderedDict
 from tests import silence_printing, skip_if_not_available
+from numpy import nan, isfinite
 
 from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
@@ -22,8 +23,8 @@ def some_experiments():
     experiments['exp0']['col0'] = (0, 1, 2)
     experiments['exp0']['col1'] = (3, 4, 5)
     experiments['exp1'] = DataFrame()
-    experiments['exp1']['col0'] = (6, 7, 8)
-    experiments['exp1']['col1'] = (9, 9, 9)
+    experiments['exp1']['col0'] = (6, 7, 8, 9)
+    experiments['exp1']['col1'] = (9, 9, 9, 9)
     return experiments
 
 
@@ -66,3 +67,23 @@ def test_match_column_specs():
 
     assert isinstance(df, DataFrame)
     assert list(df.columns) == ['0:col0', '0:col1', '1:col1']
+    assert list(df.index) == [0, 1, 2, 3]
+
+
+def test_interpolate():
+    skip_if_not_available(modules=['pandas'])
+    """ Ensure tha DataFrame.interpolate(method='nearest') has the
+    desired properties.
+
+    It is used by blocks-plot and should:
+
+    * interpolate missing/NaN datapoints between valid ones
+    * not replace any NaN before/after the first/last finite datapoint
+    """
+    y = [nan, nan, 2., 3., nan, 5, nan, nan]
+    df = DataFrame(y)
+    df_ = df.interpolate(method='nearest')[0]
+
+    assert all(isfinite(df_[2:6]))
+    assert all(~isfinite(df_[0:2]))
+    assert all(~isfinite(df_[6:8]))

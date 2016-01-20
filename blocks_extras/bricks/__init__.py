@@ -1,8 +1,8 @@
 from theano import shared, tensor
 from blocks.bricks import Feedforward
 from blocks.bricks.base import application, lazy
-from blocks.extras.initialization import PermutationMatrix
-from blocks.extras.utils import check_valid_permutation
+from blocks_extras.initialization import PermutationMatrix
+from blocks_extras.utils import check_valid_permutation
 from blocks.utils import shared_floatx
 
 
