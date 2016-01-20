@@ -1,7 +1,11 @@
+from collections import namedtuple
+from functools import total_ordering
 import logging
 import signal
 import time
+from six.moves.queue import PriorityQueue
 from subprocess import Popen, PIPE
+from threading import Thread
 
 try:
     from bokeh.plotting import (curdoc, cursession, figure, output_server,
@@ -96,6 +100,7 @@ class Plot(SimpleExtension):
         # Create figures for each group of channels
         self.p = []
         self.p_indices = {}
+        self.color_indices = {}
         for i, channel_set in enumerate(channels):
             channel_set_opts = {}
             if isinstance(channel_set, dict):
@@ -106,34 +111,43 @@ class Plot(SimpleExtension):
             channel_set_opts.setdefault('x_axis_label', 'iterations')
             channel_set_opts.setdefault('y_axis_label', 'value')
             self.p.append(figure(**channel_set_opts))
-            for channel in channel_set:
+            for j, channel in enumerate(channel_set):
                 self.p_indices[channel] = i
+                self.color_indices[channel] = j
         if open_browser:
             show()
 
         kwargs.setdefault('after_epoch', True)
         kwargs.setdefault("before_first_epoch", True)
+        kwargs.setdefault("after_training", True)
         super(Plot, self).__init__(**kwargs)
+
+    @property
+    def push_thread(self):
+        if not hasattr(self, '_push_thread'):
+            self._push_thread = PushThread()
+            self._push_thread.start()
+        return self._push_thread
 
     def do(self, which_callback, *args):
         log = self.main_loop.log
         iteration = log.status['iterations_done']
-        i = 0
         for key, value in log.current_row.items():
             if key in self.p_indices:
                 if key not in self.plots:
+                    line_color = self.colors[
+                        self.color_indices[key] % len(self.colors)]
                     fig = self.p[self.p_indices[key]]
-                    fig.line([iteration], [value], legend=key, name=key,
-                             line_color=self.colors[i % len(self.colors)])
-                    i += 1
+                    fig.line([iteration], [value],
+                             legend=key, name=key,
+                             line_color=line_color)
                     renderer = fig.select(dict(name=key))
                     self.plots[key] = renderer[0].data_source
                 else:
                     self.plots[key].data['x'].append(iteration)
                     self.plots[key].data['y'].append(value)
-
-                    cursession().store_objects(self.plots[key])
-        push()
+                    self.push_thread.put(self.plots[key], PushThread.PUT)
+        self.push_thread.put(which_callback, PushThread.PUSH)
 
     def _startserver(self):
         if self.start_server:
@@ -154,9 +168,46 @@ class Plot(SimpleExtension):
     def __getstate__(self):
         state = self.__dict__.copy()
         state['sub'] = None
+        state.pop('_push_thread', None)
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         self._startserver()
         curdoc().add(*self.p)
+
+
+@total_ordering
+class _WorkItem(namedtuple('BaseWorkItem', ['priority', 'obj'])):
+    __slots__ = ()
+
+    def __lt__(self, other):
+        return self.priority < other.priority
+
+
+class PushThread(Thread):
+    # Define priority constants
+    PUSH = 1
+    PUT = 2
+
+    def __init__(self):
+        super(PushThread, self).__init__()
+        self.queue = PriorityQueue()
+        self.setDaemon(True)
+
+    def put(self, obj, priority):
+        self.queue.put(_WorkItem(priority, obj))
+
+    def run(self):
+        while True:
+            priority, obj = self.queue.get()
+            if priority == PushThread.PUT:
+                cursession().store_objects(obj)
+            elif priority == PushThread.PUSH:
+                push()
+                # delete queued objects when training has finished
+                if obj == "after_training":
+                    with self.queue.mutex:
+                        del self.queue.queue[:]
+                    break
+            self.queue.task_done()
