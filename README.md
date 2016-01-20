@@ -26,7 +26,7 @@ to replicate our results on Wall Street Journal (WSJ) dataset
 
 ### Dependencies
 
-- Python packages: pykwalify, toposort, pyyaml, numpy, pandas, pyfst;
+- Python packages: pykwalify, toposort, pyyaml, numpy, pandas, pyfst, picklable-itertools;
 - [kaldi](https://github.com/kaldi-asr/kaldi);
 - [kaldi-python](https://github.com/dmitriy-serdyuk/kaldi-python).
 
