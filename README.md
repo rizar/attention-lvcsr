@@ -20,7 +20,7 @@ Jan Chorowski, Aaron Courville, Yoshua Bengio_
 - install all the dependencies (see the list below)
 - set your environment variables by calling `source env.sh`
 
-Then, please proceed to [`exp/wsj`](exp/wsj/README.md) for the instructins how
+Then, please proceed to [`exp/wsj`](exp/wsj/README.md) for the instructions how
 to replicate our results on Wall Street Journal (WSJ) dataset
 (available  at  the  Linguistic  Data  Consortium as LDC93S6B and LDC94S13B).
 
