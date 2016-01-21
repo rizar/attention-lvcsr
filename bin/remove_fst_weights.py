@@ -13,7 +13,7 @@ def main(args):
 
     for state in L:
         for arc in state:
-            arc.weight = fst.TropicalWeight(0.0)
+            arc.weight = L.SEMIRING(0.0)
 
     L.write(args.fst_file, keep_isyms=True, keep_osyms=True)
 
