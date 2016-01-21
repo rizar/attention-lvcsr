@@ -9,11 +9,15 @@ LM_PATH=${LM_PATH:=data/lms/wsj_trigram_no_bos}
 
 ls $MODEL/reports || mkdir $MODEL/reports
 
+LM_CONF="monitoring.search.beam_size $BEAM_SIZE monitoring.search.char_discount "
 if [ $LM == nolm ]
 then
-    LM_CONF="monitoring.search.char_discount 0.1"
+    # set character discount
+    LM_CONF+="0.1"
 else
-    LM_CONF="monitoring.search.beam_size $BEAM_SIZE monitoring.search.char_discount 1.0"
+    # set character discount
+    LM_CONF+="1.0"
+    # and other arguments
     LM_CONF+=" net.lm.weight 0.5 net.lm.no_transition_cost 20"
     LM_CONF+=" net.lm.path '$LM_PATH/LG_pushed_withsyms.fst'"
 fi
