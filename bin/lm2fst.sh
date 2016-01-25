@@ -4,7 +4,9 @@
 # Create a deterministic or nondeterministic characters-to-words FST from an
 # ARPA LM file.
 # This script produces two variants of the FST, with and without pushing
-# FST weights towards the starting state.
+# FST weights towards the starting state. Note, that we produce only the 
+# tropical semiring FSTs unlike the Kaldi recipe which uses the log
+# semiring.
 #
 
 set -e
@@ -36,8 +38,7 @@ fi
 $cat_cmd $LMFILE | \
     grep -v '<s> <s>'   | \
     grep -v '</s> <s>'   | \
-    grep -v '</s> </s>'   | \
-    arpa2fst -             | \
+    grep -v '</s> </s>'   | \ arpa2fst -             | \
     fstprint                | \
     $KU/eps2disambig.pl      | \
     $KU/s2eps.pl              | \
