@@ -188,7 +188,7 @@ class SpeechRecognizer(Initializable):
         readout = Readout(**readout_config)
 
         language_model = None
-        if lm:
+        if lm and lm.get('path'):
             lm_weight = lm.pop('weight', 0.0)
             normalize_am_weights = lm.pop('normalize_am_weights', True)
             normalize_lm_weights = lm.pop('normalize_lm_weights', False)
