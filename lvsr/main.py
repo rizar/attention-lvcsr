@@ -38,7 +38,7 @@ from blocks.log import TrainingLog
 from blocks.main_loop import MainLoop
 from blocks.filter import VariableFilter, get_brick
 from blocks.roles import WEIGHT
-from blocks.utils import named_copy, reraise_as
+from blocks.utils import reraise_as
 from blocks.search import CandidateNotFoundError
 from blocks.select import Selector
 
@@ -288,12 +288,12 @@ def initialize_all(config, save_path, bokeh_name,
     if len(gain_matrix):
         gain_matrix, = gain_matrix
         primary_observables.append(
-            named_copy(gain_matrix.min(), 'min_gain'))
+            rename(gain_matrix.min(), 'min_gain'))
         primary_observables.append(
-            named_copy(gain_matrix.max(), 'max_gain'))
+            rename(gain_matrix.max(), 'max_gain'))
 
     batch_cost = cg.outputs[0].sum()
-    batch_size = named_copy(recognizer.recordings.shape[1], "batch_size")
+    batch_size = rename(recognizer.recordings.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
     cost = batch_cost / batch_size
@@ -321,27 +321,27 @@ def initialize_all(config, save_path, bokeh_name,
     weights, = VariableFilter(
         applications=[r.generator.evaluate], name="weights")(
             cost_cg)
-    max_recording_length = named_copy(r.recordings.shape[0],
-                                      "max_recording_length")
+    max_recording_length = rename(r.recordings.shape[0],
+                                  "max_recording_length")
     # To exclude subsampling related bugs
-    max_attended_mask_length = named_copy(attended_mask.shape[0],
-                                          "max_attended_mask_length")
-    max_attended_length = named_copy(attended.shape[0],
-                                     "max_attended_length")
-    max_num_phonemes = named_copy(labels.shape[0],
-                                  "max_num_phonemes")
-    min_energy = named_copy(energies.min(), "min_energy")
-    max_energy = named_copy(energies.max(), "max_energy")
-    mean_attended = named_copy(abs(attended).mean(),
-                               "mean_attended")
-    mean_bottom_output = named_copy(abs(bottom_output).mean(),
-                                    "mean_bottom_output")
-    weights_penalty = named_copy(monotonicity_penalty(weights, labels_mask),
-                                 "weights_penalty")
-    weights_entropy = named_copy(entropy(weights, labels_mask),
-                                 "weights_entropy")
-    mask_density = named_copy(labels_mask.mean(),
-                              "mask_density")
+    max_attended_mask_length = rename(attended_mask.shape[0],
+                                      "max_attended_mask_length")
+    max_attended_length = rename(attended.shape[0],
+                                 "max_attended_length")
+    max_num_phonemes = rename(labels.shape[0],
+                              "max_num_phonemes")
+    min_energy = rename(energies.min(), "min_energy")
+    max_energy = rename(energies.max(), "max_energy")
+    mean_attended = rename(abs(attended).mean(),
+                           "mean_attended")
+    mean_bottom_output = rename(abs(bottom_output).mean(),
+                                "mean_bottom_output")
+    weights_penalty = rename(monotonicity_penalty(weights, labels_mask),
+                             "weights_penalty")
+    weights_entropy = rename(entropy(weights, labels_mask),
+                             "weights_entropy")
+    mask_density = rename(labels_mask.mean(),
+                          "mask_density")
     cg = ComputationGraph([
         cost, weights_penalty, weights_entropy,
         min_energy, max_energy,
@@ -373,7 +373,7 @@ def initialize_all(config, save_path, bokeh_name,
         train_cost = (train_cost + reg_config.get("decay", .0) *
                       l2_norm(VariableFilter(roles=[WEIGHT])(cg.parameters)) ** 2)
 
-    train_cost = named_copy(train_cost, 'train_cost')
+    train_cost = rename(train_cost, 'train_cost')
 
     gradients = None
     if reg_config.get('adaptive_noise'):
@@ -392,15 +392,15 @@ def initialize_all(config, save_path, bokeh_name,
         )
         train_cost.name = 'train_cost'
         adapt_noise_cg = ComputationGraph(train_cost)
-        model_prior_mean = named_copy(
+        model_prior_mean = rename(
             VariableFilter(applications=[noise_brick.apply],
                            name='model_prior_mean')(adapt_noise_cg)[0],
             'model_prior_mean')
-        model_cost = named_copy(
+        model_cost = rename(
             VariableFilter(applications=[noise_brick.apply],
                            name='model_cost')(adapt_noise_cg)[0],
             'model_cost')
-        model_prior_variance = named_copy(
+        model_prior_variance = rename(
             VariableFilter(applications=[noise_brick.apply],
                            name='model_prior_variance')(adapt_noise_cg)[0],
             'model_prior_variance')

@@ -158,11 +158,8 @@ def recurrent(*args, **kwargs):
             if len(sequences_given):
                 # TODO Assumes 1 time dim!
                 shape = list(sequences_given.values())[0].shape
-                if not iterate:
-                    batch_size = shape[0]
-                else:
-                    n_steps = shape[0]
-                    batch_size = shape[1]
+                n_steps = shape[0]
+                batch_size = shape[1]
             else:
                 # TODO Raise error if n_steps and batch_size not found?
                 n_steps = kwargs.pop('n_steps')
@@ -308,7 +305,7 @@ class SimpleRecurrent(BaseRecurrent, Initializable):
 
     @recurrent(sequences=['inputs', 'mask'], states=['states'],
                outputs=['states'], contexts=[])
-    def apply(self, inputs=None, states=None, mask=None):
+    def apply(self, inputs, states, mask=None):
         """Apply the simple transition.
 
         Parameters
@@ -435,10 +432,18 @@ class LSTM(BaseRecurrent, Initializable):
             (batch_size, features). Required for `one_step` usage.
         inputs : :class:`~tensor.TensorVariable`
             The 2 dimensional matrix of inputs in the shape (batch_size,
-            features * 4).
+            features * 4). The `inputs` needs to be four times the
+            dimension of the LSTM brick to insure each four gates receive
+            different transformations of the input. See [Grav13]_
+            equations 7 to 10 for more details. The `inputs` are then split
+            in this order: Input gates, forget gates, cells and output
+            gates.
         mask : :class:`~tensor.TensorVariable`
             A 1D binary array in the shape (batch,) which is 1 if there is
             data available, 0 if not. Assumed to be 1-s only if not given.
+
+        .. [Grav13] Graves, Alex, *Generating sequences with recurrent
+            neural networks*, arXiv preprint arXiv:1308.0850 (2013).
 
         Returns
         -------
@@ -661,7 +666,12 @@ class Bidirectional(Initializable):
     def apply_delegate(self):
         return self.children[0].apply
 
-RECURRENTSTACK_SEPARATOR = '_'
+    def get_dim(self, name):
+        if name in self.apply.outputs:
+            return self.prototype.get_dim(name) * 2
+        return self.prototype.get_dim(name)
+
+RECURRENTSTACK_SEPARATOR = '#'
 
 
 class RecurrentStack(BaseRecurrent, Initializable):
