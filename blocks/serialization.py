@@ -141,7 +141,7 @@ def dump(obj, file_handler, protocol=DEFAULT_PROTOCOL,
     >>> with open('model.zip', 'rb') as f:
     ...     mlp2 = load(f)
     >>> mlp2  # doctest: +ELLIPSIS
-    <blocks.bricks.MLP object at ...: name=mlp>
+    <blocks.bricks.sequences.MLP object at ...: name=mlp>
 
     """
     with closing(zipfile.ZipFile(file_handler, 'w', zipfile.ZIP_DEFLATED,
@@ -178,7 +178,8 @@ def secure_dump(object_, path, dump_function=dump, **kwargs):
 
     """
     try:
-        with tempfile.NamedTemporaryFile(delete=False) as temp:
+        with tempfile.NamedTemporaryFile(delete=False,
+                                         dir=config.temp_dir) as temp:
             dump_function(object_, temp, **kwargs)
         shutil.move(temp.name, path)
     except:

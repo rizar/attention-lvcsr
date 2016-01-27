@@ -304,7 +304,9 @@ class Application(object):
                 brick not in last_brick.children):
             raise ValueError('Brick ' + str(self.call_stack[-1]) + ' tries '
                              'to call brick ' + str(self.brick) + ' which '
-                             'is not in the list of its children.')
+                             'is not in the list of its children. This could '
+                             'be caused because an @application decorator is '
+                             'missing.')
         self.call_stack.append(brick)
         try:
             outputs = self.application_function(brick, *args, **kwargs)
@@ -879,6 +881,7 @@ class ApplicationCall(Annotation):
     """
     def __init__(self, application):
         self.application = application
+        self.metadata = {}
         super(ApplicationCall, self).__init__()
 
     def add_auxiliary_variable(self, variable, roles=None, name=None):

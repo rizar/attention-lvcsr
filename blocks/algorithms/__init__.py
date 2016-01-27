@@ -12,8 +12,10 @@ from six import add_metaclass
 from theano import tensor
 
 from blocks.graph import ComputationGraph
-from blocks.utils import dict_subset, named_copy, pack, shared_floatx
+from blocks.roles import add_role, ALGORITHM_HYPERPARAMETER, ALGORITHM_BUFFER
 from blocks.theano_expressions import l2_norm
+from blocks.utils import (dict_subset, pack, shared_floatx,
+                          shared_floatx_zeros_matching)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class TrainingAlgorithm(object):
 
     """
     @abstractmethod
-    def initialize(self):
+    def initialize(self, **kwargs):
         """Initialize the training algorithm."""
         pass
 
@@ -191,6 +193,10 @@ class GradientDescent(DifferentiableCostMinimizer):
         be backpropagated. Only makes sense when `gradients` is `None`.
     on_unused_sources : str, one of 'raise' (default), 'ignore', 'warn'
         Controls behavior when not all sources are used.
+    theano_func_kwargs : dict, optional
+        A passthrough to `theano.function` for additional arguments.
+        Useful for passing `profile` or `mode` arguments to the theano
+        function that will be compiled for the algorithm.
 
     Attributes
     ----------
@@ -201,9 +207,8 @@ class GradientDescent(DifferentiableCostMinimizer):
 
     """
     def __init__(self, step_rule=None, gradients=None, known_grads=None,
-                 consider_constant=None,
-                 on_unused_sources='raise',
-                 **kwargs):
+                 consider_constant=None, on_unused_sources='raise',
+                 theano_func_kwargs=None, **kwargs):
         if gradients:
             kwargs.setdefault("parameters", gradients.keys())
         super(GradientDescent, self).__init__(**kwargs)
@@ -226,13 +231,15 @@ class GradientDescent(DifferentiableCostMinimizer):
                                  "gradients are passed in")
         self.step_rule = step_rule if step_rule else Scale()
 
-        self.total_gradient_norm = named_copy(l2_norm(self.gradients.values()),
-                                              "total_gradient_norm")
+        self.total_gradient_norm = l2_norm(
+            self.gradients.values()).copy(name="total_gradient_norm")
         self.steps, self.step_rule_updates = (
             self.step_rule.compute_steps(self.gradients))
-        self.total_step_norm = named_copy(l2_norm(self.steps.values()),
-                                          "total_step_norm")
+        self.total_step_norm = l2_norm(
+            self.steps.values()).copy(name="total_step_norm")
         self.on_unused_sources = on_unused_sources
+        self.theano_func_kwargs = (theano_func_kwargs if theano_func_kwargs
+                                   is not None else dict())
 
     def initialize(self):
         logger.info("Initializing the training algorithm")
@@ -243,7 +250,8 @@ class GradientDescent(DifferentiableCostMinimizer):
         for parameter in self.parameters:
             all_updates.append((parameter, parameter - self.steps[parameter]))
         all_updates += self.step_rule_updates
-        self._function = theano.function(self.inputs, [], updates=all_updates)
+        self._function = theano.function(
+            self.inputs, [], updates=all_updates, **self.theano_func_kwargs)
         logger.info("The training algorithm is initialized")
 
     def _validate_source_names(self, batch):
@@ -386,7 +394,8 @@ class Scale(StepRule):
 
     """
     def __init__(self, learning_rate=1.0):
-        self.learning_rate = shared_floatx(learning_rate)
+        self.learning_rate = shared_floatx(learning_rate, "learning_rate")
+        add_role(self.learning_rate, ALGORITHM_HYPERPARAMETER)
 
     def compute_step(self, parameter, previous_step):
         return self.learning_rate * previous_step, []
@@ -408,10 +417,12 @@ class BasicMomentum(StepRule):
 
     """
     def __init__(self, momentum=0.):
-        self.momentum = shared_floatx(momentum)
+        self.momentum = shared_floatx(momentum, "momentum")
+        add_role(self.momentum, ALGORITHM_HYPERPARAMETER)
 
     def compute_step(self, parameter, previous_step):
-        velocity = shared_floatx(parameter.get_value() * 0.)
+        velocity = shared_floatx_zeros_matching(parameter, "velocity")
+        add_role(velocity, ALGORITHM_BUFFER)
         step = self.momentum * velocity + previous_step
         updates = [(velocity, step)]
         return step, updates
@@ -471,12 +482,18 @@ class AdaDelta(StepRule):
     def __init__(self, decay_rate=0.95, epsilon=1e-6):
         if not 0.0 <= decay_rate <= 1.0:
             raise ValueError("decay rate needs to be in [0, 1]")
-        self.decay_rate = shared_floatx(decay_rate)
-        self.epsilon = shared_floatx(epsilon)
+        self.decay_rate = shared_floatx(decay_rate, "decay_rate")
+        add_role(self.decay_rate, ALGORITHM_HYPERPARAMETER)
+        self.epsilon = shared_floatx(epsilon, "epsilon")
+        add_role(self.epsilon, ALGORITHM_HYPERPARAMETER)
 
     def compute_step(self, parameter, previous_step):
-        mean_square_step_tm1 = shared_floatx(parameter.get_value() * 0.)
-        mean_square_delta_x_tm1 = shared_floatx(parameter.get_value() * 0.)
+        mean_square_step_tm1 = shared_floatx_zeros_matching(
+            parameter, "mean_square_step_tm1")
+        add_role(mean_square_step_tm1, ALGORITHM_BUFFER)
+        mean_square_delta_x_tm1 = shared_floatx_zeros_matching(
+            parameter, "mean_square_delta_x_tm1")
+        add_role(mean_square_delta_x_tm1, ALGORITHM_BUFFER)
 
         mean_square_step_t = (
             self.decay_rate * mean_square_step_tm1 +
@@ -529,14 +546,18 @@ class BasicRMSProp(StepRule):
             raise ValueError("decay rate needs to be in [0, 1]")
         if max_scaling <= 0:
             raise ValueError("max. scaling needs to be greater than 0")
-        self.decay_rate = shared_floatx(decay_rate)
+        self.decay_rate = shared_floatx(decay_rate, "decay_rate")
+        add_role(self.decay_rate, ALGORITHM_HYPERPARAMETER)
         self.epsilon = 1. / max_scaling
 
     def compute_step(self, parameter, previous_step):
-        mean_square_step_tm1 = shared_floatx(parameter.get_value() * 0.)
+        mean_square_step_tm1 = shared_floatx_zeros_matching(
+            parameter, "mean_square_step_tm1")
+        add_role(mean_square_step_tm1, ALGORITHM_BUFFER)
         mean_square_step_t = (
             self.decay_rate * mean_square_step_tm1 +
             (1 - self.decay_rate) * tensor.sqr(previous_step))
+        add_role(mean_square_step_t, ALGORITHM_BUFFER)
         rms_step_t = tensor.maximum(
             tensor.sqrt(mean_square_step_t), self.epsilon)
         step = previous_step / rms_step_t
@@ -607,7 +628,8 @@ class StepClipping(StepRule):
     """
     def __init__(self, threshold=None):
         if threshold:
-            self.threshold = shared_floatx(threshold)
+            self.threshold = shared_floatx(threshold, "threshold")
+            add_role(self.threshold, ALGORITHM_HYPERPARAMETER)
 
     def compute_steps(self, previous_steps):
         if not hasattr(self, 'threshold'):
@@ -671,7 +693,8 @@ class VariableClipping(StepRule):
     def __init__(self, threshold, axis=None):
         axis = pack(axis) if axis is not None else ()
         self.axis = set(axis)
-        self.threshold = shared_floatx(threshold)
+        self.threshold = shared_floatx(threshold, "threshold")
+        add_role(self.threshold, ALGORITHM_HYPERPARAMETER)
         if len(axis) != len(self.axis):
             raise ValueError("axis must be unique")
 
@@ -727,8 +750,8 @@ class AdaGrad(StepRule):
         name = 'adagrad_sqs'
         if parameter.name:
             name += '_' + parameter.name
-        ssq = shared_floatx(parameter.get_value() * 0.,
-                            name=name)
+        ssq = shared_floatx_zeros_matching(parameter, name=name)
+        add_role(ssq, ALGORITHM_BUFFER)
 
         ssq_t = (tensor.sqr(previous_step) + ssq)
         step = (self.learning_rate * previous_step /
@@ -773,9 +796,12 @@ class Adam(StepRule):
         self.decay_factor = decay_factor
 
     def compute_step(self, parameter, previous_step):
-        mean = shared_floatx(parameter.get_value() * 0., 'mean')
-        variance = shared_floatx(parameter.get_value() * 0., 'variance')
+        mean = shared_floatx_zeros_matching(parameter, 'mean')
+        add_role(mean, ALGORITHM_BUFFER)
+        variance = shared_floatx_zeros_matching(parameter, 'variance')
+        add_role(variance, ALGORITHM_BUFFER)
         time = shared_floatx(0., 'time')
+        add_role(time, ALGORITHM_BUFFER)
 
         t1 = time + 1
         learning_rate = (self.learning_rate *
