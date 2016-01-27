@@ -120,16 +120,18 @@ class ComputationGraph(object):
             # Sort apply nodes topologically, get variables and remove
             # duplicates
             inputs = graph.inputs(self.outputs)
-            sorted_apply_nodes = graph.io_toposort(inputs, usual_outputs)
-            self.scans = list(unique([node.op for node in sorted_apply_nodes
+            self.sorted_apply_nodes = graph.io_toposort(inputs, usual_outputs)
+            self.scans = list(unique([node.op for node in self.sorted_apply_nodes
                                      if isinstance(node.op, Scan)]))
+            self.sorted_scan_nodes = [node for node in self.sorted_apply_nodes
+                                      if isinstance(node.op, Scan)]
             self._scan_graphs = [ComputationGraph(scan.outputs)
                                  for scan in self.scans]
 
             seen = set()
             main_vars = (
                 [var for var in list(chain(
-                    *[apply_node.inputs for apply_node in sorted_apply_nodes]))
+                    *[apply_node.inputs for apply_node in self.sorted_apply_nodes]))
                  if not (var in seen or seen.add(var))] +
                 [var for var in self.outputs if var not in seen])
 
@@ -243,6 +245,14 @@ class ComputationGraph(object):
                                                len(replacement_keys_cur):]
 
         return ComputationGraph(outputs_cur)
+
+    def merge(self):
+        from theano.gof import FunctionGraph
+        from theano.gof.opt import merge_optimizer
+        fg = FunctionGraph(self.inputs + self.shared_variables, self.outputs,
+                           clone=True)
+        merge_optimizer.optimize(fg)
+        return ComputationGraph(fg.outputs)
 
     def get_theano_function(self, additional_updates=None):
         """Create Theano function from the graph contained."""

@@ -12,6 +12,10 @@ from blocks.graph import ComputationGraph
 from blocks.roles import INPUT, OUTPUT
 
 
+class CandidateNotFoundError(Exception):
+    pass
+
+
 class BeamSearch(object):
     """Approximate search for the most likely sequence.
 
@@ -121,11 +125,12 @@ class BeamSearch(object):
         # This filtering should return identical variables
         # (in terms of computations) variables, and we do not care
         # which to use.
-        logprobs = -VariableFilter(
-            applications=[self.generator.readout.emitter.probs],
-            roles=[INPUT])(self.inner_cg)[0]
+        readouts = VariableFilter(
+            applications=[self.generator.readout.readout],
+            roles=[OUTPUT])(self.inner_cg)[0]
+        costs = self.generator.readout.costs(readouts)
         self.logprobs_computer = function(
-            self.contexts + self.input_states, logprobs,
+            self.contexts + self.input_states, costs,
             on_unused_input='ignore')
 
     def compile(self):
@@ -238,7 +243,8 @@ class BeamSearch(object):
 
     def search(self, input_values, eol_symbol, max_length,
                ignore_first_eol=False, as_arrays=False,
-               char_discount=0):
+               char_discount=0, round_to_inf=1e9,
+               stop_on='patience'):
         """Performs beam search.
 
         If the beam search was not compiled, it also compiles it.
@@ -290,10 +296,39 @@ class BeamSearch(object):
         all_costs = numpy.zeros_like(all_outputs, dtype=config.floatX)
 
         done = []
+        min_cost = 1000
 
         for i in range(max_length):
             if len(states.values()[0].flatten()) == 0:
                 break
+
+            if stop_on == 'patience':
+                done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
+                done = done[:self.beam_size]
+                if done:
+                    current_best_cost = done[0][1][-1] - char_discount * len(done[0][1])
+                    if current_best_cost < min_cost:
+                        min_cost = current_best_cost
+                        patience = 30
+                    else:
+                        patience -= 1
+                        if patience == 0:
+                            break
+            elif stop_on == 'optimistic_future_cost':
+                # stop only when we have at least self.beam_size sequences,
+                # that are all cheaper than we can possibly obtain by extending
+                # other ones
+                if (len(done) >= self.beam_size):
+                    optimistic_future_cost = (all_costs[-1, :].min() -
+                                              char_discount * max_length)
+                    last_in_done = done[self.beam_size - 1][1]
+                    # note: done is sorted by the cost with char discount subtracted
+                    last_in_done_cost = (last_in_done[-1] -
+                                         char_discount * len(last_in_done))
+                    if last_in_done_cost < optimistic_future_cost:
+                        break
+            else:
+                raise ValueError('Unknown stopping criterion {}'.format(stop_on))
 
             # We carefully hack values of the `logprobs` array to ensure
             # that all finished sequences are continued with `eos_symbol`.
@@ -326,7 +361,9 @@ class BeamSearch(object):
             if ignore_first_eol and i == 0:
                 mask[:] = 1
 
-            for idx in numpy.where(mask==0)[0]:
+            for idx in numpy.where(
+                    (all_outputs[-1] == eol_symbol)
+                    & (all_costs[-1] - all_costs[-2] < round_to_inf))[0]:
                 done.append((all_outputs[:, idx], all_costs[:, idx]))
 
             unfinished = numpy.where(mask==1)[0]
@@ -334,6 +371,9 @@ class BeamSearch(object):
                 states[name] = numpy.take(states[name], unfinished, axis=0)
             all_outputs = numpy.take(all_outputs, unfinished, axis=1)
             all_costs = numpy.take(all_costs, unfinished, axis=1)
+
+        if not done:
+            raise CandidateNotFoundError()
 
         done = sorted(done, key=lambda x: x[1][-1] - char_discount * len(x[1]))
 

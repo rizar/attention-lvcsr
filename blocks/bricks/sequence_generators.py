@@ -273,8 +273,8 @@ class BaseSequenceGenerator(Initializable):
         # are discarded because they are not used for prediction.
         # Remember, glimpses are computed _before_ output stage, states are
         # computed after.
-        states = {name: results[name][:-1] for name in self._state_names}
-        glimpses = {name: results[name][1:] for name in self._glimpse_names}
+        states = OrderedDict((name, results[name][:-1]) for name in self._state_names)
+        glimpses = OrderedDict((name, results[name][1:]) for name in self._glimpse_names)
 
         # Compute the cost
         feedback = tensor.roll(feedback, 1, 0)
@@ -361,7 +361,7 @@ class BaseSequenceGenerator(Initializable):
         if self.language_model:
             unmangled_lm_states = {name[3:]: lm_states[name]
                                    for name in lm_states}
-            next_lm_states = dict(zip(
+            next_lm_states = OrderedDict(zip(
                 self._lm_state_names, self.language_model.generate(
                 next_outputs, dont_generate_new_outputs=True, iterate=False,
                 **unmangled_lm_states)))
@@ -479,6 +479,15 @@ class AbstractReadout(Initializable):
             or one less dimensions compared to `readout`. If readout has
             `n` dimensions, first `n - 1` dimensions of `outputs` should
             match with those of `readouts`.
+
+        """
+        pass
+
+    @abstractmethod
+    def costs(self, readouts):
+        """Cost matrix for all outputs.
+
+        For beam search.
 
         """
         pass
@@ -609,6 +618,10 @@ class Readout(AbstractReadout):
     @application
     def cost(self, readouts, outputs):
         return self.emitter.cost(readouts, outputs)
+
+    @application
+    def costs(self, readouts):
+        return self.emitter.costs(readouts)
 
     @application
     def initial_outputs(self, batch_size):
@@ -751,6 +764,11 @@ class SoftmaxEmitter(AbstractEmitter, Initializable, Random):
         # different dimensions. Be careful!
         return self.softmax.categorical_cross_entropy(
             outputs, readouts, extra_ndim=readouts.ndim - 2)
+
+    @application
+    def costs(self, readouts):
+        return -self.softmax.log_probabilities(
+            readouts, extra_ndim=readouts.ndim - 2)
 
     @application
     def initial_outputs(self, batch_size):

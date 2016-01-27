@@ -379,8 +379,9 @@ class PrintingFilterUnderscored(object):
     def __call__(self, attr):
         return attr.startswith('_')
 
+
 class PrintingFilterList(object):
-    def __init__(self,*args, **kwargs):
+    def __init__(self, *args, **kwargs):
         """
         Filters out a given set of names or regexpes
 
@@ -408,11 +409,14 @@ class PrintingFilterList(object):
         if filter_underscored:
             huge_re_parts.append('_.*')
         huge_re_parts += args
-        huge_re = '(:?' + '|'.join(['(:?{})'.format(p) for p in huge_re_parts]) + ')'
+        huge_re = ('(:?' +
+                   '|'.join(['(:?{})'.format(p) for p in huge_re_parts]) +
+                   ')')
         self.regexp = re.compile(huge_re)
 
     def __call__(self, attrs):
         return self.regexp.match(attrs)
+
 
 class Printing(SimpleExtension):
     """Prints log messages to the screen."""
