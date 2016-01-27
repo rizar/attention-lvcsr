@@ -1,7 +1,7 @@
 from __future__ import print_function
 import sys
 import contextlib
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 import numpy
 import six
@@ -70,6 +70,35 @@ def unpack(arg, singleton=False):
         return arg
 
 
+def shared_floatx_zeros_matching(shared_variable, name=None, **kwargs):
+    r"""Create another shared variable with matching shape and broadcast.
+
+    Parameters
+    ----------
+    shared_variable : :class:'tensor.TensorSharedVariable'
+        A Theano shared variable with the desired shape and broadcastable
+        flags.
+    name : :obj:`str`, optional
+        The name for the shared variable. Defaults to `None`.
+    \*\*kwargs
+        Keyword arguments to pass to the :func:`shared_floatx_zeros` function.
+
+    Returns
+    -------
+    :class:'tensor.TensorSharedVariable'
+        A new shared variable, initialized to all zeros, with the same
+        shape and broadcastable flags as `shared_variable`.
+
+
+    """
+    if not is_shared_variable(shared_variable):
+        raise ValueError('argument must be a shared variable')
+    return shared_floatx_zeros(shared_variable.get_value().shape,
+                               name=name,
+                               broadcastable=shared_variable.broadcastable,
+                               **kwargs)
+
+
 def shared_floatx_zeros(shape, **kwargs):
     r"""Creates a shared variable array filled with zeros.
 
@@ -108,8 +137,8 @@ def shared_floatx_nans(shape, **kwargs):
     return shared_floatx(numpy.nan * numpy.zeros(shape), **kwargs)
 
 
-def shared_floatx(value, name=None, borrow=False, dtype=None):
-    """Transform a value into a shared variable of type floatX.
+def shared_floatx(value, name=None, borrow=False, dtype=None, **kwargs):
+    r"""Transform a value into a shared variable of type floatX.
 
     Parameters
     ----------
@@ -123,6 +152,8 @@ def shared_floatx(value, name=None, borrow=False, dtype=None):
     dtype : :obj:`str`, optional
         The `dtype` of the shared variable. Default value is
         :attr:`config.floatX`.
+    \*\*kwargs
+        Keyword arguments to pass to the :func:`~theano.shared` function.
 
     Returns
     -------
@@ -133,12 +164,11 @@ def shared_floatx(value, name=None, borrow=False, dtype=None):
     if dtype is None:
         dtype = theano.config.floatX
     return theano.shared(theano._asarray(value, dtype=dtype),
-                         name=name,
-                         borrow=borrow)
+                         name=name, borrow=borrow, **kwargs)
 
 
-def shared_like(variable, name=None):
-    """Construct a shared variable to hold the value of a tensor variable.
+def shared_like(variable, name=None, **kwargs):
+    r"""Construct a shared variable to hold the value of a tensor variable.
 
     Parameters
     ----------
@@ -148,6 +178,8 @@ def shared_like(variable, name=None):
     name : :obj:`str` or :obj:`None`
         The name of the shared variable. If None, the name is determined
         based on variable's name.
+    \*\*kwargs
+        Keyword arguments to pass to the :func:`~theano.shared` function.
 
     """
     variable = tensor.as_tensor_variable(variable)
@@ -155,7 +187,7 @@ def shared_like(variable, name=None):
         name = "shared_{}".format(variable.name)
     return theano.shared(numpy.zeros((0,) * variable.ndim,
                                      dtype=variable.dtype),
-                         name=name)
+                         name=name, **kwargs)
 
 
 def reraise_as(new_exc):
@@ -257,13 +289,6 @@ def check_theano_variable(variable, n_dim, dtype_prefix):
         raise ValueError("Wrong dtype prefix:"
                          "\n\texpected starting with {}, got {}".format(
                              dtype_prefix, variable.dtype))
-
-
-def named_copy(variable, new_name):
-    """Clones a variable and set a new name to the clone."""
-    result = variable.copy()
-    result.name = new_name
-    return result
 
 
 def is_graph_input(variable):
@@ -460,3 +485,94 @@ def change_recursion_limit(limit):
     sys.setrecursionlimit(limit)
     yield
     sys.setrecursionlimit(old_limit)
+
+
+def extract_args(expected, *args, **kwargs):
+    r"""Route keyword and positional arguments to a list of names.
+
+    A frequent situation is that a method of the class gets to
+    know its positional arguments only when an instance of the class
+    has been created. In such cases the signature of such method has to
+    be `*args, **kwargs`. The downside of such signatures is that the
+    validity of a call is not checked.
+
+    Use :func:`extract_args` if your method knows at runtime, but not
+    at evaluation/compile time, what arguments it actually expects,
+    in order to check that they are correctly received.
+
+    Parameters
+    ----------
+    expected : list of str
+        A list of strings denoting names for the expected arguments,
+        in order.
+    args : iterable
+        Positional arguments that have been passed.
+    kwargs : Mapping
+        Keyword arguments that have been passed.
+
+    Returns
+    -------
+    routed_args : OrderedDict
+        An OrderedDict mapping the names in `expected` to values drawn
+        from either `args` or `kwargs` in the usual Python fashion.
+
+    Raises
+    ------
+    KeyError
+        If a keyword argument is passed, the key for which is not
+        contained within `expected`.
+    TypeError
+        If an expected argument is accounted for in both the positional
+        and keyword arguments.
+    ValueError
+        If certain arguments in `expected` are not assigned a value
+        by either a positional or keyword argument.
+
+    """
+    # Use of zip() rather than equizip() intentional here. We want
+    # to truncate to the length of args.
+    routed_args = dict(zip(expected, args))
+    for name in kwargs:
+        if name not in expected:
+            raise KeyError('invalid input name: {}'.format(name))
+        elif name in routed_args:
+            raise TypeError("got multiple values for "
+                            "argument '{}'".format(name))
+        else:
+            routed_args[name] = kwargs[name]
+    if set(expected) != set(routed_args):
+        raise ValueError('missing values for inputs: {}'.format(
+                         [name for name in expected
+                          if name not in routed_args]))
+    return OrderedDict((key, routed_args[key]) for key in expected)
+
+
+def find_bricks(top_bricks, predicate):
+    """Walk the brick hierarchy, return bricks that satisfy a predicate.
+
+    Parameters
+    ----------
+    top_bricks : list
+        A list of root bricks to search downward from.
+    predicate : callable
+        A callable that returns `True` for bricks that meet the
+        desired criteria or `False` for those that don't.
+
+    Returns
+    -------
+    found : list
+        A list of all bricks that are descendants of any element of
+        `top_bricks` that satisfy `predicate`.
+
+    """
+    found = []
+    visited = set()
+    to_visit = deque(top_bricks)
+    while len(to_visit) > 0:
+        current = to_visit.popleft()
+        if current not in visited:
+            visited.add(current)
+            if predicate(current):
+                found.append(current)
+            to_visit.extend(current.children)
+    return found

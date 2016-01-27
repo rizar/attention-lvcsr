@@ -4,12 +4,33 @@ import numpy
 import theano
 from numpy.testing import assert_allclose, assert_raises
 from theano import tensor
+from theano.compile.profiling import ProfileStats
 
 from blocks.algorithms import (GradientDescent, StepClipping, VariableClipping,
                                CompositeRule, Scale, StepRule, BasicMomentum,
                                Momentum, AdaDelta, BasicRMSProp, RMSProp, Adam,
                                AdaGrad, RemoveNotFinite, Restrict)
-from blocks.utils import shared_floatx
+from blocks.utils import shared_floatx, shared_floatx_zeros
+
+
+def verify_broadcastable_handling(step_rule):
+    def check(param):
+        grad = tensor.grad(param.sum(), wrt=param)
+        step, _ = step_rule.compute_steps(OrderedDict([(param, grad)]))
+        assert step[param].broadcastable == grad.broadcastable
+
+    check(shared_floatx_zeros((5, 6, 1, 5),
+                              broadcastable=(False, False, True, False)))
+    check(shared_floatx_zeros((2, 1, 3),
+                              broadcastable=(False, True, False)))
+    check(shared_floatx_zeros((3, 4, 1),
+                              broadcastable=(False, False, True)))
+    check(shared_floatx_zeros((1, 9, 6),
+                              broadcastable=(True, False, False)))
+    check(shared_floatx_zeros((1, 1, 1),
+                              broadcastable=(True, True, True)))
+    check(shared_floatx_zeros((1, 5, 1),
+                              broadcastable=(True, False, True)))
 
 
 def test_gradient_descent():
@@ -68,6 +89,10 @@ def test_basic_momentum():
     assert_allclose(f()[0], [10.5, 14.])
 
 
+def test_basic_momentum_broadcastable():
+    verify_broadcastable_handling(BasicMomentum(0.5))
+
+
 def test_momentum():
     a = shared_floatx([3, 4])
     cost = (a ** 2).sum()
@@ -77,6 +102,10 @@ def test_momentum():
     assert_allclose(f()[0], [0.6, 0.8])
     assert_allclose(f()[0], [0.9, 1.2])
     assert_allclose(f()[0], [1.05, 1.4])
+
+
+def test_momentum_broadcastable():
+    verify_broadcastable_handling(Momentum(0.5))
 
 
 def test_adadelta():
@@ -107,6 +136,10 @@ def test_basicrmsprop():
     assert_allclose(f()[0], [0.9701425, 1.02899151])
     a.set_value([1, 1.5])
     assert_allclose(f()[0], [0.6172134, 0.64699664])
+
+
+def test_basicrmsprop_broadcastable():
+    verify_broadcastable_handling(BasicRMSProp(0.5, 1e5))
 
 
 def test_basicrmsprop_max_scaling():
@@ -142,6 +175,10 @@ def test_rmsprop():
     assert_allclose(f()[0], [0.06172134, 0.064699664])
 
 
+def test_rmsprop_broadcastable():
+    verify_broadcastable_handling(RMSProp(0.1, 0.5, 1e5))
+
+
 def test_step_clipping():
     rule1 = StepClipping(4)
     rule2 = StepClipping(5)
@@ -153,6 +190,10 @@ def test_step_clipping():
     clipped2, _ = rule2.compute_steps(gradients)
     assert_allclose(clipped2[0].eval(), 3.0)
     assert_allclose(clipped2[1].eval(), 4.0)
+
+
+def test_step_clipping_broadcastable():
+    verify_broadcastable_handling(StepClipping(0.4))
 
 
 def test_variable_clipping():
@@ -207,6 +248,10 @@ def test_variable_clipping():
     assert_raises(ValueError, VariableClipping, 50, axis=(0, 0))
 
 
+def test_variable_clipping_broadcastable():
+    verify_broadcastable_handling(VariableClipping(1))
+
+
 def test_composite_rule():
     rule = CompositeRule([StepClipping(4), Scale(0.1)])
     gradients = {0: shared_floatx(3.0), 1: shared_floatx(4.0)}
@@ -241,6 +286,10 @@ def test_adam():
     assert_allclose(f()[0], [0.00178724, 0.0018223], rtol=rtol)
 
 
+def test_adam_broadcastable():
+    verify_broadcastable_handling(Adam())
+
+
 def test_adagrad():
     a = shared_floatx([3, 4])
     cost = (a ** 2).sum()
@@ -256,6 +305,10 @@ def test_adagrad():
     assert_allclose(f()[0], [0.00053452,  0.0005747], rtol=rtol)
 
 
+def test_adagrad_broadcastable():
+    verify_broadcastable_handling(AdaGrad())
+
+
 def test_remove_not_finite():
     rule1 = RemoveNotFinite(0.1)
     rule2 = RemoveNotFinite()
@@ -269,6 +322,11 @@ def test_remove_not_finite():
     rval2, _ = rule2.compute_steps(gradients)
     assert_allclose(rval2[1].eval(), 0.0)
     assert_allclose(rval2[2].eval(), 0.0)
+
+
+def test_remove_not_finite_broadcastable():
+    verify_broadcastable_handling(RemoveNotFinite())
+    verify_broadcastable_handling(RemoveNotFinite(0.1))
 
 
 class DummyUpdatesStepRule(StepRule):
@@ -299,3 +357,17 @@ def test_restrict():
     assert_allclose(steps[5].eval(), 25.0)
 
     assert updates == [(10, 100), (40, 400)]
+
+
+def test_theano_profile_for_sgd_function():
+    W = shared_floatx(numpy.array([[1, 2], [3, 4]]))
+    W_start_value = W.get_value()
+    cost = tensor.sum(W ** 2)
+
+    algorithm = GradientDescent(
+        cost=cost, parameters=[W], theano_func_kwargs={'profile': True})
+    algorithm.step_rule.learning_rate.set_value(0.75)
+    algorithm.initialize()
+    algorithm.process_batch(dict())
+    assert_allclose(W.get_value(), -0.5 * W_start_value)
+    assert isinstance(algorithm._function.profile, ProfileStats)
