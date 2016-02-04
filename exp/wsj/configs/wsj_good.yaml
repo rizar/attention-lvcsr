@@ -10,10 +10,10 @@ net:
     use_states_for_readout: True
     bottom:
         activation: !!python/object/apply:blocks.bricks.Rectifier []
-data:
-    # JCh: These options were removed in 1.2016. They should be overriden in
-    # Configurations that are based on this one
-    #
-    # preprocess_text: True
-    # preprocess_features: log_spectrogram
-    batch_size: 10
+# JCh: These options were removed in 1.2016. They should be overriden in
+# Configurations that are based on this one
+#
+# data:
+#     preprocess_text: True
+#     preprocess_features: log_spectrogram
+#     batch_size: 10

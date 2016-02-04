@@ -363,10 +363,11 @@ class BeamSearch(object):
                 mask[:] = 1
 
             for idx in numpy.where(
-                    (all_outputs[-1] == eol_symbol)
-                    & (all_costs[-1] - all_costs[-2] < round_to_inf))[0]:
+                    (all_outputs[-1] == eol_symbol) &
+                    (all_costs[-1] - all_costs[-2] < round_to_inf))[0]:
                 if (validate_solution_function is None or
-                        validate_solution_function(all_outputs[:, idx])):
+                        validate_solution_function(input_values,
+                                                   all_outputs[:, idx])):
                     done.append((all_outputs[:, idx], all_costs[:, idx]))
 
             unfinished = numpy.where(mask == 1)[0]

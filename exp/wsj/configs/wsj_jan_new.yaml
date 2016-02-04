@@ -1,5 +1,5 @@
 data:
-    dataset: wsj.h5
+    dataset_filename: wsj.h5
 
     name_mapping:
         train: train_si284
@@ -9,6 +9,7 @@ data:
     sources_map:
         recordings: fbank_dd
         labels: characters
+        uttids: uttids
 
     max_length: null
     normalization: null

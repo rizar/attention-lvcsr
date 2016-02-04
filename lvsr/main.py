@@ -101,17 +101,14 @@ class PhonemeErrorRate(MonitoredQuantity):
         data = self.data
         groundtruth = data.decode(transcription)
         try:
-            validate_solution_function = None
-            if hasattr(data.info_dataset, 'validate_solution'):
-                def validate_solution_function(solution):
-                    return data.info_dataset.validate_solution(beam_inputs,
-                                                               solution)
             outputs, search_costs = self.recognizer.beam_search(
                 beam_inputs,
                 char_discount=self.char_discount,
                 round_to_inf=self.round_to_inf,
                 stop_on=self.stop_on,
-                validate_solution_function=validate_solution_function
+                validate_solution_function=getattr(data.info_dataset,
+                                                   'validate_solution',
+                                                   None)
                 )
             recognized = data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
@@ -177,33 +174,55 @@ class LoadLog(TrainingExtension):
             reraise_as("Failed to load the state")
 
 
-def get_net_config(config, data):
-    nc = dict(config["net"])
-    data.default_sources = nc['input_sources'] + [data.sources_map['labels']]
-    nc['input_sources_dims'] = {}
-    for src in nc['input_sources']:
-        nc['input_sources_dims'][src] = data.num_features(src)
-    return nc
+def create_model(config, data,
+                 load_path=None,
+                 test_tag=False):
+    """
+    Build the main brick and initialize or load all parameters.
 
+    Parameters
+    ----------
 
-def create_model(config, data, test_tag):
+    config : dict
+        the configuration dict
 
-    # Build the main brick and initialize all parameters.
+    data : object of class Data
+        the dataset creation object
+
+    load_path : str or None
+        if given a string, it will be used to load model parameters. Else,
+        the parameters will be randomly initalized by calling
+        recognizer.initialize()
+
+    test_tag : bool
+        if true, will add tag the input variables with test values
+
+    """
+    # First tell the recognizer about required data sources
+    net_config = dict(config["net"])
+    data.default_sources = net_config['input_sources'] + ['labels']
+    net_config['input_sources_dims'] = {}
+    for src in net_config['input_sources']:
+        net_config['input_sources_dims'][src] = data.num_features(src)
+
     recognizer = SpeechRecognizer(
         eos_label=data.eos_label,
         num_phonemes=data.num_labels,
         name="recognizer",
         data_prepend_eos=data.prepend_eos,
         character_map=data.character_map,
-        **get_net_config(config, data))
-    for brick_path, attribute_dict in sorted(
-            config['initialization'].items(),
-            key=lambda (k, v): k.count('/')):
-        for attribute, value in attribute_dict.items():
-            brick, = Selector(recognizer).select(brick_path).bricks
-            setattr(brick, attribute, value)
-            brick.push_initialization_config()
-    recognizer.initialize()
+        **net_config)
+    if load_path:
+        recognizer.load_params(load_path)
+    else:
+        for brick_path, attribute_dict in sorted(
+                config['initialization'].items(),
+                key=lambda (k, v): k.count('/')):
+            for attribute, value in attribute_dict.items():
+                brick, = Selector(recognizer).select(brick_path).bricks
+                setattr(brick, attribute, value)
+                brick.push_initialization_config()
+        recognizer.initialize()
 
     if test_tag:
         # fails with newest theano
@@ -312,8 +331,7 @@ def initialize_all(config, save_path, bokeh_name,
             rename(gain_matrix.max(), 'max_gain'))
 
     batch_cost = cg.outputs[0].sum()
-    batch_size = rename(recognizer.bottom.batch_size(**recognizer.inputs),
-                            "batch_size")
+    batch_size = rename(recognizer.labels.shape[1], "batch_size")
     # Assumes constant batch size. `aggregation.mean` is not used because
     # of Blocks #514.
     cost = batch_cost / batch_size
@@ -342,8 +360,8 @@ def initialize_all(config, save_path, bokeh_name,
     weights, = VariableFilter(
         applications=[r.generator.evaluate], name="weights")(
             cost_cg)
-    max_recording_length = rename(r.bottom.num_time_steps(**r.inputs),
-                                      "max_recording_length")
+    max_recording_length = rename(bottom_output.shape[0],
+                                  "max_recording_length")
     # To exclude subsampling related bugs
     max_attended_mask_length = rename(attended_mask.shape[0],
                                       "max_attended_mask_length")
@@ -694,12 +712,7 @@ def search(config, params, load_path, part, decode_only, report,
     search_conf = config['monitoring']['search']
 
     logger.info("Recognizer initialization started")
-    recognizer = SpeechRecognizer(
-        eos_label=data.eos_label,
-        num_phonemes=data.num_labels,
-        character_map=data.character_map,
-        name='recognizer', **get_net_config(config, data))
-    recognizer.load_params(load_path)
+    recognizer = create_model(config, data, load_path)
     recognizer.init_beam_search(search_conf['beam_size'])
     logger.info("Recognizer is initialized")
 
@@ -781,17 +794,15 @@ def search(config, params, load_path, part, decode_only, report,
             continue
 
         before = time.time()
-        validate_solution_function = None
-        if hasattr(dataset, 'validate_solution'):
-            def validate_solution_function(solution):
-                return dataset.validate_solution(example, solution)
         try:
             outputs, search_costs = recognizer.beam_search(
                 required_inputs,
                 char_discount=search_conf['char_discount'],
                 round_to_inf=search_conf['round_to_inf'],
                 stop_on=search_conf['stop_on'],
-                validate_solution_function=validate_solution_function)
+                validate_solution_function=getattr(data.info_dataset,
+                                                   'validate_solution',
+                                                   None))
         except CandidateNotFoundError:
             outputs = [[]]
             search_costs = [[numpy.NaN]]
@@ -852,13 +863,7 @@ def search(config, params, load_path, part, decode_only, report,
 
 def sample(config, params, load_path, part):
     data = Data(**config['data'])
-
-    recognizer = SpeechRecognizer(
-        num_phonemes=data.num_labels,
-        eos_label=data.eos_label,
-        character_map=data.character_map,
-        name='recognizer', **get_net_config(config, data))
-    recognizer.load_params(load_path)
+    recognizer = create_model(config, data, load_path)
 
     dataset = data.get_dataset(part, add_sources=('uttids',))
     stream = data.get_stream(part, batches=False, shuffle=False,
@@ -876,15 +881,6 @@ def sample(config, params, load_path, part):
         sample = recognizer.sample(data)['outputs'][:, 0]
         recognized_text = dataset.pretty_print(sample)
         print("Recognized:", recognized_text, file=print_to)
-
-
-def init_norm(config, save_path):
-    config['data']['normalization'] = None
-    data = Data(**config['data'])
-    stream = data.get_stream("train", batches=False, shuffle=False)
-    normalization = Normalization(stream, data.sources_map['recordings'])
-    with open(save_path, "wb") as dst:
-        cPickle.dump(normalization, dst)
 
 
 def show_data(config):

@@ -15,6 +15,10 @@ from lvsr.datasets.h5py import H5PYAudioDataset
 from blocks.utils import dict_subset
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 def switch_first_two_axes(batch):
     result = []
     for array in batch:
@@ -92,8 +96,8 @@ class Data(object):
 
     Parameters
     ----------
-    dataset : str
-        Dataset name.
+    dataset_filename : str
+        Dataset file name.
     name_mapping : dict
         A map from conceptual split names (train, test) into concrete split
         names (e.g. 93eval).
@@ -120,7 +124,7 @@ class Data(object):
     dataset_class : object
         Class for this particulat dataset kind (WSJ, TIMIT)
     """
-    def __init__(self, dataset, name_mapping, sources_map,
+    def __init__(self, dataset_filename, name_mapping, sources_map,
                  batch_size, validation_batch_size=None,
                  sort_k_batches=None,
                  max_length=None, normalization=None,
@@ -134,11 +138,15 @@ class Data(object):
             with open(normalization, "rb") as src:
                 normalization = cPickle.load(src)
 
-        self.dataset = dataset
+        self.dataset_filename = dataset_filename
         self.dataset_class = dataset_class
         self.name_mapping = name_mapping
         self.sources_map = sources_map
         if default_sources is None:
+            logger.warn(
+                "The Data class was provided with no default_sources.\n"
+                "All instantiated Datasets or Datastreams will use all "
+                "available sources.\n")
             self.default_sources = sources_map.keys()
 
         self.normalization = normalization
@@ -199,12 +207,13 @@ class Data(object):
         """Returns dataset from the cache or creates a new one"""
         sources = []
         for src in self.default_sources + list(add_sources):
-            sources.append(self.sources_map.get(src, src))
+            sources.append(self.sources_map[src])
         sources = tuple(sources)
         key = (part, sources)
         if key not in self.dataset_cache:
             self.dataset_cache[key] = self.dataset_class(
-                file_or_path=os.path.join(fuel.config.data_path[0], self.dataset),
+                file_or_path=os.path.join(fuel.config.data_path[0],
+                                          self.dataset_filename),
                 which_sets=(self.name_mapping.get(part, part), ),
                 sources_map=self.sources_map,
                 sources=sources)
@@ -212,9 +221,6 @@ class Data(object):
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),
                    num_examples=None, rng=None, seed=None):
-
-        stream_filters = {}
-
         dataset = self.get_dataset(part, add_sources=add_sources)
         if num_examples is None:
             num_examples = dataset.num_examples

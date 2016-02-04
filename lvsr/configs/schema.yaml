@@ -15,7 +15,7 @@ map:
                 type: str
             sort_k_batches:
                 type: str
-            dataset:
+            dataset_filename:
                 type: str
             dataset_class:
                 type: any
