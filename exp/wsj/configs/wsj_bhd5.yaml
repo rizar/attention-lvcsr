@@ -1,6 +1,7 @@
 parent: $LVSR/exp/wsj/configs/wsj_jan_baseline.yaml
 net:
-    dims_bottom: []
+    bottom:
+        dims: []
 regularization:
     max_norm: 1
 

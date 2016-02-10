@@ -1,18 +1,19 @@
 data:
-    dataset: wsj.h5
+    dataset_filename: wsj.h5
 
     name_mapping:
         train: train_si284
         valid: test_dev93
         test:  test_eval92
 
-    recordings_source: fbank_dd
+    sources_map:
+        recordings: fbank_dd
+        labels: characters
+        uttids: uttids
+
     max_length: null
     normalization: null
-    preprocess_features: False
 
-    labels_source: characters
-    preprocess_text: False
     add_eos: True
     prepend_eos: False
 
@@ -33,8 +34,9 @@ initialization:
             !!python/object/apply:blocks.initialization.IsotropicGaussian [0.001]
 
 net:
-    bottom_activation: !!python/object/apply:blocks.bricks.Rectifier []
-    dims_bottom: []
+    bottom:
+        activation: !!python/object/apply:blocks.bricks.Rectifier []
+        dims: []
 
     enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
     dims_bidir: [256, 256, 256, 256]

@@ -15,7 +15,7 @@ map:
                 type: str
             sort_k_batches:
                 type: str
-            dataset:
+            dataset_filename:
                 type: str
             dataset_class:
                 type: any
@@ -23,18 +23,15 @@ map:
                 map:
                     train:
                         type: str
+                    train_subsampled:
+                        type: str
                     valid:
                         type: str
                     test:
                         type: str
-            recordings_source:
-                type: str
-            labels_source:
-                type: str
-            preprocess_features:
-                type: str
-            preprocess_text:
-                type: bool
+            sources_map:
+                type: map
+                allowempty: true
             add_eos:
                 type: bool
             add_bos:
@@ -55,9 +52,6 @@ map:
             dims_bidir:
                 sequence:
                     - type: int
-            dims_bottom:
-                sequence:
-                    - type: int
             post_merge_dims:
                 sequence:
                     - type: int
@@ -67,8 +61,20 @@ map:
                 type: int
             energy_normalizer:
                 type: str
-            bottom_activation:
-                type: any
+            input_sources:
+                sequence:
+                    - type: str
+            bottom:
+                map:
+                    bottom_class:
+                        type: any
+                    activation:
+                        type: any
+                    dims:
+                        sequence:
+                            - type: int
+                    regex;(.*):
+                        type: any
             post_merge_activation:
                 type: any
             enc_transition:
@@ -88,6 +94,8 @@ map:
                         type: str
                     min_reward:
                         type: int
+            max_decoded_length_scale:
+                type: float
             lm:
                 type: any
             prior:
