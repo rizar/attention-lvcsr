@@ -147,7 +147,8 @@ class Data(object):
                 "The Data class was provided with no default_sources.\n"
                 "All instantiated Datasets or Datastreams will use all "
                 "available sources.\n")
-            self.default_sources = sources_map.keys()
+            default_sources = sources_map.keys()
+        self.default_sources = default_sources
 
         self.normalization = normalization
         self.batch_size = batch_size
@@ -185,7 +186,7 @@ class Data(object):
         return self.info_dataset.char2num
 
     def num_features(self, feature_name):
-        return self.info_dataset.num_features(feature_name)
+        return self.info_dataset.dim(self.sources_map[feature_name])
 
     @property
     def eos_label(self):
@@ -215,8 +216,8 @@ class Data(object):
                 file_or_path=os.path.join(fuel.config.data_path[0],
                                           self.dataset_filename),
                 which_sets=(self.name_mapping.get(part, part), ),
-                sources_map=self.sources_map,
-                sources=sources)
+                sources=sources,
+                target_source=self.sources_map['labels'])
         return self.dataset_cache[key]
 
     def get_stream(self, part, batches=True, shuffle=True, add_sources=(),

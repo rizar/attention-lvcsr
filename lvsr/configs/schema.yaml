@@ -32,6 +32,10 @@ map:
             sources_map:
                 type: map
                 allowempty: true
+            default_sources:
+                type: seq
+                sequence:
+                    - type: str
             add_eos:
                 type: bool
             add_bos:

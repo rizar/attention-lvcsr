@@ -3,38 +3,23 @@ from fuel.datasets.hdf5 import H5PYDataset
 
 
 class H5PYAudioDataset(H5PYDataset):
-    def __init__(self, sources_map, **kwargs):
-        self.sources_map = sources_map
-        sources_map = dict(sources_map)
-        sources = kwargs['sources']
-
-        #
-        # Jan 1/19/16: I will try to remove all places where we depend on
-        # this particular source order. But for safety I raise for now.
-        #
-
-        if (sources[0] != self.sources_map['recordings'] or
-                sources[1] != self.sources_map['labels']):
-            raise Exception("Sources have to list the recordings source and"
-                            "the labels source. Check that the dataset has "
-                            "properly set dfault_sources attribute!"
-                            )
+    def __init__(self, target_source, **kwargs):
+        # We have to know data from which sources will be used as targets.
+        # E.g. this might be necessary for pretty printing.
+        self.target_source = target_source
 
         super(H5PYAudioDataset, self).__init__(**kwargs)
         self.open()
+
         self.char2num = dict(
-            self._file_handle[self.sources_map['labels']].attrs['value_map'])
+            self._file_handle[self.target_source].attrs['value_map'])
         self.num2char = {num: char for char, num in self.char2num.items()}
-        self._num_features = self._file_handle[
-            self.sources_map['recordings'] + '_shapes'][0][1]
         self.num_characters = len(self.num2char)
         self.eos_label = self.char2num['<eol>']
         self.bos_label = self.char2num.get('<bol>')
 
-    def num_features(self, feature_name):
-        if feature_name != 'recordings':
-            raise 'The H5PYAudioDataset knows only about "recordings" sources'
-        return self._num_features
+    def dim(self, source):
+        return self._file_handle[source + '_shapes'][0][1]
 
     def decode(self, labels, keep_eos=False):
         return [self.num2char[label] for label in labels

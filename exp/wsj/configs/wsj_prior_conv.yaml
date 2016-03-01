@@ -12,6 +12,8 @@ data:
         labels: labels
         uttids: uttids
 
+    default_sources: [recordings, labels]
+
     normalization: wsj_norm.pkl
 net:
     dim_dec: 250
