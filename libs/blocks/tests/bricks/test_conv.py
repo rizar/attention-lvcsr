@@ -10,8 +10,6 @@ from theano import function
 from blocks.bricks import Rectifier, Tanh
 from blocks.bricks.conv import (Convolutional, ConvolutionalTranspose,
                                 MaxPooling, AveragePooling,
-                                ConvolutionalActivation,
-                                ConvolutionalTransposeActivation,
                                 ConvolutionalSequence)
 from blocks.initialization import Constant
 from blocks.graph import ComputationGraph
@@ -69,21 +67,24 @@ def test_convolutional_transpose():
 
 def test_border_mode_not_pushed():
     layers = [Convolutional(border_mode='full'),
-              ConvolutionalActivation(Rectifier().apply),
-              ConvolutionalActivation(Rectifier().apply, border_mode='valid'),
-              ConvolutionalActivation(Rectifier().apply, border_mode='full')]
+              Convolutional(),
+              Rectifier(),
+              Convolutional(border_mode='valid'),
+              Rectifier(),
+              Convolutional(border_mode='full'),
+              Rectifier()]
     stack = ConvolutionalSequence(layers)
     stack.push_allocation_config()
     assert stack.children[0].border_mode == 'full'
     assert stack.children[1].border_mode == 'valid'
-    assert stack.children[2].border_mode == 'valid'
-    assert stack.children[3].border_mode == 'full'
+    assert stack.children[3].border_mode == 'valid'
+    assert stack.children[5].border_mode == 'full'
     stack2 = ConvolutionalSequence(layers, border_mode='full')
     stack2.push_allocation_config()
     assert stack2.children[0].border_mode == 'full'
     assert stack2.children[1].border_mode == 'full'
-    assert stack2.children[2].border_mode == 'full'
     assert stack2.children[3].border_mode == 'full'
+    assert stack2.children[5].border_mode == 'full'
 
 
 def test_no_input_size():
@@ -257,21 +258,19 @@ def test_convolutional_sequence():
     num_channels = 4
     pooling_size = 3
     batch_size = 5
-    activation = Rectifier().apply
+    act = Rectifier()
 
-    conv = ConvolutionalActivation(activation, (3, 3), 5,
-                                   weights_init=Constant(1.),
-                                   biases_init=Constant(5.))
+    conv = Convolutional((3, 3), 5, weights_init=Constant(1.),
+                         biases_init=Constant(5.))
     pooling = MaxPooling(pooling_size=(pooling_size, pooling_size))
-    conv2 = ConvolutionalActivation(activation, (2, 2), 4,
-                                    weights_init=Constant(1.))
+    conv2 = Convolutional((2, 2), 4, weights_init=Constant(1.))
 
-    seq = ConvolutionalSequence([conv, pooling, conv2], num_channels,
+    seq = ConvolutionalSequence([conv, act, pooling, conv2, act], num_channels,
                                 image_size=(17, 13))
     seq.push_allocation_config()
     assert conv.num_channels == 4
     assert conv2.num_channels == 5
-    conv2.convolution.use_bias = False
+    conv2.use_bias = False
     y = seq.apply(x)
     seq.initialize()
     func = function([x], y)
@@ -282,46 +281,49 @@ def test_convolutional_sequence():
     assert_allclose(func(x_val), y_val)
 
 
-def test_convolutional_activation_use_bias():
-    act = ConvolutionalActivation(Rectifier().apply, (3, 3), 5, 4,
-                                  image_size=(9, 9), use_bias=False)
-    act.allocate()
-    assert not act.convolution.use_bias
-    assert len(ComputationGraph([act.apply(tensor.tensor4())]).parameters) == 1
+def test_convolutional_sequence_with_raw_activation():
+    seq = ConvolutionalSequence([Rectifier()], num_channels=4,
+                                image_size=(20, 14))
+    input_ = (((numpy.arange(2 * 4 * 20 * 14)
+                .reshape((2, 4, 20, 14)) % 2) * 2 - 1)
+              .astype(theano.config.floatX))
+    expected_ = input_ * (input_ > 0)
+    x = theano.tensor.tensor4()
+    assert_allclose(seq.apply(x).eval({x: input_}), expected_)
 
 
-def test_convolutional_transpose_activation():
-    x = tensor.tensor4('x')
-    num_channels = 4
-    num_filters = 3
-    image_size = (8, 6)
-    original_image_size = (17, 13)
-    batch_size = 5
-    filter_size = (3, 3)
-    step = (2, 2)
-    conv = ConvolutionalTransposeActivation(
-        Tanh().apply, original_image_size, filter_size, num_filters,
-        num_channels, step=step, image_size=image_size,
-        weights_init=Constant(1.), biases_init=Constant(5.))
-    conv.initialize()
-    y = conv.apply(x)
-    func = function([x], y)
+def test_convolutional_sequence_with_convolutions_raw_activation():
+    seq = ConvolutionalSequence(
+        [Convolutional(filter_size=(3, 3), num_filters=4),
+         Rectifier(),
+         Convolutional(filter_size=(5, 5), num_filters=3, step=(2, 2)),
+         Tanh()],
+        num_channels=2,
+        image_size=(21, 39))
+    seq.allocate()
+    x = theano.tensor.tensor4()
+    out = seq.apply(x).eval({x: numpy.ones((10, 2, 21, 39),
+                                           dtype=theano.config.floatX)})
+    assert out.shape == (10, 3, 8, 17)
 
-    x_val = numpy.ones((batch_size, num_channels) + image_size,
-                       dtype=theano.config.floatX)
-    expected_value = num_channels * numpy.ones(
-        (batch_size, num_filters) + original_image_size)
-    expected_value[:, :, 2:-2:2, :] += num_channels
-    expected_value[:, :, :, 2:-2:2] += num_channels
-    expected_value[:, :, 2:-2:2, 2:-2:2] += num_channels
-    assert_allclose(func(x_val), numpy.tanh(expected_value + 5))
+
+def test_convolutional_sequence_activation_get_dim():
+    seq = ConvolutionalSequence([Tanh()], num_channels=9, image_size=(4, 6))
+    seq.allocate()
+    assert seq.get_dim('output') == (9, 4, 6)
+
+    seq = ConvolutionalSequence([Convolutional(filter_size=(7, 7),
+                                               num_filters=5,
+                                               border_mode=(1, 1)),
+                                 Tanh()], num_channels=8, image_size=(8, 11))
+    seq.allocate()
+    assert seq.get_dim('output') == (5, 4, 7)
 
 
 def test_convolutional_sequence_use_bias():
     cnn = ConvolutionalSequence(
-        [ConvolutionalActivation(activation=Rectifier().apply,
-                                 filter_size=(1, 1), num_filters=1)
-         for _ in range(3)],
+        sum([[Convolutional(filter_size=(1, 1), num_filters=1), Rectifier()]
+             for _ in range(3)], []),
         num_channels=1, image_size=(1, 1),
         use_bias=False)
     cnn.allocate()

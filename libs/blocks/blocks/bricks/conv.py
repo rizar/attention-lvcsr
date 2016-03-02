@@ -1,16 +1,16 @@
-from theano import tensor
 from theano.tensor.nnet import conv2d
 from theano.tensor.nnet.abstract_conv import (AbstractConv2d_gradInputs,
                                               get_conv_output_shape)
 from theano.tensor.signal.pool import pool_2d, Pool
 
-from blocks.bricks import Initializable, Feedforward, Sequence
+from blocks.bricks import (Initializable, Feedforward, Sequence, Activation,
+                           LinearLike)
 from blocks.bricks.base import application, Brick, lazy
 from blocks.roles import add_role, FILTER, BIAS
 from blocks.utils import shared_floatx_nans
 
 
-class Convolutional(Initializable):
+class Convolutional(LinearLike):
     """Performs a 2D convolution.
 
     Parameters
@@ -107,14 +107,6 @@ class Convolutional(Initializable):
             self.parameters.append(b)
             self.add_auxiliary_variable(b.norm(2), name='b_norm')
 
-    def _initialize(self):
-        if self.use_bias:
-            W, b = self.parameters
-            self.biases_init.initialize(b, self.rng)
-        else:
-            W, = self.parameters
-        self.weights_init.initialize(W, self.rng)
-
     @application(inputs=['input_'], outputs=['output'])
     def apply(self, input_):
         """Perform the convolution.
@@ -137,11 +129,6 @@ class Convolutional(Initializable):
             for 'full' it is ``image_size + filter_size - 1``.
 
         """
-        if self.use_bias:
-            W, b = self.parameters
-        else:
-            W, = self.parameters
-
         if self.image_size == (None, None):
             input_shape = None
         else:
@@ -149,7 +136,7 @@ class Convolutional(Initializable):
             input_shape += self.image_size
 
         output = self.conv2d_impl(
-            input_, W,
+            input_, self.W,
             input_shape=input_shape,
             subsample=self.step,
             border_mode=self.border_mode,
@@ -157,9 +144,9 @@ class Convolutional(Initializable):
                           self.filter_size))
         if self.use_bias:
             if self.tied_biases:
-                output += b.dimshuffle('x', 0, 'x', 'x')
+                output += self.b.dimshuffle('x', 0, 'x', 'x')
             else:
-                output += b.dimshuffle('x', 0, 1, 2)
+                output += self.b.dimshuffle('x', 0, 1, 2)
         return output
 
     def get_dim(self, name):
@@ -396,98 +383,6 @@ class AveragePooling(Pooling):
                                              padding=padding, **kwargs)
 
 
-class _AllocationMixin(object):
-    def _push_allocation_config(self):
-        for attr in ['filter_size', 'num_filters', 'border_mode',
-                     'batch_size', 'num_channels', 'image_size',
-                     'tied_biases', 'use_bias']:
-            setattr(self.convolution, attr, getattr(self, attr))
-
-    @property
-    def num_output_channels(self):
-        # Assumes an elementwise activation function. Would need to
-        # change to support e.g. maxout, but that would also require
-        # a way of querying the activation function for this kind of
-        # information.
-        return self.num_filters
-
-
-class ConvolutionalActivation(_AllocationMixin, Sequence, Initializable):
-    """A convolution followed by an activation function.
-
-    Parameters
-    ----------
-    activation : :class:`.BoundApplication`
-        The application method to apply after convolution (i.e.
-        the nonlinear activation function)
-
-    See Also
-    --------
-    :class:`Convolutional` : For the documentation of other parameters.
-
-    """
-    @lazy(allocation=['filter_size', 'num_filters', 'num_channels'])
-    def __init__(self, activation, filter_size, num_filters, num_channels,
-                 batch_size=None, image_size=None, step=(1, 1),
-                 border_mode='valid', tied_biases=False, **kwargs):
-        self._build_convolution()
-
-        self.filter_size = filter_size
-        self.num_filters = num_filters
-        self.num_channels = num_channels
-        self.batch_size = batch_size
-        self.image_size = image_size
-        self.step = step
-        self.border_mode = border_mode
-        self.tied_biases = tied_biases
-
-        super(ConvolutionalActivation, self).__init__(
-            application_methods=[self.convolution.apply, activation],
-            **kwargs)
-
-    def _build_convolution(self):
-        self.convolution = Convolutional()
-
-    def get_dim(self, name):
-        # TODO The name of the activation output doesn't need to be `output`
-        return self.convolution.get_dim(name)
-
-    def _push_allocation_config(self):
-        super(ConvolutionalActivation, self)._push_allocation_config()
-        self.convolution.step = self.step
-
-
-class ConvolutionalTransposeActivation(ConvolutionalActivation):
-    """A transposed convolution followed by an activation function.
-
-    Parameters
-    ----------
-    activation : :class:`.BoundApplication`
-        The application method to apply after convolution (i.e.
-        the nonlinear activation function)
-
-    See Also
-    --------
-    :class:`ConvolutionalTranspose` : For the documentation of other
-    parameters.
-
-    """
-    @lazy(allocation=['original_image_size', 'filter_size', 'num_filters',
-                      'num_channels'])
-    def __init__(self, activation, original_image_size, filter_size,
-                 num_filters, num_channels, **kwargs):
-        super(ConvolutionalTransposeActivation, self).__init__(
-            activation, filter_size, num_filters, num_channels, **kwargs)
-        self.original_image_size = original_image_size
-
-    def _build_convolution(self):
-        self.convolution = ConvolutionalTranspose()
-
-    def _push_allocation_config(self):
-        super(ConvolutionalTransposeActivation, self)._push_allocation_config()
-        self.convolution.original_image_size = self.original_image_size
-
-
 class ConvolutionalSequence(Sequence, Initializable, Feedforward):
     """A sequence of convolutional (or pooling) operations.
 
@@ -496,6 +391,8 @@ class ConvolutionalSequence(Sequence, Initializable, Feedforward):
     layers : list
         List of convolutional bricks (i.e. :class:`Convolutional`,
         :class:`ConvolutionalActivation`, or :class:`Pooling` bricks).
+        :class:`Activation` bricks that operate elementwise can also
+        be included.
     num_channels : int
         Number of input channels in the image. For the first layer this is
         normally 1 for grayscale images and 3 for color (RGB) images. For
@@ -553,13 +450,25 @@ class ConvolutionalSequence(Sequence, Initializable, Feedforward):
         if name == 'input_':
             return ((self.num_channels,) + self.image_size)
         if name == 'output':
-            return self.layers[-1].get_dim(name)
+            last = len(self.layers) - 1
+            while last >= 0:
+                try:
+                    return self.layers[last].get_dim(name)
+                except ValueError:
+                    last -= 1
+            # The output shape of an empty ConvolutionalSequence or one
+            # consisting only of Activations is the input shape.
+            return self.get_dim('input_')
         return super(ConvolutionalSequence, self).get_dim(name)
 
     def _push_allocation_config(self):
         num_channels = self.num_channels
         image_size = self.image_size
         for layer in self.layers:
+            if isinstance(layer, Activation):
+                # Activations operate elementwise; nothing to set.
+                layer.push_allocation_config()
+                continue
             if self.border_mode is not None:
                 layer.border_mode = self.border_mode
             layer.tied_biases = self.tied_biases
@@ -569,7 +478,7 @@ class ConvolutionalSequence(Sequence, Initializable, Feedforward):
             layer.use_bias = self.use_bias
 
             # Push input dimensions to children
-            layer._push_allocation_config()
+            layer.push_allocation_config()
 
             # Retrieve output dimensions
             # and set it for next layer
