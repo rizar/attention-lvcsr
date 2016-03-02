@@ -416,12 +416,12 @@ class BinCountOp(theano.Op):
         # Some dtypes are not supported by numpy's implementation of bincount.
         # Until another one is available, we should fail at graph construction
         # time, not wait for execution.
-        int_bitwidth = theano.gof.python_int_bitwidth()
+        int_bitwidth = theano.configdefaults.python_int_bitwidth()
         if int_bitwidth == 64:
             numpy_unsupported_dtypes = ('uint64',)
         if int_bitwidth == 32:
             numpy_unsupported_dtypes = ('uint32', 'int64', 'uint64')
-        intp_bitwidth = theano.gof.local_bitwidth()
+        intp_bitwidth = theano.configdefaults.local_bitwidth()
         if intp_bitwidth == 32:
             out_type = basic.ivector()
         elif intp_bitwidth == 64:
@@ -504,18 +504,6 @@ def bincount(x, weights=None, minlength=None, assert_nonneg=False):
     .. versionadded:: 0.6
 
     """
-    compatible_type = ('int8', 'int16', 'int32', 'int64',
-                       'uint8', 'uint16', 'uint32')
-    unsupported_dtypes = ('uint64',)
-
-    if x.dtype in unsupported_dtypes:
-            raise TypeError(
-                ("Input dtype %s is not supported, "
-                 % unsupported_dtypes), x.dtype)
-
-    if x.dtype not in compatible_type:
-        raise TypeError("Inputs dtype must be an integer.")
-
     if x.ndim != 1:
         raise TypeError("Inputs must be of dimension 1.")
 
@@ -610,7 +598,7 @@ class RepeatOp(theano.Op):
         # Some dtypes are not supported by numpy's implementation of repeat.
         # Until another one is available, we should fail at graph construction
         # time, not wait for execution.
-        ptr_bitwidth = theano.gof.local_bitwidth()
+        ptr_bitwidth = theano.configdefaults.local_bitwidth()
         if ptr_bitwidth == 64:
             numpy_unsupported_dtypes = ('uint64',)
         if ptr_bitwidth == 32:
@@ -737,6 +725,9 @@ def repeat(x, repeats, axis=None):
     else:
         if repeats.ndim == 1:
             repeats = repeats[0]
+
+        if x.dtype == 'uint64':
+            raise TypeError("theano.tensor.repeat don't support dtype uint64")
 
         if axis is None:
             axis = 0

@@ -1360,7 +1360,8 @@ class MaxAndArgmax(Op):
                                  dtype=node.outputs[0].dtype)
         # Numpy does not support multiple axes for argmax
         # Work around
-        keep_axes = numpy.array([i for i in range(x.ndim) if i not in axes])
+        keep_axes = numpy.array([i for i in range(x.ndim) if i not in axes],
+                                dtype='int64')
         # Not-reduced axes in front
         transposed_x = numpy.transpose(x, numpy.concatenate((keep_axes, axes)))
         reshaped_x = transposed_x.reshape(transposed_x.shape[:len(keep_axes)] +
@@ -2199,6 +2200,16 @@ def psi(a):
 @_scal_elemwise
 def chi2sf(x, k):
     """chi squared survival function"""
+
+
+@_scal_elemwise
+def j0(a):
+    """Bessel function of the 0'th kind"""
+
+
+@_scal_elemwise
+def j1(a):
+    """Bessel function of the 1'th kind"""
 
 
 @_scal_elemwise
@@ -3214,10 +3225,13 @@ def minimum(x, y):
 
 def div_proxy(x, y):
     """Proxy for either true_div or int_div, depending on types of x, y."""
-    f = eval('%s_div' % scal.int_or_true_div(
+    f = scal.int_or_true_div(
         as_tensor_variable(x).dtype in discrete_dtypes,
-        as_tensor_variable(y).dtype in discrete_dtypes))
-    return f(x, y)
+        as_tensor_variable(y).dtype in discrete_dtypes)
+    if f is scal.int_div:
+        return int_div(x, y)
+    else:
+        return true_div(x, y)
 
 
 def divmod(x, y):
@@ -3333,7 +3347,7 @@ pprint.assign(pow, printing.OperatorPrinter('**', 1, 'right'))
 ##########################
 
 
-def extract_constant(x, elemwise=True):
+def extract_constant(x, elemwise=True, only_process_constants=False):
     """
     This function is basically a call to tensor.get_scalar_constant_value.
 
@@ -3345,7 +3359,9 @@ def extract_constant(x, elemwise=True):
 
     """
     try:
-        x = get_scalar_constant_value(x, elemwise=elemwise)
+        x = get_scalar_constant_value(x,
+                                      elemwise,
+                                      only_process_constants)
     except NotScalarConstantError:
         pass
     if ((isinstance(x, scal.ScalarVariable) or
@@ -3372,52 +3388,52 @@ def transpose(x, axes=None):
     return ret
 
 
-def batched_dot(x, y):
+def batched_dot(a, b):
     """
-    This function computes the dot product between the two tensors, by
-    iterating over the first dimension using scan.
+    Compute the batched dot product of two variables:
 
-    Parameters
-    ----------
-    x : tensor
-        A Tensor with sizes e.g.: for  3D (dim1, dim3, dim2).
-    y : tensor
-        A Tensor with sizes e.g.: for 3D (dim1, dim2, dim4).
+        batched_dot(a, b)[i] = dot(a[i], b[i])
 
-    Returns
-    -------
-    tensor
-        A tensor of size e.g. if it is 3D: (dim1, dim3, dim4).
+    Note that this batched_dot function does one of three things, in the
+    following sequence:
 
-    Notes
-    -----
-    This is a subset of numpy.einsum, but we do not provide it for now.
-    But numpy einsum is slower than dot or tensordot:
-    http://mail.scipy.org/pipermail/numpy-discussion/2012-October/064259.html
+        1.  If either a or b is a vector, it returns the batched elementwise
+            product without calling the Theano BatchedDot op.
 
-    Examples
-    --------
-    >>> first = tensor.tensor3('first')
-    >>> second = tensor.tensor3('second')
-    >>> result = batched_dot(first, second)
+        2.  If both a and b have either 2 or 3 dimensions, it calls Theano's
+            BatchedDot op on a and b.
 
+        3.  If either a or b has more than 3 dimensions, it calls Theano's
+            batched_tensordot function with appropriate axes. The
+            batched_tensordot function expresses high-dimensional batched
+            dot products in terms of batched matrix-matrix dot products, so
+            it may be possible to futherize optimize for performance.
     """
-    result, updates = theano.scan(
-        fn=lambda x_mat, y_mat:
-        theano.tensor.dot(x_mat, y_mat),
-        outputs_info=None,
-        sequences=[x, y],
-        non_sequences=None)
-    return result
+    a, b = as_tensor_variable(a), as_tensor_variable(b)
+
+    if a.ndim == 0:
+        raise TypeError("a must have at least one (batch) axis")
+    elif b.ndim == 0:
+        raise TypeError("b must have at least one (batch) axis")
+    elif a.ndim == 1:
+        return a.dimshuffle(*([0] + ["x"] * (b.ndim - 1))) * b
+    elif b.ndim == 1:
+        return a * b.dimshuffle(*([0] + ["x"] * (a.ndim - 1)))
+    elif a.ndim > 3 or b.ndim > 3:
+        return batched_tensordot(
+            a, b, [[a.ndim - 1], [numpy.maximum(1, b.ndim - 2)]])
+    else:
+        # avoid circular import
+        return theano.tensor.blas.BatchedDot()(a, b)
 
 
 def batched_tensordot(x, y, axes=2):
     """
-    Compute the tensordot product.
+    Compute a batched tensordot product.
 
-    A hybrid of batch_dot and tensordot, this function computes the
+    A hybrid of batched_dot and tensordot, this function computes the
     tensordot product between the two tensors, by iterating over the
-    first dimension using scan to perform a sequence of tensordots.
+    first dimension to perform a sequence of tensordots.
 
     Parameters
     ----------
@@ -4945,6 +4961,7 @@ class ARange(Op):
         outputs = [tensor(self.dtype, (False,))]
         return Apply(self, inputs, outputs)
 
+    @theano.configparser.change_flags(warn_float64='ignore')
     def infer_shape(self, node, i_shapes):
         # Note start, stop and step can be float numbers.
         start, stop, step = node.inputs
@@ -6224,7 +6241,18 @@ class AllocEmpty(gof.Op):
         # The outut can contain nan/inf.  output.type is a new
         # instance, so we can do this only for that variable.
         output.type.filter_checks_isfinite = False
+
+        # We can't reuse filter_checks_isfinite as by default it is
+        # False and it is set to true only in DebugMode.
+        # We can't set it in the type as other make_node can reuse the type.
+        # We can't set it in the variable as it isn't copied when we copy
+        # the variale. So we set it in the tag.
+        output.tag.nan_guard_mode_check = False
         return Apply(self, shape, [output])
+
+    def debug_perform(self, node, inputs, out_):
+        self.perform(node, inputs, out_)
+        out_[0][0].fill(-123456789)
 
     def perform(self, node, inputs, out_):
         out, = out_
