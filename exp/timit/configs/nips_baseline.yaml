@@ -1,4 +1,4 @@
-parent: $LVSR/lvsr/configs/prototype.yaml
+parent: $LVSR/lvsr/configs/prototype_speech.yaml
 data:
     dataset_filename: timit.h5
     dataset_class: !!python/name:lvsr.datasets.h5py.H5PYAudioDatasetTimit

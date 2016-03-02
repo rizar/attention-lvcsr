@@ -66,8 +66,8 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, data,
-                 beam_size,  char_discount, round_to_inf, stop_on,
+    def __init__(self, recognizer, data, beam_size,
+                 char_discount=None, round_to_inf=None, stop_on=None,
                  **kwargs):
         self.recognizer = recognizer
         self.beam_size = beam_size
@@ -101,15 +101,16 @@ class PhonemeErrorRate(MonitoredQuantity):
         data = self.data
         groundtruth = data.decode(transcription)
         try:
-            outputs, search_costs = self.recognizer.beam_search(
-                beam_inputs,
+            search_kwargs = dict(
                 char_discount=self.char_discount,
                 round_to_inf=self.round_to_inf,
                 stop_on=self.stop_on,
-                validate_solution_function=getattr(data.info_dataset,
-                                                   'validate_solution',
-                                                   None)
-                )
+                validate_solution_function=getattr(
+                    data.info_dataset, 'validate_solution', None))
+            # We rely on the defaults hard-coded in BeamSearch
+            search_kwargs = {k: v for k, v in search_kwargs.items() if v}
+            outputs, search_costs = self.recognizer.beam_search(
+                beam_inputs, **search_kwargs)
             recognized = data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
@@ -200,17 +201,22 @@ def create_model(config, data,
     """
     # First tell the recognizer about required data sources
     net_config = dict(config["net"])
-    data.default_sources = net_config['input_sources'] + ['labels']
-    net_config['input_sources_dims'] = {}
-    for src in net_config['input_sources']:
-        net_config['input_sources_dims'][src] = data.num_features(src)
+    bottom_class = net_config['bottom']['bottom_class']
+    input_dims = {
+        source: data.num_features(source)
+        for source in bottom_class.vector_input_sources}
+    input_num_chars = {
+        source: len(data.character_map(source))
+        for source in bottom_class.discrete_input_sources}
 
     recognizer = SpeechRecognizer(
+        input_dims=input_dims,
+        input_num_chars=input_num_chars,
         eos_label=data.eos_label,
         num_phonemes=data.num_labels,
         name="recognizer",
         data_prepend_eos=data.prepend_eos,
-        character_map=data.character_map,
+        character_map=data.character_map('labels'),
         **net_config)
     if load_path:
         recognizer.load_params(load_path)
@@ -390,7 +396,7 @@ def initialize_all(config, save_path, bokeh_name,
     # Regularization. It is applied explicitly to all variables
     # of interest, it could not be applied to the cost only as it
     # would not have effect on auxiliary variables, see Blocks #514.
-    reg_config = config['regularization']
+    reg_config = config.get('regularization', dict())
     regularized_cg = cg
     if reg_config.get('dropout'):
         logger.info('apply dropout')
@@ -620,8 +626,8 @@ def initialize_all(config, save_path, bokeh_name,
         SwitchOffLengthFilter(
             data.length_filter,
             after_n_batches=train_conf.get('stop_filtering')),
-        FinishAfter(after_n_batches=train_conf['num_batches'],
-                    after_n_epochs=train_conf['num_epochs'])
+        FinishAfter(after_n_batches=train_conf.get('num_batches'),
+                    after_n_epochs=train_conf.get('num_epochs'))
             .add_condition(["after_batch"], _gradient_norm_is_none),
     ]
     channels = [

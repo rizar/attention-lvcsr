@@ -9,7 +9,7 @@ from fuel.schemes import (
 from fuel.streams import DataStream
 from fuel.transformers import (
     SortMapping, Padding, ForceFloatX, Batch, Mapping, Unpack, Filter,
-    FilterSources, Transformer, Rename)
+    FilterSources, Transformer, AgnosticTransformer, Rename)
 
 from lvsr.datasets.h5py import H5PYAudioDataset
 from blocks.utils import dict_subset
@@ -69,8 +69,39 @@ class _LengthFilter(object):
         return True
 
 
+class Rearrange(AgnosticTransformer):
+    """Rearranges the sources of the stream.
+
+    Parameters
+    ----------
+    data_stream : :class:`DataStream` or :class:`Transformer`.
+        The data stream.
+    new_to_old : :class:`OrderedDict`
+        New sources and their corresponding old sources.
+
+    """
+    def __init__(self, data_stream, new_to_old, **kwargs):
+        if data_stream.axis_labels:
+            kwargs.setdefault(
+                'axis_labels',
+                {new: data_stream.axis_labels[old]
+                for new, old in new_to_old.items()})
+        super(Rearrange, self).__init__(
+            data_stream, data_stream.produces_examples, **kwargs)
+
+        self.new_to_old = new_to_old
+        new_sources = new_to_old.keys()
+        for old in new_to_old.values():
+            if old not in data_stream.sources:
+                raise KeyError("%s not in the sources of the stream" % old)
+        self.sources = new_sources
+
+    def transform_any(self, data):
+        return tuple(data[self.data_stream.sources.index(old)]
+                     for old in self.new_to_old.values())
+
+
 class ForceCContiguous(Transformer):
-    """Force all floating point numpy arrays to be floatX."""
     def __init__(self, data_stream):
         super(ForceCContiguous, self).__init__(
             data_stream, axis_labels=data_stream.axis_labels)
@@ -182,13 +213,6 @@ class Data(object):
         return self.info_dataset.num_characters
 
     @property
-    def character_map(self):
-        return self.info_dataset.char2num
-
-    def num_features(self, feature_name):
-        return self.info_dataset.dim(self.sources_map[feature_name])
-
-    @property
     def eos_label(self):
         if self._eos_label:
             return self._eos_label
@@ -197,6 +221,12 @@ class Data(object):
     @property
     def bos_label(self):
         return self.info_dataset.bos_label
+
+    def character_map(self, source):
+        return self.info_dataset.character_map(self.sources_map[source])
+
+    def num_features(self, source):
+        return self.info_dataset.dim(self.sources_map[source])
 
     def decode(self, labels):
         return self.info_dataset.decode(labels)
@@ -265,11 +295,8 @@ class Data(object):
         if self.normalization:
             stream = self.normalization.wrap_stream(stream)
         stream = ForceFloatX(stream)
-        stream = Rename(stream,
-                        names=dict_subset({v: k for (k, v)
-                                           in self.sources_map.items()},
-                                          stream.sources,
-                                          must_have=False))
+        stream = Rearrange(
+            stream, dict_subset(self.sources_map, self.default_sources + list(add_sources)))
         if not batches:
             return stream
 

@@ -11,12 +11,14 @@ class H5PYAudioDataset(H5PYDataset):
         super(H5PYAudioDataset, self).__init__(**kwargs)
         self.open()
 
-        self.char2num = dict(
-            self._file_handle[self.target_source].attrs['value_map'])
+        self.char2num = self.character_map(target_source)
         self.num2char = {num: char for char, num in self.char2num.items()}
         self.num_characters = len(self.num2char)
         self.eos_label = self.char2num['<eol>']
         self.bos_label = self.char2num.get('<bol>')
+
+    def character_map(self, source):
+        return dict(self._file_handle[source].attrs['value_map'])
 
     def dim(self, source):
         return self._file_handle[source + '_shapes'][0][1]
