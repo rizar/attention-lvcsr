@@ -129,9 +129,7 @@ class NDarrayLog(TrainingLogBase):
             unused_dict = self[self._current_time + 1]
         series = {}
         for name, col in self._columns.iteritems():
-            col = col[:self._col_tops[name]]
-            col.setflags(write=False)
-            print name
+            col = col[:self._col_tops[name]].copy()
             if col['val'].ndim == 1:
                 dtype = col['val'].dtype
                 data = col['val']

@@ -14,6 +14,7 @@ from blocks.bricks.sequence_generators import (
     SoftmaxEmitter, LookupFeedback)
 from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph
+from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
@@ -533,9 +534,8 @@ class SpeechRecognizer(Initializable):
 
     def init_generate(self):
         generated = self.get_generate_graph(use_mask=False)
-        inputs = [v.copy(name=n) for (n, v) in self.inputs.items()]
-        inputs.append(self.n_steps.copy(name='n_steps'))
-        self._do_generate = theano.function(inputs, generated)
+        cg = ComputationGraph(generated['outputs'])
+        self._do_generate = cg.get_theano_function()
 
     def sample(self, inputs, n_steps=None):
         if not hasattr(self, '_do_generate'):
@@ -544,7 +544,7 @@ class SpeechRecognizer(Initializable):
         batch['n_steps'] = n_steps if n_steps is not None \
             else int(self.bottom.num_time_steps(**batch) /
                      self.max_decoded_length_scale)
-        return self._do_generate(**batch)
+        return self._do_generate(**batch)[0]
 
     def __getstate__(self):
         state = dict(self.__dict__)

@@ -796,15 +796,17 @@ def search(config, params, load_path, part, decode_only, report,
 
         before = time.time()
         try:
+            search_kwargs = dict(
+                char_discount=search_conf.get('char_discount'),
+                round_to_inf=search_conf.get('round_to_inf'),
+                stop_on=search_conf.get('stop_on'),
+                validate_solution_function=getattr(
+                    data.info_dataset, 'validate_solution', None))
+            search_kwargs = {k: v for k, v in search_kwargs.items() if v}
             outputs, search_costs = recognizer.beam_search(
-                required_inputs,
-                char_discount=search_conf['char_discount'],
-                round_to_inf=search_conf['round_to_inf'],
-                stop_on=search_conf['stop_on'],
-                validate_solution_function=getattr(data.info_dataset,
-                                                   'validate_solution',
-                                                   None))
+                required_inputs, **search_kwargs)
         except CandidateNotFoundError:
+            logger.error('Candidate not found!')
             outputs = [[]]
             search_costs = [[numpy.NaN]]
 
@@ -877,10 +879,10 @@ def sample(config, params, load_path, part):
         print("Utterance {} ({})".format(number, uttids),
               file=print_to)
         raw_groundtruth = data.pop('labels')
-        groundtruth_text = dataset.pretty_print(raw_groundtruth)
+        groundtruth_text = dataset.pretty_print(raw_groundtruth, data)
         print("Groundtruth:", groundtruth_text, file=print_to)
-        sample = recognizer.sample(data)['outputs'][:, 0]
-        recognized_text = dataset.pretty_print(sample)
+        sample = recognizer.sample(data)[:, 0]
+        recognized_text = dataset.pretty_print(sample, data)
         print("Recognized:", recognized_text, file=print_to)
 
 
