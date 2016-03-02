@@ -128,10 +128,7 @@ from __future__ import print_function
 import copy
 import logging
 import os
-import sys
-import textwrap
 import time
-import warnings
 
 import numpy
 import numpy.distutils
@@ -140,15 +137,14 @@ try:
 except ImportError:
     pass
 
-from theano.configparser import config, AddConfigVar, StrParam
 from six import iteritems
 from six.moves import reduce, xrange
+from theano import config
 from theano.gof import (utils, Op, view_roots,
                         local_optimizer, Optimizer,
                         InconsistencyError, toolbox, SequenceDB,
                         EquilibriumOptimizer, Apply,
                         ReplacementDidntRemovedError)
-from theano.gof.cmodule import GCC_compiler
 from theano.printing import pprint, FunctionPrinter, debugprint
 from theano.compile.mode import optdb
 import theano.scalar
@@ -158,202 +154,6 @@ from theano.tensor.blas_headers import blas_header_version
 from theano.tensor.opt import in2out, local_dimshuffle_lift
 
 _logger = logging.getLogger('theano.tensor.blas')
-
-
-# We need to define blas.ldflag before we try to import scipy.
-# Otherwise, we give an optimization warning for no reason in some cases.
-def default_blas_ldflags():
-    global numpy
-    try:
-        if (hasattr(numpy.distutils, '__config__') and
-                numpy.distutils.__config__):
-            # If the old private interface is available use it as it
-            # don't print information to the user.
-            blas_info = numpy.distutils.__config__.blas_opt_info
-        else:
-            # We do this import only here, as in some setup, if we
-            # just import theano and exit, with the import at global
-            # scope, we get this error at exit: "Exception TypeError:
-            # "'NoneType' object is not callable" in <bound method
-            # Popen.__del__ of <subprocess.Popen object at 0x21359d0>>
-            # ignored"
-
-            # This happen with Python 2.7.3 |EPD 7.3-1 and numpy 1.8.1
-            import numpy.distutils.system_info  # noqa
-
-            # We need to catch warnings as in some cases NumPy print
-            # stuff that we don't want the user to see like this:
-            """
-SOMEPATH/Canopy_64bit/User/lib/python2.7/site-packages/numpy/distutils/system_info.py:564: UserWarning: Specified path /home/vagrant/src/master-env/lib is invalid.
-  warnings.warn('Specified path %s is invalid.' % d)
-"""
-            # I'm not able to remove all printed stuff
-            with warnings.catch_warnings(record=True):
-                numpy.distutils.system_info.system_info.verbosity = 0
-                blas_info = numpy.distutils.system_info.get_info("blas_opt")
-
-        # If we are in a EPD installation, mkl is available
-        if "EPD" in sys.version:
-            use_unix_epd = True
-            if sys.platform == 'win32':
-                return ' '.join(
-                    ['-L%s' % os.path.join(sys.prefix, "Scripts")] +
-                    # Why on Windows, the library used are not the
-                    # same as what is in
-                    # blas_info['libraries']?
-                    ['-l%s' % l for l in ["mk2_core", "mk2_intel_thread",
-                                          "mk2_rt"]])
-            elif sys.platform == 'darwin':
-                # The env variable is needed to link with mkl
-                new_path = os.path.join(sys.prefix, "lib")
-                v = os.getenv("DYLD_FALLBACK_LIBRARY_PATH", None)
-                if v is not None:
-                    # Explicit version could be replaced by a symbolic
-                    # link called 'Current' created by EPD installer
-                    # This will resolve symbolic links
-                    v = os.path.realpath(v)
-
-                # The python __import__ don't seam to take into account
-                # the new env variable "DYLD_FALLBACK_LIBRARY_PATH"
-                # when we set with os.environ['...'] = X or os.putenv()
-                # So we warn the user and tell him what todo.
-                if v is None or new_path not in v.split(":"):
-                    _logger.warning(
-                        "The environment variable "
-                        "'DYLD_FALLBACK_LIBRARY_PATH' does not contain "
-                        "the '%s' path in its value. This will make "
-                        "Theano use a slow version of BLAS. Update "
-                        "'DYLD_FALLBACK_LIBRARY_PATH' to contain the "
-                        "said value, this will disable this warning."
-                        % new_path)
-
-                    use_unix_epd = False
-            if use_unix_epd:
-                return ' '.join(
-                    ['-L%s' % os.path.join(sys.prefix, "lib")] +
-                    ['-l%s' % l for l in blas_info['libraries']])
-        # Canopy
-        if "Canopy" in sys.prefix:
-            subsub = 'lib'
-            if sys.platform == 'win32':
-                subsub = 'Scripts'
-            lib_path = os.path.join(sys.base_prefix, subsub)
-            if not os.path.exists(lib_path):
-                # Old logic to find the path. I don't think we still
-                # need it, but I don't have the time to test all
-                # installation configuration. So I keep this as a fall
-                # back in case the current expectation don't work.
-
-                # This old logic don't work when multiple version of
-                # Canopy is installed.
-                p = os.path.join(sys.base_prefix, "..", "..", "appdata")
-                assert os.path.exists(p), "Canopy changed the location of MKL"
-                lib_paths = os.listdir(p)
-                # Try to remove subdir that can't contain MKL
-                for sub in lib_paths:
-                    if not os.path.exists(os.path.join(p, sub, subsub)):
-                        lib_paths.remove(sub)
-                assert len(lib_paths) == 1, (
-                    "Unexpected case when looking for Canopy MKL libraries",
-                    p, lib_paths, [os.listdir(os.path.join(p, sub))
-                                   for sub in lib_paths])
-                lib_path = os.path.join(p, lib_paths[0], subsub)
-                assert os.path.exists(lib_path), "Canopy changed the location of MKL"
-            if sys.platform == "linux2" or sys.platform == "darwin":
-                return ' '.join(
-                    ['-L%s' % lib_path] +
-                    ['-l%s' % l for l in blas_info['libraries']])
-            elif sys.platform == 'win32':
-                return ' '.join(
-                    ['-L%s' % lib_path] +
-                    # Why on Windows, the library used are not the
-                    # same as what is in blas_info['libraries']?
-                    ['-l%s' % l for l in ["mk2_core", "mk2_intel_thread",
-                                          "mk2_rt"]])
-        # Anaconda
-        if "Anaconda" in sys.version and sys.platform == "win32":
-            # If the "mkl-service" conda package (available through Python
-            # package "mkl") is installed and importable, then the libraries
-            # (installed by conda package "mkl-rt") are actually available.
-            # Using "conda install mkl" will install both, as well as
-            # optimized versions of numpy and scipy.
-            try:
-                import mkl  # noqa
-            except ImportError as e:
-                _logger.info('Conda mkl is not available: %s', e)
-            else:
-                # This branch is executed if no exception was raised
-                lib_path = os.path.join(sys.prefix, 'DLLs')
-                flags = ['-L%s' % lib_path]
-                flags += ['-l%s' % l for l in ["mkl_core",
-                                               "mkl_intel_thread",
-                                               "mkl_rt"]]
-                if GCC_compiler.try_flags(flags):
-                    return ' '.join(flags)
-
-        # If numpy was linked with library that are not installed or
-        # the dev version of the package is not currently available, we
-        # can't reuse them.
-        if any(os.path.exists(dir) for dir in blas_info['library_dirs']):
-            ret = (
-                # TODO: the Gemm op below should separate the
-                # -L and -l arguments into the two callbacks
-                # that CLinker uses for that stuff.  for now,
-                # we just pass the whole ldflags as the -l
-                # options part.
-                ['-L%s' % l for l in blas_info['library_dirs']] +
-                ['-l%s' % l for l in blas_info['libraries']] +
-                [])
-            if GCC_compiler.try_flags(ret):
-                return ' '.join(ret)
-            # Try to add the anaconda lib directory to runtime loading of lib.
-            # This fix some case with Anaconda 2.3 on Linux.
-            if "Anaconda" in sys.version and "linux" in sys.platform:
-                lib_path = os.path.join(sys.prefix, 'lib')
-                ret.append('-Wl,-rpath,' + lib_path)
-                if GCC_compiler.try_flags(ret):
-                    return ' '.join(ret)
-
-    except KeyError:
-        pass
-
-    # Even if we could not detect what was used for numpy, or if these
-    # libraries are not found, most Linux systems have a libblas.so
-    # readily available. We try to see if that's the case, rather
-    # than disable blas. To test it correctly, we must load a program.
-    # Otherwise, there could be problem in the LD_LIBRARY_PATH.
-
-    test_code = textwrap.dedent("""\
-        extern "C" float sdot_(int*, float*, int*, float*, int*);
-        int main(int argc, char** argv)
-        {
-            int Nx = 5;
-            int Sx = 1;
-            float x[5] = {0, 1, 2, 3, 4};
-            float r = sdot_(&Nx, x, &Sx, x, &Sx);
-
-            if ((r - 30.f) > 1e-6 || (r - 30.f) < -1e-6)
-            {
-                return -1;
-            }
-            return 0;
-        }
-        """)
-    flags = ['-lblas']
-    flags.extend('-L'.join(theano.gof.cmodule.std_lib_dirs()))
-    res = GCC_compiler.try_compile_tmp(
-        test_code, tmp_prefix='try_blas_',
-        flags=flags, try_run=True)
-    if res and res[0] and res[1]:
-        return "-lblas"
-    else:
-        return ""
-
-
-AddConfigVar('blas.ldflags',
-             "lib[s] to include for [Fortran] level-3 blas implementation",
-             StrParam(default_blas_ldflags))
-
 
 try:
     import scipy.linalg.blas
@@ -422,14 +222,6 @@ class Gemv(Op):
             raise TypeError('gemv requires vector for x', x.type)
         if y.ndim != 1:
             raise TypeError('gemv requires vector for y', y.type)
-        if y.broadcastable[0] != A.broadcastable[0]:
-            raise TypeError('broadcastable mismatch between y and A',
-                            (y.type, A.type))
-        # The following is not grounds for error because as long as
-        # sizes are 1 at time of perform() there is no problem
-        # if x.broadcastable[0] != A.broadcastable[1]:
-        # raise TypeError('broadcastable mismatch between x and A',
-        # (x.type, A.type))
         return Apply(self, [y, alpha, A, x, beta], [y.type()])
 
     def perform(self, node, inputs, out_storage):
@@ -463,6 +255,9 @@ class Gemv(Op):
             else:
                 out += y
             out_storage[0][0] = numpy.asarray(out, dtype=y.dtype)
+
+    def infer_shape(self, node, input_shapes):
+        return [input_shapes[0]]
 
 gemv_no_inplace = Gemv(inplace=False)
 gemv_inplace = Gemv(inplace=True)
@@ -530,6 +325,9 @@ class Ger(Op):
         else:
             A += numpy.outer(cx, cy)
         cZ[0] = A
+
+    def infer_shape(self, node, input_shapes):
+        return [input_shapes[0]]
 
 
 ger = Ger(destructive=False)
@@ -992,6 +790,8 @@ class Gemm(GemmRelated):
     E_mixed = 'gemm requires matching dtypes'
     E_float = 'gemm requires floating-point dtypes'
 
+    __props__ = ('inplace',)
+
     def __init__(self, inplace):
         self.inplace = inplace
         if self.inplace:
@@ -999,13 +799,6 @@ class Gemm(GemmRelated):
             self.setup_z_Nz_Sz = self.setup_z_Nz_Sz_inplace
         else:
             self.setup_z_Nz_Sz = self.setup_z_Nz_Sz_outplace
-
-    def __eq__(self, other):
-        return (type(self) == type(other) and
-                self.inplace == other.inplace)
-
-    def __hash__(self):
-        return hash(type(self)) ^ hash(self.inplace)
 
     def __str__(self):
         if self.inplace:
@@ -1114,6 +907,9 @@ class Gemm(GemmRelated):
                 z *= b
                 z += a * numpy.dot(x, y)
             zout[0] = z
+
+    def infer_shape(self, node, input_shapes):
+        return [input_shapes[0]]
 
     setup_z_Nz_Sz_inplace = """
         if (%(_zout)s != %(_z)s)
@@ -1285,14 +1081,14 @@ def _as_scalar(res, dtype=None):
 def _is_real_matrix(res):
     return (res.type.dtype in ('float32', 'float64') and
             res.type.ndim == 2 and
-            res.type.broadcastable[0] == False and
-            res.type.broadcastable[1] == False)  # cope with tuple vs. list
+            res.type.broadcastable[0] is False and
+            res.type.broadcastable[1] is False)  # cope with tuple vs. list
 
 
 def _is_real_vector(res):
     return (res.type.dtype in ('float32', 'float64') and
             res.type.ndim == 1 and
-            res.type.broadcastable[0] == False)
+            res.type.broadcastable[0] is False)
 
 
 def _beta_L_plus_alpha_M(beta, L, alpha, M, recurse_flip=True):
@@ -1738,8 +1534,8 @@ class Dot22(GemmRelated):
             e.args = e.args + (x.shape, y.shape)
             raise
 
-    def __str__(self):
-        return self.__class__.__name__
+    def infer_shape(self, node, input_shapes):
+        return [[input_shapes[0][0], input_shapes[1][1]]]
 
     setup_z_Nz_Sz = """
         if ((NULL == %(_zout)s)
@@ -2009,8 +1805,8 @@ class Dot22Scalar(GemmRelated):
             e.args = e.args + (x.shape, y.shape)
             raise
 
-    def __str__(self):
-        return self.__class__.__name__
+    def infer_shape(self, node, input_shapes):
+        return [[input_shapes[0][0], input_shapes[1][1]]]
 
     setup_z_Nz_Sz = Dot22.setup_z_Nz_Sz
 
@@ -2177,6 +1973,440 @@ def local_dot22_to_dot22scalar(node):
 blas_optdb.register('local_dot22_to_dot22scalar',
                     in2out(local_dot22_to_dot22scalar),
                     11, 'fast_run')
+
+
+class BatchedDot(Op):
+    """
+    Computes the batched dot product of two variables:
+
+        batched_dot(a, b)[i] = dot(a[i], b[i])
+    """
+    __props__ = ()
+
+    def make_node(self, *inputs):
+        inputs = list(map(T.as_tensor_variable, inputs))
+
+        if len(inputs) != 2:
+            raise TypeError("theano.tensor.blas.BatchedDot: 2 arguments"
+                            " required, %d given " % len(inputs))
+        if inputs[0].ndim not in (2, 3):
+            raise TypeError("theano.tensor.blas.BatchedDot: input 0 (0-indexed)"
+                            " must have ndim of 2 or 3, %d given. Consider"
+                            " calling theano.tensor.batched_dot instead."
+                            % inputs[0].ndim)
+        if inputs[1].ndim not in (2, 3):
+            raise TypeError("theano.tensor.blas.BatchedDot: input 1 (0-indexed)"
+                            " must have ndim of 2 or 3, %d given. Consider"
+                            " calling theano.tensor.batched_dot instead."
+                            % inputs[1].ndim)
+
+        dtype = theano.scalar.upcast(*[input.type.dtype for input in inputs])
+        # upcast inputs to common dtype if needed
+        upcasted_inputs = [T.cast(input, dtype) for input in inputs]
+        broadcastable = ((inputs[0].type.broadcastable[0] or
+                          inputs[1].type.broadcastable[0],) +
+                         inputs[0].type.broadcastable[1:-1] +
+                         inputs[1].type.broadcastable[2:])
+        return Apply(self, upcasted_inputs, [T.tensor(dtype, broadcastable)])
+
+    def perform(self, node, inp, out):
+        x, y = inp
+        z, = out
+
+        if x.shape[0] != y.shape[0]:
+            raise TypeError(
+                "theano.tensor.blas.BatchedDot: inputs [%s] must have the"
+                " same size in axis 0, but have sizes [%s]." %
+                (", ".join(map(str, inp)),
+                 ", ".join([str(i.shape[0]) for i in inp])))
+
+        shape = self.infer_shape(node, [i.shape for i in inp])[0]
+        dtype = node.outputs[0].dtype
+        z0 = z[0] = numpy.empty(shape, dtype=dtype)
+        for i in xrange(z0.shape[0]):
+            z0[i] = numpy.dot(x[i], y[i])
+
+    def c_support_code(self):
+        batch_gemm_defn = """
+        template<typename dtype, typename function>
+        bool batch_gemm(function gemm, int type_size,
+                        PyArrayObject* xs, PyArrayObject* ys, PyArrayObject* zs) {
+            npy_intp *Nx = PyArray_DIMS(xs), *Sx = PyArray_STRIDES(xs);
+            npy_intp *Ny = PyArray_DIMS(ys), *Sy = PyArray_STRIDES(ys);
+            npy_intp *Nz = PyArray_DIMS(zs), *Sz = PyArray_STRIDES(zs);
+
+            if (Nx[0] != Ny[0]) {
+                PyErr_Format(PyExc_ValueError,
+                             "Shape mismatch: batch sizes unequal."
+                             " x.shape is (%d, %d, %d),"
+                             " y.shape is (%d, %d, %d).",
+                             Nx[0], Nx[1], Nx[2],
+                             Ny[0], Ny[1], Ny[2]);
+                return 1;
+            }
+
+            if (Nx[2] != Ny[1]) {
+                PyErr_Format(PyExc_ValueError,
+                             "Shape mismatch: summation axis sizes unequal."
+                             " x.shape is (%d, %d, %d),"
+                             " y.shape is (%d, %d, %d).",
+                             Nx[0], Nx[1], Nx[2],
+                             Ny[0], Ny[1], Ny[2]);
+                return 1;
+            }
+
+            /* encode the stride structure of _x,_y,_z into a single integer. */
+            int unit = 0;
+            unit |= ((Sx[2] == type_size || Nx[2] == 1) ? 0x0 : (Sx[1] == type_size || Nx[1]==1) ? 0x1 : 0x2) << 8;
+            unit |= ((Sy[2] == type_size || Ny[2] == 1) ? 0x0 : (Sy[1] == type_size || Ny[1]==1) ? 0x1 : 0x2) << 4;
+            unit |= ((Sz[2] == type_size || Nz[2] == 1) ? 0x0 : (Sz[1] == type_size || Nz[1]==1) ? 0x1 : 0x2) << 0;
+
+            /* create appropriate strides for malformed matrices that are row or column
+             * vectors, or empty matrices.
+             * In that case, the value of the stride does not really matter, but
+             * some versions of BLAS insist that:
+             *  - they are not smaller than the number of elements in the array,
+             *  - they are not 0.
+             */
+            int sx_1 = (Nx[1] > 1) ? Sx[1]/type_size : (Nx[2] + 1);
+            int sx_2 = (Nx[2] > 1) ? Sx[2]/type_size : (Nx[1] + 1);
+            int sy_1 = (Ny[1] > 1) ? Sy[1]/type_size : (Ny[2] + 1);
+            int sy_2 = (Ny[2] > 1) ? Sy[2]/type_size : (Ny[1] + 1);
+            int sz_1 = (Nz[1] > 1) ? Sz[1]/type_size : (Nz[2] + 1);
+            int sz_2 = (Nz[2] > 1) ? Sz[2]/type_size : (Nz[1] + 1);
+
+            dtype* x = (dtype*)PyArray_DATA(xs);
+            dtype* y = (dtype*)PyArray_DATA(ys);
+            dtype* z = (dtype*)PyArray_DATA(zs);
+
+            dtype a = 1.0;
+            dtype b = 0.0;
+            char N = 'N';
+            char T = 'T';
+            int Nz1 = Nz[1], Nz2 = Nz[2], Nx2 = Nx[2];
+
+            // loop over batch axis
+            for (int i = 0; i < Nz[0]; i++) {
+                switch(unit)
+                {
+                    case 0x000: gemm(&N, &N, &Nz2, &Nz1, &Nx2, &a, y, &sy_1, x, &sx_1, &b, z, &sz_1); break;
+                    case 0x100: gemm(&N, &T, &Nz2, &Nz1, &Nx2, &a, y, &sy_1, x, &sx_2, &b, z, &sz_1); break;
+                    case 0x010: gemm(&T, &N, &Nz2, &Nz1, &Nx2, &a, y, &sy_2, x, &sx_1, &b, z, &sz_1); break;
+                    case 0x110: gemm(&T, &T, &Nz2, &Nz1, &Nx2, &a, y, &sy_2, x, &sx_2, &b, z, &sz_1); break;
+                    case 0x001: gemm(&T, &T, &Nz1, &Nz2, &Nx2, &a, x, &sx_1, y, &sy_1, &b, z, &sz_2); break;
+                    case 0x101: gemm(&N, &T, &Nz1, &Nz2, &Nx2, &a, x, &sx_2, y, &sy_1, &b, z, &sz_2); break;
+                    case 0x011: gemm(&T, &N, &Nz1, &Nz2, &Nx2, &a, x, &sx_1, y, &sy_2, &b, z, &sz_2); break;
+                    case 0x111: gemm(&N, &N, &Nz1, &Nz2, &Nx2, &a, x, &sx_2, y, &sy_2, &b, z, &sz_2); break;
+                    default: PyErr_SetString(PyExc_ValueError, "some matrix has no unit stride"); return 1;
+                };
+                x += Sx[0] / type_size;
+                y += Sy[0] / type_size;
+                z += Sz[0] / type_size;
+            }
+
+            return 0;
+        }
+        """
+        return blas_header_text() + batch_gemm_defn
+
+    def c_libraries(self):
+        return ldflags()
+
+    def c_compile_args(self):
+        return ldflags(libs=False, flags=True)
+
+    def c_lib_dirs(self):
+        return ldflags(libs=False, libs_dir=True)
+
+    def c_header_dirs(self):
+        return ldflags(libs=False, include_dir=True)
+
+    def c_code_cleanup(self, node, name, inputs, outputs, sub):
+        return """
+        // clean up views
+        Py_XDECREF(xs); xs = 0;
+        Py_XDECREF(ys); ys = 0;
+        Py_XDECREF(zs); zs = 0;
+        """
+
+    def c_code(self, node, name, inp, out, sub):
+        _x, _y = inp
+        _z, = out
+        fail = sub["fail"]
+
+        # generate contiguity condition
+        def contiguous(var, ndim):
+            strides = "PyArray_STRIDES(%s)" % var
+            return " && ".join([
+                " && ".join("{strides}[{i}] > 0 && {strides}[{i}] % type_size == 0"
+                            .format(strides=strides, i=i) for i in range(ndim)),
+                "(%s)" % " || ".join("{strides}[{i}] == type_size"
+                                     .format(strides=strides, i=i) for i in range(ndim)),
+            ])
+
+        x_ndim, y_ndim, z_ndim = node.inputs[0].ndim, node.inputs[1].ndim, node.outputs[0].ndim
+
+        # generate code to allocate output based on runtime input shapes
+        z_dims = ["PyArray_DIMS(%s)[0]" % _x]
+        if x_ndim == 3:
+            z_dims.append("PyArray_DIMS(%s)[1]" % _x)
+        if y_ndim == 3:
+            z_dims.append("PyArray_DIMS(%s)[2]" % _y)
+        assert len(z_dims) == z_ndim
+
+        z_shape_correct = " && ".join("PyArray_DIMS(%s)[%i] == %s"
+                                      % (_z, i, dim) for i, dim in enumerate(z_dims))
+        z_shape = ", ".join(z_dims)
+        z_contiguous = contiguous(_z, z_ndim)
+        allocate = """
+            if (NULL == %(_z)s || !(%(z_shape_correct)s)  || !(%(z_contiguous)s))
+            {
+                npy_intp dims[%(z_ndim)s] = {%(z_shape)s};
+                Py_XDECREF(%(_z)s);
+                %(_z)s = (PyArrayObject*)PyArray_SimpleNew(
+                    %(z_ndim)s, dims, PyArray_TYPE(%(_x)s));
+                if(!%(_z)s) {
+                    PyErr_SetString(PyExc_MemoryError,
+                                    "failed to alloc BatchedDot output");
+                    %(fail)s
+                }
+            }
+        """ % locals()
+
+        # code to reallocate inputs contiguously if necessary
+        contiguate = []
+        for var, ndim in [(_x, x_ndim), (_y, y_ndim)]:
+            _contiguous = contiguous(var, ndim)
+            contiguate.append("""
+                if (!(%(_contiguous)s)) {
+                    PyArrayObject * _copy = (PyArrayObject *) PyArray_Copy(%(var)s);
+                    if (!_copy)
+                        %(fail)s
+                    Py_XDECREF(%(var)s);
+                    %(var)s = _copy;
+                }
+            """ % locals())
+        contiguate = "\n".join(contiguate)
+
+        def c_dimshuffle(newname, oldname, shape):
+            _fail = fail
+            _shape = ", ".join("1" if axis is None else "PyArray_DIMS(%s)[%i]" % (oldname, axis)
+                               for axis in shape)
+            return """{
+                npy_intp dims[3] = {%(_shape)s};
+                PyArray_Dims newshape = {dims, 3};
+                %(newname)s = (PyArrayObject*)PyArray_Newshape(%(oldname)s, &newshape, NPY_ANYORDER);
+                if (!%(newname)s)
+                    %(_fail)s
+                // make sure we didn't accidentally copy
+                assert(PyArray_DATA(%(oldname)s) == PyArray_DATA(%(newname)s));
+            }""" % locals()
+
+        # create tensor3 views for any of x, y, z that are not tensor3, so that
+        # we only need to implement the tensor3-tensor3 batched dot product.
+        # xs, ys and zs will point to these views, or to the original array if
+        # it was already tensor3.
+        # in the latter case, we artificially increase the reference count of
+        # the original array so that the c_code_cleanup method can decref them
+        # all indiscriminately.
+        upcast = []
+        if x_ndim == 3:
+            upcast.append("xs = %(_x)s; Py_XINCREF(xs);")
+        elif x_ndim == 2:
+            upcast.append(c_dimshuffle("xs", _x, (0, None, 1)))
+        if y_ndim == 3:
+            upcast.append("ys = %(_y)s; Py_XINCREF(ys);")
+        elif y_ndim == 2:
+            upcast.append(c_dimshuffle("ys", _y, (0, 1, None)))
+        if z_ndim == 3:
+            upcast.append("zs = %(_z)s; Py_XINCREF(zs);")
+        else:
+            upcast.append(c_dimshuffle(
+                "zs", _z, (0,
+                           None if x_ndim == 2 else 1,
+                           None if y_ndim == 2 else 1)))
+        upcast = "\n".join(upcast) % locals()
+
+        return """
+        int type_num = PyArray_DESCR(%(_x)s)->type_num;
+        int type_size = PyArray_DESCR(%(_x)s)->elsize; // in bytes
+
+        // xs, ys, zs will point to views onto %(_x)s, %(_y)s, %(_z)s
+        PyArrayObject *xs = 0, *ys = 0, *zs = 0;
+
+        if (PyArray_NDIM(%(_x)s) != %(x_ndim)s) {
+            PyErr_Format(PyExc_NotImplementedError,
+                         "rank(x) != %(x_ndim)s. rank(x) is %%d.",
+                         PyArray_NDIM(%(_x)s));
+            %(fail)s;
+        }
+        if (PyArray_NDIM(%(_y)s) != %(y_ndim)s) {
+            PyErr_Format(PyExc_NotImplementedError,
+                         "rank(y) != %(y_ndim)s. rank(y) is %%d.",
+                         PyArray_NDIM(%(_y)s));
+            %(fail)s;
+        }
+        if (%(_z)s && PyArray_NDIM(%(_z)s) != %(z_ndim)s) {
+            PyErr_Format(PyExc_NotImplementedError,
+                         "rank(z) != %(z_ndim)s. rank(z) is %%d.",
+                         PyArray_NDIM(%(_z)s));
+            %(fail)s;
+        }
+
+        // allocate output
+        %(allocate)s
+        // reallocate any noncontiguous arrays or arrays with invalid strides
+        %(contiguate)s
+        // add dims to make sure everything is tensor3
+        %(upcast)s
+        // from here on, use xs, ys and zs as they are tensor3 and share memory
+        // with the original %(_x)s, %(_y)s and %(_z)s arrays.
+
+        if ((PyArray_DESCR(xs)->type_num != NPY_DOUBLE)
+            && (PyArray_DESCR(xs)->type_num != NPY_FLOAT))
+        {PyErr_SetString(PyExc_NotImplementedError, "type(x) is not double or float"); %(fail)s;}
+
+        if ((PyArray_DESCR(ys)->type_num != NPY_DOUBLE)
+            && (PyArray_DESCR(ys)->type_num != NPY_FLOAT))
+        {PyErr_SetString(PyExc_NotImplementedError, "type(y) is not double or float"); %(fail)s;}
+
+        if ((PyArray_DESCR(zs)->type_num != NPY_DOUBLE)
+            && (PyArray_DESCR(zs)->type_num != NPY_FLOAT))
+        {PyErr_SetString(PyExc_NotImplementedError, "type(z) is not double or float"); %(fail)s;}
+
+        if ((PyArray_DESCR(xs)->type_num != PyArray_DESCR(ys)->type_num)
+            ||(PyArray_DESCR(xs)->type_num != PyArray_DESCR(zs)->type_num))
+        { PyErr_SetString(PyExc_NotImplementedError, "type(x), type(y), type(z) are not all the same"); %(fail)s; }
+
+        switch (type_num)
+        {
+            case NPY_FLOAT:
+            if (batch_gemm<float>(sgemm_, type_size, xs, ys, zs)) {
+                %(fail)s;
+            }
+            break;
+            case NPY_DOUBLE:
+            if (batch_gemm<double>(dgemm_, type_size, xs, ys, zs)) {
+                %(fail)s;
+            }
+            break;
+        }
+        """ % locals()
+
+    def c_code_cache_version(self):
+        from theano.tensor.blas_headers import blas_header_version
+        return (1, blas_header_version())
+
+    def grad(self, inp, grads):
+        x, y = inp
+        gz, = grads
+        xdim, ydim, gdim = x.type.ndim, y.type.ndim, gz.type.ndim
+
+        # grad is a vector, so x is a matrix and y is a matrix
+        if gdim == 1:
+            xgrad = gz.dimshuffle(0, 'x') * y
+            ygrad = gz.dimshuffle(0, 'x') * x
+
+        # x is a matrix, y is a tensor3, grad is a matrix
+        elif xdim == 2 and ydim == 3:
+            xgrad = T.batched_dot(gz, y.dimshuffle(0, 2, 1))
+            ygrad = x.dimshuffle(0, 1, 'x') * gz.dimshuffle(0, 'x', 1)
+
+        # x is a tensor3, y is a matrix, grad is a matrix
+        elif xdim == 3 and ydim == 2:
+            xgrad = gz.dimshuffle(0, 1, 'x') * y.dimshuffle(0, 'x', 1)
+            ygrad = T.batched_dot(x.dimshuffle(0, 2, 1), gz)
+
+        # x is a tensor3, y is a tensor3, grad is a tensor3
+        elif xdim == ydim == 3:
+            xgrad = T.batched_dot(gz, y.dimshuffle(0, 2, 1))
+            ygrad = T.batched_dot(x.dimshuffle(0, 2, 1), gz)
+
+        # If x or y contain broadcastable dimensions but only one of
+        # them know that a matching dimensions is broadcastable, the
+        # above code don't always return the right broadcast pattern.
+        # This cause problem down the road. See gh-1461.
+        if xgrad.broadcastable != x.broadcastable:
+            xgrad = T.patternbroadcast(xgrad, x.broadcastable)
+        if ygrad.broadcastable != y.broadcastable:
+            ygrad = T.patternbroadcast(ygrad, y.broadcastable)
+
+        return xgrad, ygrad
+
+    def R_op(self, inputs, eval_points):
+        # R_op for batched_dot(a, b) evaluted at c for a and d for b is
+        # simply batched_dot(c, b) + batched_dot(a, d)
+
+        assert len(inputs) == 2
+        assert len(eval_points) == 2
+        if eval_points[0] is None and eval_points[1] is None:
+            return [None]
+
+        debugger_available = config.compute_test_value != 'off'
+
+        if debugger_available:
+            try:
+                iv0 = theano.gof.op.get_test_value(inputs[0])
+            except AttributeError:
+                theano.gof.op.missing_test_message(
+                    'first input passed to BatchedDot.R_op has no test value')
+                debugger_available = False
+
+            try:
+                iv1 = theano.gof.op.get_test_value(inputs[1])
+            except AttributeError:
+                theano.gof.op.missing_test_message(
+                    'second input passed to BatchedDot.R_op has no test value')
+                debugger_available = False
+
+            if eval_points[0]:
+                try:
+                    ev0 = theano.gof.op.get_test_value(eval_points[0])
+                except AttributeError:
+                    theano.gof.op.missing_test_message(
+                        'first eval point passed to BatchedDot.R_op '
+                        'has no test value')
+                    debugger_available = False
+            if eval_points[1]:
+                try:
+                    ev1 = theano.gof.op.get_test_value(eval_points[1])
+                except AttributeError:
+                    theano.gof.op.missing_test_message(
+                        'second eval point passed to BatchedDot.R_op '
+                        'has no test value')
+                    debugger_available = False
+
+        if debugger_available:
+            input_values = [iv0, iv1]
+            eval_point_values = [ev0, ev1]
+
+            for i in xrange(2):
+                if eval_point_values[i] is not None and \
+                   input_values[i].shape != eval_point_values[i].shape:
+                    raise ValueError(
+                        'input ' + str(i) + ' and eval_point ' + str(i) +
+                        ' to BatchedDot.R_op should have the same shape, but '
+                        'their shapes are %s and %s, respectively' % (
+                            str(input_values[i].shape),
+                            str(eval_point_values[i].shape)))
+        if eval_points[0]:
+            t1 = self(eval_points[0], inputs[1])
+        if eval_points[1]:
+            t2 = self(inputs[0], eval_points[1])
+
+        if eval_points[0] and eval_points[1]:
+            return [t1 + t2]
+        elif eval_points[0]:
+            return [t1]
+        else:
+            return [t2]
+
+    def infer_shape(self, node, shapes):
+        for shape_ in shapes:
+            if len(shape_) not in (2, 3):
+                raise NotImplementedError()
+        xshp, yshp = shapes
+        return [xshp[:-1] + yshp[2:]]
 
 
 # from opt import register_specialize, register_canonicalize

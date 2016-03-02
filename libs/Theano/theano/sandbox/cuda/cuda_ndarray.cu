@@ -3054,6 +3054,27 @@ static PyGetSetDef CudaNdarray_getset[] = {
     {NULL, NULL, NULL, NULL}  /* Sentinel */
 };
 
+PyObject *CudaNdarray_repr(PyObject *self)
+{
+    CudaNdarray *object = (CudaNdarray *)self;
+    PyObject * np_object = CudaNdarray_CreateArrayObj(object);
+    PyObject * str = PyObject_Str((PyObject *) np_object);
+    char * cstr = PyString_AsString(str);
+    PyObject * out = PyString_FromFormat("%s%s%s",
+                        "CudaNdarray(",
+                        cstr,
+                        ")");
+    Py_DECREF(str);
+    Py_DECREF(np_object);
+    #if PY_MAJOR_VERSION >= 3
+    // In Python 3 PyString_FromFormat return a Bytes object
+    PyObject* out2 = PyObject_Str(out);
+    Py_DECREF(out);
+    return out2;
+    #endif
+    return out;
+}
+
 static PyTypeObject CudaNdarrayType =
 {
 #if PY_MAJOR_VERSION >= 3
@@ -3070,7 +3091,7 @@ static PyTypeObject CudaNdarrayType =
     0,                         /*tp_getattr*/
     0,                         /*tp_setattr*/
     0,                         /*tp_compare*/
-    0,                         /*tp_repr*/
+    CudaNdarray_repr,          /*tp_repr*/
     &CudaNdarrayNumberMethods, /*tp_as_number*/
     0,                         /*tp_as_sequence*/
     &CudaNdarrayMappingMethods,/*tp_as_mapping*/

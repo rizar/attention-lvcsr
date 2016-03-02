@@ -3,7 +3,6 @@ import time
 
 from nose.plugins.skip import SkipTest
 import numpy
-
 import theano
 import theano.tensor as T
 from theano.tests import unittest_tools as utt
@@ -100,6 +99,8 @@ class TestConv2D(utt.InferShapeTester):
         out_shape2d = numpy.array(N_image_shape[-2:]) +\
                       s * numpy.array(N_filter_shape[-2:]) - s
         out_shape2d = numpy.ceil(out_shape2d / numpy.array(subsample))
+        # avoid numpy deprecation
+        out_shape2d = out_shape2d.astype('int32')
         out_shape = (N_image_shape[0], N_filter_shape[0]) + tuple(out_shape2d)
         ref_output = numpy.zeros(out_shape)
 
@@ -154,6 +155,22 @@ class TestConv2D(utt.InferShapeTester):
         self.validate((3, 2, 7, 5), (5, 2, 2, 3), 'full')
         # test filter same size as input
 
+    def test_uint_image_shape_datatype(self):
+        """Tests for uint datatype in image_shape.
+
+        """
+        self.validate((2, 2, 3, numpy.uint8(3)), (3, 2, 3, 3), 'valid', verify_grad=False)
+        self.validate((numpy.uint16(2), 2, 3, 3), (3, 2, 3, 3), 'valid', verify_grad=False)
+        self.validate((2, numpy.uint32(2), 3, 3), (3, 2, 3, 3), 'valid', verify_grad=False)
+        
+    def test_uint_filter_shape_datatype(self):
+        """Tests for uint datatype in filter_shape
+
+        """
+        self.validate((3, 2, 3, 3), (2, 2, 3, numpy.uint8(3)), 'valid', verify_grad=False)
+        self.validate((3, 2, 3, 3), (numpy.uint16(2), 2, 3, 3), 'valid', verify_grad=False)
+        self.validate((3, 2, 3, 3), (2, numpy.uint32(2), 3, 3), 'valid', verify_grad=False)
+        
     def test_img_kernel_same_shape(self):
         self.validate((3, 2, 3, 3), (4, 2, 3, 3), 'full')
         self.validate((3, 2, 3, 3), (4, 2, 3, 3), 'valid')

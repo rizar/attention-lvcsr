@@ -6,31 +6,10 @@ from six.moves import StringIO
 import numpy as np
 
 import theano
-from theano.configparser import config, AddConfigVar, BoolParam, EnumStr
+from theano.configparser import config
 import theano.tensor as T
 import theano.sandbox.cuda as cuda
 from theano.compile import Mode
-
-AddConfigVar('NanGuardMode.nan_is_error',
-             "Default value for nan_is_error",
-             BoolParam(True),
-             in_c_key=False)
-
-AddConfigVar('NanGuardMode.inf_is_error',
-             "Default value for inf_is_error",
-             BoolParam(True),
-             in_c_key=False)
-
-AddConfigVar('NanGuardMode.big_is_error',
-             "Default value for big_is_error",
-             BoolParam(True),
-             in_c_key=False)
-
-AddConfigVar('NanGuardMode.action',
-             "What NanGuardMode does when it finds a problem",
-             EnumStr('raise', 'warn', 'pdb'),
-             in_c_key=False)
-
 
 logger = logging.getLogger("theano.compile.nanguardmode")
 
@@ -220,7 +199,7 @@ class NanGuardMode(Mode):
     # We currently loose the 3 first params frequently, when calling
     # mode.including() and variant.
     def __init__(self, nan_is_error=None, inf_is_error=None, big_is_error=None,
-                 optimizer=None, linker=None):
+                 optimizer='default', linker=None):
         self.provided_optimizer = optimizer
         if nan_is_error is None:
             nan_is_error = config.NanGuardMode.nan_is_error
@@ -318,12 +297,14 @@ class NanGuardMode(Mode):
                 # If the input is the result of computation, then we
                 # don't need to check it. It is already done after the
                 # computation.
-                if var.owner is not None:
+                if (var.owner is None and
+                        getattr(var.tag, 'nan_guard_mode_check', True)):
                     do_check_on(x[0], node, fn, True)
             fn()
             outputs = fn.outputs
-            for x in outputs:
-                do_check_on(x[0], node, fn, False)
+            for x, var in zip(outputs, node.outputs):
+                if getattr(var.tag, 'nan_guard_mode_check', True):
+                    do_check_on(x[0], node, fn, False)
 
         wrap_linker = theano.gof.WrapLinker([theano.gof.OpWiseCLinker()],
                                             nan_check)

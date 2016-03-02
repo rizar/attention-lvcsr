@@ -250,16 +250,10 @@ class T_Scan(unittest.TestCase):
             tmpdir = mkdtemp()
             os.chdir(tmpdir)
 
-            f_out = open('tmp_scan_test_pickle.pkl', 'wb')
-            try:
+            with open('tmp_scan_test_pickle.pkl', 'wb') as f_out:
                 pickle.dump(_my_f, f_out, protocol=-1)
-            finally:
-                f_out.close()
-            f_in = open('tmp_scan_test_pickle.pkl', 'rb')
-            try:
+            with open('tmp_scan_test_pickle.pkl', 'rb') as f_in:
                 my_f = pickle.load(f_in)
-            finally:
-                f_in.close()
         finally:
             # Get back to the original dir, and delete the temporary one.
             os.chdir(origdir)
@@ -903,9 +897,9 @@ class T_Scan(unittest.TestCase):
         u0 = theano.tensor.vector('u0')
         u1 = theano.tensor.vector('u1')
         u2 = theano.tensor.vector('u2')
-        mu0 = theano.Param(u0, mutable=False)
-        mu1 = theano.Param(u1, mutable=True)
-        mu2 = theano.Param(u2, mutable=True)
+        mu0 = theano.In(u0, mutable=False)
+        mu1 = theano.In(u1, mutable=True)
+        mu2 = theano.In(u2, mutable=True)
         x0 = theano.tensor.scalar('x0')
         x1 = theano.tensor.scalar('y0')
         W_in = theano.shared(vW_in, 'Win')
@@ -967,9 +961,9 @@ class T_Scan(unittest.TestCase):
         u0 = theano.tensor.vector('u0')
         u1 = theano.tensor.vector('u1')
         u2 = theano.tensor.vector('u2')
-        mu0 = theano.Param(u0, mutable=True)
-        mu1 = theano.Param(u1, mutable=True)
-        mu2 = theano.Param(u2, mutable=True)
+        mu0 = theano.In(u0, mutable=True)
+        mu1 = theano.In(u1, mutable=True)
+        mu2 = theano.In(u2, mutable=True)
         x0 = theano.tensor.scalar('x0')
         x1 = theano.tensor.scalar('y0')
         W_in = theano.shared(vW_in, 'Win')
@@ -3125,6 +3119,25 @@ class T_Scan(unittest.TestCase):
         utt.assert_allclose(vnu, tnu, atol=1e-6)
         utt.assert_allclose(vnh0, tnh0, atol=1e-6)
         utt.assert_allclose(vnW, tnW, atol=1e-6)
+
+    def test_pushout_dot(self):
+        W = tensor.matrix('W')
+        h = tensor.matrix('h')
+
+        o, _ = theano.scan(lambda hi, him1, W: (hi, tensor.dot(hi+him1, W)),
+                           outputs_info=[tensor.zeros([h.shape[1]]), None],
+                           sequences=[h],
+                           non_sequences=[W])
+
+        f = theano.function([W, h], o, mode=mode_with_opt)
+
+        scan_nodes = [x for x in f.maker.fgraph.toposort()
+                     if isinstance(x.op,
+                                   theano.scan_module.scan_op.Scan)]
+        assert len(scan_nodes) == 1
+        scan_op = scan_nodes[0].op
+        assert not any(isinstance(n.op, tensor.Dot) for n in
+                       scan_op.fn.maker.fgraph.apply_nodes)
 
     def test_pushout_all(self):
         W1 = tensor.matrix('W1')
