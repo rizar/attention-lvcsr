@@ -415,7 +415,16 @@ class SequenceContentAttention(GenericSequenceAttention, Initializable):
 
 
 class ShallowEnergyComputer(Sequence, Initializable, Feedforward):
-    """A simple energy computer: first tanh, then weighted sum."""
+    """A simple energy computer: first tanh, then weighted sum.
+
+    Parameters
+    ----------
+    use_bias : bool, optional
+        Whether a bias should be added to the energies. Does not change
+        anything if softmax normalization is used to produce the attention
+        weights, but might be useful when e.g. spherical softmax is used.
+
+    """
     @lazy()
     def __init__(self, use_bias=False, **kwargs):
         super(ShallowEnergyComputer, self).__init__(
