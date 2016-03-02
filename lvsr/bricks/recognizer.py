@@ -107,11 +107,11 @@ class SpeechBottom(Bottom):
     A Bottom specialized for speech recognition that accets only one input
     - the recordings.
     """
-    input_sources = 'recordings'
+    vector_input_sources = ['recordings']
 
     def __init__(self, activation, dims=None, **kwargs):
         super(SpeechBottom, self).__init__(**kwargs)
-        self.num_features = self.input_source_dims['recordings']
+        self.num_features = self.input_dims['recordings']
 
         if activation is None:
             activation = Tanh()
@@ -200,7 +200,7 @@ class SpeechRecognizer(Initializable):
                  # softmax is the default set in SequenceContentAndConvAttention
                  energy_normalizer=None,
                  # for speech this is the approximate phoneme duration in frames
-                 max_decoded_length_scale=3,
+                 max_decoded_length_scale=1,
                  **kwargs):
 
         if post_merge_activation is None:

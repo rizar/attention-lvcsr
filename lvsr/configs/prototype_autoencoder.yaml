@@ -14,6 +14,7 @@ net:
     criterion:
         name: log_likelihood
     lm: {}
+    max_decoded_length_scale: 0.75
 initialization:
     /recognizer:
         weights_init:
