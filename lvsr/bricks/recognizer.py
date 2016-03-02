@@ -17,14 +17,14 @@ from blocks.graph import ComputationGraph
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
-from blocks.serialization import load_parameter_values
+from blocks.serialization import load_parameters
 
 from lvsr.bricks import (
     Encoder, OneOfNFeedback, InitializableSequence, RewardRegressionEmitter)
 from lvsr.bricks.attention import SequenceContentAndConvAttention
 from lvsr.bricks.language_models import (
     LanguageModel, LMEmitter, ShallowFusionReadout)
-from lvsr.utils import global_push_initialization_config, SpeechModel
+from lvsr.utils import global_push_initialization_config
 
 logger = logging.getLogger(__name__)
 
@@ -406,8 +406,9 @@ class SpeechRecognizer(Initializable):
 
     def load_params(self, path):
         generated = self.get_generate_graph()
-        param_values = load_parameter_values(path)
-        SpeechModel(generated['outputs']).set_parameter_values(param_values)
+        with open(path, 'r') as src:
+            param_values = load_parameters(src)
+        Model(generated['outputs']).set_parameter_values(param_values)
 
     def get_generate_graph(self, use_mask=True, n_steps=None):
         inputs_mask = None

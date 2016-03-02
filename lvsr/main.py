@@ -35,6 +35,7 @@ from blocks_extras.extensions.plot import Plot
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
+from blocks.model import Model
 from blocks.main_loop import MainLoop
 from blocks.filter import VariableFilter, get_brick
 from blocks.roles import WEIGHT
@@ -52,8 +53,8 @@ from lvsr.extensions import (
 from lvsr.error_rate import wer
 from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
-from lvsr.utils import SpeechModel, rename
-from blocks.serialization import load_parameter_values
+from lvsr.utils import rename
+from blocks.serialization import load_parameters
 from lvsr.log_backends import NDarrayLog
 
 floatX = theano.config.floatX
@@ -431,8 +432,7 @@ def initialize_all(config, save_path, bokeh_name,
             cg, cg.outputs[0],
             variables=cg.parameters,
             num_examples=data.get_dataset('train').num_examples,
-            parameters=SpeechModel(regularized_cg.outputs[0]
-                                   ).get_parameter_dict().values(),
+            parameters=Model(regularized_cg.outputs[0]).get_parameter_dict().values(),
             **reg_config.get('adaptive_noise')
         )
         train_cost.name = 'train_cost'
@@ -459,19 +459,14 @@ def initialize_all(config, save_path, bokeh_name,
             regularized_cg.outputs[-2],  # model prior mean
             regularized_cg.outputs[-1]]  # model prior variance
 
-    # Model is weird class, we spend lots of time arguing with Bart
-    # what it should be. However it can already nice things, e.g.
-    # one extract all the parameters from the computation graphs
-    # and give them hierahical names. This help to notice when a
-    # because of some bug a parameter is not in the computation
-    # graph.
-    model = SpeechModel(train_cost)
+    model = Model(train_cost)
     if params:
         logger.info("Load parameters from " + params)
         # please note: we cannot use recognizer.load_params
         # as it builds a new computation graph that dies not have
         # shapred variables added by adaptive weight noise
-        param_values = load_parameter_values(params)
+        with open(params, 'r') as src:
+            param_values = load_parameters(src)
         model.set_parameter_values(param_values)
 
     parameters = model.get_parameter_dict()
