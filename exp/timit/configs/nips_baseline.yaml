@@ -13,6 +13,8 @@ data:
         labels: phones60
         uttids: uttids
 
+    default_sources: [recordings, labels]
+
     max_length: 10000000000000
     normalization: ''
 
