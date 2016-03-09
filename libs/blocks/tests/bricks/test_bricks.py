@@ -3,6 +3,7 @@ import six
 import theano
 from numpy.testing import assert_allclose, assert_raises
 from theano import tensor
+from six.moves import cPickle
 
 from blocks.bricks import (Identity, Linear, Maxout, LinearMaxout, MLP, Tanh,
                            Sequence, Random, Logistic, Softplus, Softmax)
@@ -249,6 +250,10 @@ def test_application():
     assert TestBrick.delegated_apply.inputs == ['w']
 
 
+def test_application_serialization():
+    assert id(cPickle.loads(cPickle.dumps(Linear.apply))) == id(Linear.apply)
+
+
 def test_apply():
     brick = TestBrick(0)
     assert TestBrick.apply(brick, [0]) == [0, 1]
@@ -355,6 +360,16 @@ def test_mlp():
     assert_allclose(x_val.dot(numpy.ones((16, 8))),
                     y.eval({x: x_val}), rtol=1e-06)
     assert mlp.rng == mlp.linear_transformations[0].rng
+
+
+def test_mlp_prototype_argument():
+    class MyLinear(Linear):
+        pass
+    mlp = MLP(activations=[Tanh(), Tanh(), None],
+              dims=[4, 5, 6, 7], prototype=MyLinear())
+    assert all(isinstance(lt, MyLinear) for lt in mlp.linear_transformations)
+    assert all(lt.name == 'mylinear_{}'.format(i)
+               for i, lt in enumerate(mlp.linear_transformations))
 
 
 def test_mlp_apply():

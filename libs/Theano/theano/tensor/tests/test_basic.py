@@ -31,9 +31,9 @@ from theano.tensor import (_shared, wvector, bvector, autocast_float_as,
         horizontal_stack, vertical_stack, argmax, get_vector_length,
         fscalar, zeros_like, sum, tensor3, vector, add, addbroadcast,
         alloc, as_tensor_variable, tensor_from_scalar, ARange, autocast_float,
-        clip, constant, default, dot,
-        dmatrix, dscalar, dvector, eq, eye, fill, flatten, inverse_permutation, Flatten,
-        tensor4, permute_row_elements, fmatrix, fscalars, grad,
+        clip, constant, default, dot, batched_dot,
+        dmatrix, dscalar, dvector, eq, eye, fill, flatten, inverse_permutation,
+        tensor4, permute_row_elements, Flatten, fmatrix, fscalars, grad,
         inplace, iscalar, matrix, minimum, matrices, maximum, mul, neq,
         Reshape, row, scalar, scalars, second, smallest, stack, sub, Tensor,
         tensor_copy, tensordot, TensorType, Tri, tri, tril, triu, unbroadcast,
@@ -1493,6 +1493,12 @@ CosInplaceTester = makeBroadcastTester(
     grad=_grad_broadcast_unary_wide,
     inplace=True)
 
+def test_py_c_match():
+    a = tensor.TensorType(dtype='int8', broadcastable=(False,))()
+    f = theano.function([a], tensor.arccos(a), mode='DebugMode')
+    # This can fail in DebugMode
+    f(numpy.asarray([1, 0, -1], dtype='int8'))
+
 ArccosTester = makeBroadcastTester(op=tensor.arccos,
                                    expected=upcast_float16_ufunc(numpy.arccos),
                                    good=_good_broadcast_unary_arcsin,
@@ -1677,6 +1683,8 @@ if imported_scipy_special:
     expected_gammaln = scipy.special.gammaln
     expected_psi = scipy.special.psi
     expected_chi2sf = lambda x, df: scipy.stats.chi2.sf(x, df).astype(x.dtype)
+    expected_j0 = scipy.special.j0
+    expected_j1 = scipy.special.j1
     skip_scipy = False
     if LooseVersion(scipy_version) >= LooseVersion("0.12.0"):
         expected_erfcx = scipy.special.erfcx
@@ -1694,6 +1702,8 @@ else:
     expected_gammaln = []
     expected_psi = []
     expected_chi2sf = []
+    expected_j0 = []
+    expected_j1 = []
     skip_scipy = "scipy is not present"
     skip_scipy12 = "scipy is not present"
 
@@ -1861,6 +1871,43 @@ Chi2SFInplaceTester = makeBroadcastTester(
     skip=skip_scipy,
     name='Chi2SF')
 
+_good_broadcast_unary_j = dict(
+    normal=(rand_ranged(0.1, 8, (2, 3)),),)
+
+J0Tester = makeBroadcastTester(
+    op=tensor.j0,
+    expected=expected_j0,
+    good=_good_broadcast_unary_j,
+    grad=_good_broadcast_unary_j,
+    eps=2e-10,
+    mode=mode_no_scipy,
+    skip=skip_scipy)
+J0InplaceTester = makeBroadcastTester(
+    op=inplace.j0_inplace,
+    expected=expected_j0,
+    good=_good_broadcast_unary_j,
+    grad=_good_broadcast_unary_j,
+    eps=2e-10,
+    mode=mode_no_scipy,
+    inplace=True,
+    skip=skip_scipy)
+
+J1Tester = makeBroadcastTester(
+    op=tensor.j1,
+    expected=expected_j1,
+    good=_good_broadcast_unary_j,
+    eps=2e-10,
+    mode=mode_no_scipy,
+    skip=skip_scipy)
+J1InplaceTester = makeBroadcastTester(
+    op=inplace.j1_inplace,
+    expected=expected_j1,
+    good=_good_broadcast_unary_j,
+    eps=2e-10,
+    mode=mode_no_scipy,
+    inplace=True,
+    skip=skip_scipy)
+
 ZerosLikeTester = makeBroadcastTester(
         op=tensor.zeros_like,
         expected=numpy.zeros_like,
@@ -1931,6 +1978,59 @@ DotTester = makeTester(name='DotTester',
                         bad_build=dict(),
                         bad_runtime=dict(bad1=(rand(5, 7), rand(5, 7)),
                                          bad2=(rand(5, 7), rand(8, 3))))
+
+BatchedDotTester = makeTester(
+    name='BatchedDotTester',
+    op=batched_dot,
+    expected=(lambda xs, ys:
+        numpy.asarray(
+            list(x * y if x.ndim == 0 or y.ndim == 0 else numpy.dot(x, y)
+                 for x, y in zip(xs, ys)),
+            dtype=theano.scalar.upcast(xs.dtype, ys.dtype))),
+    checks={},
+    grad=dict(correct1=(rand(3, 5, 7), rand(3, 7, 5)),
+              correct2=(rand(3, 5, 7), rand(3, 7, 9)),
+              correct3=(rand(3, 5, 7), rand(3, 7)),
+              correct4=(rand(3, 5), rand(3, 5, 7)),
+              correct5=(rand(3), rand(3, 5, 7)),
+              correct6=(rand(3, 5), rand(3)),
+              correct7=(rand(3, 5), rand(3, 5)),
+              correct8=(rand(3), rand(3)),
+              correct9=(rand(3, 5, 7, 11), rand(3)),
+              correct10=(rand(3, 7, 11, 5), rand(3, 5)),
+              correct11=(rand(3, 7, 11, 5), rand(3, 5, 13)),
+              correct12=(rand(3, 7, 11, 5), rand(3, 13, 5, 17)),
+              mixed1=(rand(3, 5).astype('float32'),
+                      rand(3, 5, 7)),
+              mixed2=(rand(3, 5).astype('float64'),
+                      rand(3, 5, 7))),
+    good=dict(correct1=(rand(3, 5, 7), rand(3, 7, 5)),
+              correct2=(rand(3, 5, 7), rand(3, 7, 9)),
+              correct3=(rand(3, 5, 7), rand(3, 7)),
+              correct4=(rand(3, 5), rand(3, 5, 7)),
+              correct5=(rand(3), rand(3, 5, 7)),
+              correct6=(rand(3, 5), rand(3)),
+              correct7=(rand(3, 5), rand(3, 5)),
+              correct8=(rand(3), rand(3)),
+              correct9=(rand(3, 5, 7, 11), rand(3)),
+              correct10=(rand(3, 7, 11, 5), rand(3, 5)),
+              correct11=(rand(3, 7, 11, 5), rand(3, 5, 13)),
+              correct12=(rand(3, 7, 11, 5), rand(3, 13, 5, 17)),
+              mixed1=(rand(3, 5).astype('float32'),
+                      rand(3, 5, 7)),
+              mixed2=(rand(3, 5).astype('float64'),
+                      rand(3, 5, 7))),
+    bad_build=dict(no_batch_axis2=(rand(), rand(3, 5)),
+                   no_batch_axis3=(rand(3, 5), rand())),
+    bad_runtime=dict(batch_dim_mismatch1=(rand(2, 5, 7), rand(3, 7, 9)),
+                     batch_dim_mismatch2=(rand(3, 5, 7), rand(2, 7, 9)),
+                     batch_dim_mismatch3=(rand(3), rand(5)),
+                     bad_dim1=(rand(3, 5, 7), rand(3, 5, 7)),
+                     bad_dim2=(rand(3, 5, 7), rand(3, 8, 3)),
+                     bad_dim3=(rand(3, 5), rand(3, 7)),
+                     bad_dim4=(rand(3, 5, 7, 11), rand(3, 5)),
+                     bad_dim5=(rand(3, 5, 7, 11), rand(3, 5, 13)),
+                     bad_dim6=(rand(3, 5, 7, 11), rand(3, 13, 5, 17))))
 
 
 def _numpy_second(x, y):
@@ -5020,7 +5120,7 @@ class T_reshape(utt.InferShapeTester, utt.TestOptimizationMixin):
         # The tag canonicalize is needed for the shape test in FAST_COMPILE
         self.mode = mode
         self.ignore_topo = ignore_topo
-        return super(T_reshape, self).__init__(name)
+        super(T_reshape, self).__init__(name)
 
     def function(self, inputs, outputs):
         f = function(inputs, outputs, mode=self.mode)
@@ -6572,10 +6672,11 @@ class test_arithmetic_cast(unittest.TestCase):
 
 class T_long_tensor(unittest.TestCase):
     def test_fit_int64(self):
-        for exp in xrange(64):
+        for exp in xrange(theano.configdefaults.python_int_bitwidth()):
             val = L(2 ** exp - 1)
             scalar_ct = constant(val)
-            assert scalar_ct.dtype.startswith('int')
+
+            assert scalar_ct.dtype.startswith('int'), (exp, val, scalar_ct.dtype)
             assert scalar_ct.value == val
 
             vector_ct = constant([val, val])
@@ -6785,8 +6886,8 @@ def test_unalign():
     else:
         dtype = "b1,f4"
 
-    a = numpy.empty(1e4, dtype=dtype)['f1']
-    b = numpy.empty(1e4, dtype=dtype)['f1']
+    a = numpy.empty(10000, dtype=dtype)['f1']
+    b = numpy.empty(10000, dtype=dtype)['f1']
     assert not a.flags.aligned
     assert not b.flags.aligned
     a[:] = rand(len(a))

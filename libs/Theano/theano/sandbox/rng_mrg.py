@@ -21,8 +21,9 @@ from theano.compile import optdb
 from theano.gof import local_optimizer
 from . import multinomial
 
-from theano.sandbox.cuda import cuda_available, cuda_enabled, GpuOp
-if cuda_available:
+import theano.sandbox.cuda
+from theano.sandbox.cuda import GpuOp
+if theano.sandbox.cuda.cuda_available:
     from theano.sandbox.cuda import (CudaNdarrayType,
                                      float32_shared_constructor)
 
@@ -1091,7 +1092,7 @@ class MRG_RandomStreams(object):
         self.set_rstate(seed)
 
         if use_cuda is None:
-            self.use_cuda = cuda_enabled
+            self.use_cuda = theano.sandbox.cuda.cuda_enabled            
         else:
             self.use_cuda = use_cuda
 
@@ -1363,6 +1364,54 @@ class MRG_RandomStreams(object):
             raise NotImplementedError(("MRG_RandomStreams.multinomial only"
                                        " implemented for pvals.ndim = 2"))
 
+    def multinomial_wo_replacement(self, size=None, n=1, pvals=None, ndim=None, dtype='int64',
+                                   nstreams=None):
+        """
+        Sample `n` times *WITHOUT replacement* from a multinomial distribution
+        defined by probabilities pvals, and returns the indices of the sampled
+        elements.
+        `n` needs to be in [1, m], where m is the number of elements to select
+        from, i.e. m == pvals.shape[1]. By default n = 1.
+        
+        Example : pvals = [[.98, .01, .01], [.01, .49, .50]] and n=1 will
+        probably result in [[0],[2]]. When setting n=2, this
+        will probably result in [[0,1],[2,1]].
+        
+        Notes
+        -----
+        -`size` and `ndim` are only there keep the same signature as other
+        uniform, binomial, normal, etc.
+        TODO : adapt multinomial to take that into account
+
+        -Does not do any value checking on pvals, i.e. there is no
+        check that the elements are non-negative, less than 1, or
+        sum to 1. passing pvals = [[-2., 2.]] will result in
+        sampling [[0, 0]]
+
+        """
+        if pvals is None:
+            raise TypeError("You have to specify pvals")
+        pvals = as_tensor_variable(pvals)
+
+        if size is not None:
+            raise ValueError("Provided a size argument to "
+                             "MRG_RandomStreams.multinomial_wo_replacement, which does not use "
+                             "the size argument.")
+        if ndim is not None:
+            raise ValueError("Provided an ndim argument to "
+                             "MRG_RandomStreams.multinomial_wo_replacement, which does not use "
+                             "the ndim argument.")
+        if pvals.ndim == 2:
+            # size = [pvals.shape[0], as_tensor_variable(n)]
+            size = pvals[:,0].shape * n
+            unis = self.uniform(size=size, ndim=1, nstreams=nstreams)
+            op = multinomial.MultinomialWOReplacementFromUniform(dtype)
+            n_samples = as_tensor_variable(n)
+            return op(pvals, unis, n_samples)
+        else:
+            raise NotImplementedError(("MRG_RandomStreams.multinomial_wo_replacement only"
+                                       " implemented for pvals.ndim = 2"))
+
     def normal(self, size, avg=0.0, std=1.0, ndim=None,
                dtype=None, nstreams=None):
         """
@@ -1449,7 +1498,7 @@ from theano.sandbox.gpuarray.opt import (register_opt as register_gpua,
                                          host_from_gpu as host_from_gpua)
 
 
-@register_gpua()
+@register_gpua('fast_compile')
 @local_optimizer([mrg_uniform])
 def local_gpua_mrg(node):
     if (type(node.op) == mrg_uniform and

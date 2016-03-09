@@ -81,7 +81,8 @@ def shared_floatx_zeros_matching(shared_variable, name=None, **kwargs):
     name : :obj:`str`, optional
         The name for the shared variable. Defaults to `None`.
     \*\*kwargs
-        Keyword arguments to pass to the :func:`shared_floatx_zeros` function.
+        Keyword arguments to pass to the :func:`shared_floatx_zeros`
+        function.
 
     Returns
     -------
@@ -482,7 +483,8 @@ def print_shape(x, header=None):
 def change_recursion_limit(limit):
     """Temporarily changes the recursion limit."""
     old_limit = sys.getrecursionlimit()
-    sys.setrecursionlimit(limit)
+    if old_limit < limit:
+        sys.setrecursionlimit(limit)
     yield
     sys.setrecursionlimit(old_limit)
 

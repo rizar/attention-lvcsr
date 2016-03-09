@@ -45,14 +45,15 @@ def function_dump(filename, inputs, outputs=None, mode=None, updates=None,
 
     To load such a dump and do the compilation:
 
-    >>> import cPickle, theano
+    >>> from six.moves import cPickle
+    >>> import theano
     >>> d = cPickle.load(open("func_dump.bin", "rb"))  # doctest: +SKIP
     >>> f = theano.function(**d)  # doctest: +SKIP
 
     Note:
-      The parameter extra_tag_to_remove, is passed to the StripPickler used.
-      To pickle graph made by Blocks, it must be:
-          ['annotations', 'replacement_of', 'aggregation_scheme', 'rolesc']
+    The parameter extra_tag_to_remove, is passed to the StripPickler used.
+    To pickle graph made by Blocks, it must be:
+    ['annotations', 'replacement_of', 'aggregation_scheme', 'roles']
 
     """
     assert isinstance(filename, string_types)
@@ -79,7 +80,7 @@ def function(inputs, outputs=None, mode=None, updates=None, givens=None,
 
     Parameters
     ----------
-    inputs : list of either Variable or Param instances.
+    inputs : list of either Variable or In instances.
         Function parameters, these are not allowed to be shared variables.
     outputs : list or dict of Variables or Out instances.
         If it is a dict, the keys must be strings. Expressions to compute.
@@ -119,6 +120,8 @@ def function(inputs, outputs=None, mode=None, updates=None, givens=None,
     profile: None, True, or ProfileStats instance
         Accumulate profiling information into a given ProfileStats instance.
         If argument is `True` then a new ProfileStats instance will be used.
+        If argument is a string, a new ProfileStats instance will be created
+        with that string as its ``message`` attribute.
         This profiling object will be available via self.profile.
     on_unused_input
         What to do if a variable in the 'inputs' list is not used in the graph.

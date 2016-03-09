@@ -4,8 +4,6 @@ data:
 net:
     dim_dec: 100
     dims_bidir: [100]
-    input_sources:
-        - recordings
     bottom:
         bottom_class: !!python/name:lvsr.bricks.recognizer.SpeechBottom
         dims: [100]
@@ -15,6 +13,7 @@ net:
     dec_transition: !!python/name:blocks.bricks.recurrent.SimpleRecurrent
     attention_type: content
     use_states_for_readout: False
+    max_decoded_length_scale: 3.
     criterion:
         name: log_likelihood
     lm: {}
@@ -29,13 +28,9 @@ initialization:
         rec_weights_init:
             !!python/object/apply:blocks.initialization.Orthogonal []
 training:
-    num_batches: 100000
-    num_epochs: 100
     gradient_threshold: 100.0
     scale: 0.01
     momentum: 0.0
-    num_batches: 100000
-    num_epochs: 100000
 monitoring:
     validate_every_epochs: 1
     validate_every_batches: 0

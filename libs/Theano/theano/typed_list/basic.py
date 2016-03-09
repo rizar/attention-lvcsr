@@ -53,6 +53,15 @@ class TypedListVariable(_typed_list_py_operators, Variable):
 TypedListType.Variable = TypedListVariable
 
 
+class TypedListConstant(_typed_list_py_operators, Constant):
+    """
+    Subclass to add the typed list operators to the basic `Variable` class.
+
+    """
+
+TypedListType.Constant = TypedListConstant
+
+
 class GetItem(Op):
     # See doc in instance of this Op or function after this class definition.
     view_map = {0: [0]}
@@ -587,7 +596,6 @@ x
 
 
 class MakeList(Op):
-
     __props__ = ()
 
     def make_node(self, a):
@@ -606,7 +614,8 @@ class MakeList(Op):
 
     def perform(self, node, inputs, outputs):
         (out,) = outputs
-        out[0] = list(inputs)
+        # We need to make sure that we don't get a view on our inputs
+        out[0] = [_lessbroken_deepcopy(inp) for inp in inputs]
 
 make_list = MakeList()
 """

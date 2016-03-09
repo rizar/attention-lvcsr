@@ -12,18 +12,20 @@ from blocks.bricks.recurrent import (
 from blocks.bricks.sequence_generators import (
     SequenceGenerator, Readout,
     SoftmaxEmitter, LookupFeedback)
+from blocks.bricks.lookup import LookupTable
 from blocks.graph import ComputationGraph
+from blocks.model import Model
 from blocks.filter import VariableFilter
 from blocks.roles import OUTPUT
 from blocks.search import BeamSearch
-from blocks.serialization import load_parameter_values
+from blocks.serialization import load_parameters
 
 from lvsr.bricks import (
     Encoder, OneOfNFeedback, InitializableSequence, RewardRegressionEmitter)
 from lvsr.bricks.attention import SequenceContentAndConvAttention
 from lvsr.bricks.language_models import (
     LanguageModel, LMEmitter, ShallowFusionReadout)
-from lvsr.utils import global_push_initialization_config, SpeechModel
+from lvsr.utils import global_push_initialization_config
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +41,65 @@ class Bottom(Initializable):
     In speech recognition this will typically be the identity transformation
     ro a small MLP.
 
+    Attributes
+    ----------
+    vector_input_sources : list of str
+    discrete_input_sources : list of str
+
     Parameters
     ----------
-
-    input_sources: list
-        list of source names meaningful to the chosen Bottom class,
-        such as "recordings" or "ivectors".
+    input_dims : dict
+        Maps input source to their dimensions, only for vector sources.
+    input_num_chars : dict
+        Maps input source to their range of values, only for discrete sources.
 
     """
-    def __init__(self, input_sources,
-                 **kwargs):
+    vector_input_sources = []
+    discrete_input_sources = []
+
+    def __init__(self, input_dims, input_num_chars, **kwargs):
         super(Bottom, self).__init__(**kwargs)
-        self.input_sources = input_sources
+        self.input_dims = input_dims
+        self.input_num_chars = input_num_chars
+
+
+class LookupBottom(Bottom):
+    discrete_input_sources = ['inputs']
+
+    def __init__(self, dim, **kwargs):
+        super(LookupBottom, self).__init__(**kwargs)
+        self.dim = dim
+
+        self.mask = tensor.matrix('inputs_mask')
+        self.batch_inputs = {
+            'inputs': tensor.lmatrix('inputs')}
+        self.single_inputs = {
+            'inputs': tensor.lvector('inputs')}
+
+        self.children = [LookupTable(self.input_num_chars['inputs'], self.dim)]
+
+    @application(inputs=['inputs'], outputs=['outputs'])
+    def apply(self, inputs):
+        return self.children[0].apply(inputs)
+
+    def batch_size(self, inputs):
+        return inputs.shape[1]
+
+    def num_time_steps(self, inputs):
+        return inputs.shape[0]
+
+    def single_to_batch_inputs(self, inputs):
+        # Note: this code supports many inputs, which are all sequences
+        inputs = {n: v[:, None, :] if v.ndim == 2 else v[:, None]
+                  for (n, v) in inputs.items()}
+        inputs_mask = tensor.ones((self.num_time_steps(**inputs),
+                                   self.batch_size(**inputs)))
+        return inputs, inputs_mask
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return self.dim
+        return super(LookupBottom, self).get_dim(name)
 
 
 class SpeechBottom(Bottom):
@@ -58,13 +107,11 @@ class SpeechBottom(Bottom):
     A Bottom specialized for speech recognition that accets only one input
     - the recordings.
     """
-    def __init__(self, input_sources_dims, activation, dims, **kwargs):
+    vector_input_sources = ['recordings']
+
+    def __init__(self, activation, dims=None, **kwargs):
         super(SpeechBottom, self).__init__(**kwargs)
-        self.input_sources_dims = input_sources_dims
-        if not self.input_sources == ['recordings']:
-            raise Exception("The SpeechBottom handles only recordings")
-        self.recordings_source = 'recordings'
-        self.num_features = self.input_sources_dims['recordings']
+        self.num_features = self.input_dims['recordings']
 
         if activation is None:
             activation = Tanh()
@@ -79,26 +126,21 @@ class SpeechBottom(Bottom):
             self.output_dim = self.num_features
         self.children.append(child)
 
-    @application(inputs=['recordings'])
+        self.mask = tensor.matrix('recordings_mask')
+        self.batch_inputs = {
+            'recordings': tensor.tensor3('recordings')}
+        self.single_inputs = {
+            'recordings': tensor.matrix('recordings')}
+
+    @application(inputs=['recordings'], outputs=['outputs'])
     def apply(self, recordings):
         return self.children[0].apply(recordings)
 
-    @application(inputs=['recordings'])
     def batch_size(self, recordings):
         return recordings.shape[1]
 
-    @application(inputs=['recordings'])
     def num_time_steps(self, recordings):
         return recordings.shape[0]
-
-    def get_batch_inputs(self):
-        return {'recordings': tensor.tensor3(self.recordings_source)}
-
-    def get_mask(self):
-        return tensor.matrix(self.recordings_source + "_mask")
-
-    def get_single_sequence_inputs(self):
-        return {'recordings': tensor.matrix(self.recordings_source)}
 
     def single_to_batch_inputs(self, inputs):
         # Note: this code supports many inputs, which are all sequences
@@ -107,6 +149,11 @@ class SpeechBottom(Bottom):
         inputs_mask = tensor.ones((self.num_time_steps(**inputs),
                                    self.batch_size(**inputs)))
         return inputs, inputs_mask
+
+    def get_dim(self, name):
+        if name == 'outputs':
+            return self.output_dim
+        return super(SpeechBottom, self).get_dim(name)
 
 
 class SpeechRecognizer(Initializable):
@@ -127,8 +174,8 @@ class SpeechRecognizer(Initializable):
     """
 
     def __init__(self,
-                 input_sources,
-                 input_sources_dims,
+                 input_dims,
+                 input_num_chars,
                  eos_label,
                  num_phonemes,
                  dim_dec, dims_bidir,
@@ -153,7 +200,7 @@ class SpeechRecognizer(Initializable):
                  # softmax is the default set in SequenceContentAndConvAttention
                  energy_normalizer=None,
                  # for speech this is the approximate phoneme duration in frames
-                 max_decoded_length_scale=3,
+                 max_decoded_length_scale=1,
                  **kwargs):
 
         if post_merge_activation is None:
@@ -180,16 +227,16 @@ class SpeechRecognizer(Initializable):
 
         # The bottom part, before BiRNN
         bottom_class = bottom.pop('bottom_class')
-        bottom = bottom_class(input_sources=input_sources,
-                              input_sources_dims=input_sources_dims,
-                              name='bottom',
-                              **bottom)
+        bottom = bottom_class(
+            input_dims=input_dims, input_num_chars=input_num_chars,
+            name='bottom',
+            **bottom)
 
         # BiRNN
         if not subsample:
             subsample = [1] * len(dims_bidir)
         encoder = Encoder(self.enc_transition, dims_bidir,
-                          bottom.output_dim,
+                          bottom.get_dim(bottom.apply.outputs[0]),
                           subsample, bidir=bidir)
         dim_encoded = encoder.get_dim(encoder.apply.outputs[0])
 
@@ -303,13 +350,13 @@ class SpeechRecognizer(Initializable):
         self.children = [encoder, top, bottom, generator]
 
         # Create input variables
-        self.inputs = self.bottom.get_batch_inputs()
-        self.inputs_mask = self.bottom.get_mask()
+        self.inputs = self.bottom.batch_inputs
+        self.inputs_mask = self.bottom.mask
 
         self.labels = tensor.lmatrix('labels')
         self.labels_mask = tensor.matrix("labels_mask")
 
-        self.single_inputs = self.bottom.get_single_sequence_inputs()
+        self.single_inputs = self.bottom.single_inputs
         self.single_labels = tensor.lvector('labels')
         self.n_steps = tensor.lscalar('n_steps')
 
@@ -360,8 +407,9 @@ class SpeechRecognizer(Initializable):
 
     def load_params(self, path):
         generated = self.get_generate_graph()
-        param_values = load_parameter_values(path)
-        SpeechModel(generated['outputs']).set_parameter_values(param_values)
+        with open(path, 'r') as src:
+            param_values = load_parameters(src)
+        Model(generated['outputs']).set_parameter_values(param_values)
 
     def get_generate_graph(self, use_mask=True, n_steps=None):
         inputs_mask = None
@@ -486,9 +534,8 @@ class SpeechRecognizer(Initializable):
 
     def init_generate(self):
         generated = self.get_generate_graph(use_mask=False)
-        inputs = [v.copy(name=n) for (n, v) in self.inputs.items()]
-        inputs.append(self.n_steps.copy(name='n_steps'))
-        self._do_generate = theano.function(inputs, generated)
+        cg = ComputationGraph(generated['outputs'])
+        self._do_generate = cg.get_theano_function()
 
     def sample(self, inputs, n_steps=None):
         if not hasattr(self, '_do_generate'):
@@ -497,7 +544,7 @@ class SpeechRecognizer(Initializable):
         batch['n_steps'] = n_steps if n_steps is not None \
             else int(self.bottom.num_time_steps(**batch) /
                      self.max_decoded_length_scale)
-        return self._do_generate(**batch)
+        return self._do_generate(**batch)[0]
 
     def __getstate__(self):
         state = dict(self.__dict__)

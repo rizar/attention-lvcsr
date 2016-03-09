@@ -300,6 +300,21 @@ def test_opt_gpujoin_onlyajoin():
 
     assert numpy.all(f() == numpy.concatenate([_a, _b], axis=1))
 
+    # test mixed dtype
+    _b = numpy.asarray([[5, 6, 7], [8, 9, 10]], dtype='float64')
+    b = theano.tensor.constant(_b)
+
+    c = tensor.join(1, a, b)
+
+    f = theano.function([], c, mode=mode_with_gpu)
+
+    f()
+
+    graph_nodes = f.maker.fgraph.toposort()
+    assert isinstance(graph_nodes[-1].op, theano.tensor.Join)
+
+    assert numpy.all(f() == numpy.concatenate([_a, _b], axis=1))
+
 
 def test_opt_gpujoin_joinvectors_elemwise_then_minusone():
     # from a bug in gpu normal sampling
@@ -843,6 +858,20 @@ class Test_GpuReshape(test_opt.Test_Reshape):
         self.mode = mode_with_gpu
         self.op = basic_ops.GpuReshape
 
+
+def test_local_abstractconv_gemm():
+    """ We test it here as this is the optimization only that we test.
+    This test gh-4036"""
+    image = tensor.ftensor4()
+    W = tensor.ftensor4()
+    conv = tensor.nnet.conv2d(image,
+                         W,
+                         input_shape=(1, 32, 32, 32),
+                         filter_shape=(32, 32, 3, 3),
+                         border_mode='half')
+    f = theano.function([image, W], [conv], mode=mode_with_gpu)
+    f(numpy.random.rand(1, 32, 32, 32).astype('float32'),
+      numpy.random.rand(32, 32, 3, 3).astype('float32'))
 
 if __name__ == '__main__':
     test_gpualloc()

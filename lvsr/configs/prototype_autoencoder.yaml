@@ -1,0 +1,35 @@
+data:
+    batch_size: 10
+net:
+    dim_dec: 100
+    dims_bidir: [100]
+    bottom:
+        bottom_class: !!python/name:lvsr.bricks.recognizer.LookupBottom
+        dim: 100           
+
+    enc_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    dec_transition: !!python/name:blocks.bricks.recurrent.GatedRecurrent
+    attention_type: content
+    use_states_for_readout: True
+    criterion:
+        name: log_likelihood
+    lm: {}
+    max_decoded_length_scale: 0.75
+initialization:
+    /recognizer:
+        weights_init:
+            !!python/object/apply:blocks.initialization.Uniform [0.0, 0.1]
+        biases_init:
+            !!python/object/apply:blocks.initialization.Constant [0.0]
+training:
+    gradient_threshold: 100.0
+    scale: 0.01
+    momentum: 0.0            
+monitoring:
+    validate_every_epochs: 1
+    validate_every_batches: 0
+    search_every_epochs: 1
+    search_every_batches: 0
+    search:
+        beam_size: 10
+        stop_on: optimistic_future_cost

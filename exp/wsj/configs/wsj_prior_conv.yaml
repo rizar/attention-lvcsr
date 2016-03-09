@@ -1,4 +1,4 @@
-parent: $LVSR/lvsr/configs/prototype.yaml
+parent: $LVSR/lvsr/configs/prototype_speech.yaml
 data:
     dataset_filename: wsj.h5
 
@@ -8,9 +8,11 @@ data:
         test:  test_eval92
 
     sources_map:
-        recordings: recordings
-        labels: labels
+        recordings: fbank_dd
+        labels: characters
         uttids: uttids
+
+    default_sources: [recordings, labels]
 
     normalization: wsj_norm.pkl
 net:

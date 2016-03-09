@@ -35,6 +35,7 @@ from blocks_extras.extensions.plot import Plot
 from blocks.extensions.training import TrackTheBest
 from blocks.extensions.predicates import OnLogRecord
 from blocks.log import TrainingLog
+from blocks.model import Model
 from blocks.main_loop import MainLoop
 from blocks.filter import VariableFilter, get_brick
 from blocks.roles import WEIGHT
@@ -52,8 +53,8 @@ from lvsr.extensions import (
 from lvsr.error_rate import wer
 from lvsr.graph import apply_adaptive_noise
 from lvsr.preprocessing import Normalization
-from lvsr.utils import SpeechModel, rename
-from blocks.serialization import load_parameter_values
+from lvsr.utils import rename
+from blocks.serialization import load_parameters
 from lvsr.log_backends import NDarrayLog
 
 floatX = theano.config.floatX
@@ -66,8 +67,8 @@ def _gradient_norm_is_none(log):
 
 class PhonemeErrorRate(MonitoredQuantity):
 
-    def __init__(self, recognizer, data,
-                 beam_size,  char_discount, round_to_inf, stop_on,
+    def __init__(self, recognizer, data, beam_size,
+                 char_discount=None, round_to_inf=None, stop_on=None,
                  **kwargs):
         self.recognizer = recognizer
         self.beam_size = beam_size
@@ -101,15 +102,16 @@ class PhonemeErrorRate(MonitoredQuantity):
         data = self.data
         groundtruth = data.decode(transcription)
         try:
-            outputs, search_costs = self.recognizer.beam_search(
-                beam_inputs,
+            search_kwargs = dict(
                 char_discount=self.char_discount,
                 round_to_inf=self.round_to_inf,
                 stop_on=self.stop_on,
-                validate_solution_function=getattr(data.info_dataset,
-                                                   'validate_solution',
-                                                   None)
-                )
+                validate_solution_function=getattr(
+                    data.info_dataset, 'validate_solution', None))
+            # We rely on the defaults hard-coded in BeamSearch
+            search_kwargs = {k: v for k, v in search_kwargs.items() if v}
+            outputs, search_costs = self.recognizer.beam_search(
+                beam_inputs, **search_kwargs)
             recognized = data.decode(outputs[0])
             error = min(1, wer(groundtruth, recognized))
         except CandidateNotFoundError:
@@ -200,17 +202,22 @@ def create_model(config, data,
     """
     # First tell the recognizer about required data sources
     net_config = dict(config["net"])
-    data.default_sources = net_config['input_sources'] + ['labels']
-    net_config['input_sources_dims'] = {}
-    for src in net_config['input_sources']:
-        net_config['input_sources_dims'][src] = data.num_features(src)
+    bottom_class = net_config['bottom']['bottom_class']
+    input_dims = {
+        source: data.num_features(source)
+        for source in bottom_class.vector_input_sources}
+    input_num_chars = {
+        source: len(data.character_map(source))
+        for source in bottom_class.discrete_input_sources}
 
     recognizer = SpeechRecognizer(
+        input_dims=input_dims,
+        input_num_chars=input_num_chars,
         eos_label=data.eos_label,
         num_phonemes=data.num_labels,
         name="recognizer",
         data_prepend_eos=data.prepend_eos,
-        character_map=data.character_map,
+        character_map=data.character_map('labels'),
         **net_config)
     if load_path:
         recognizer.load_params(load_path)
@@ -390,7 +397,7 @@ def initialize_all(config, save_path, bokeh_name,
     # Regularization. It is applied explicitly to all variables
     # of interest, it could not be applied to the cost only as it
     # would not have effect on auxiliary variables, see Blocks #514.
-    reg_config = config['regularization']
+    reg_config = config.get('regularization', dict())
     regularized_cg = cg
     if reg_config.get('dropout'):
         logger.info('apply dropout')
@@ -425,8 +432,7 @@ def initialize_all(config, save_path, bokeh_name,
             cg, cg.outputs[0],
             variables=cg.parameters,
             num_examples=data.get_dataset('train').num_examples,
-            parameters=SpeechModel(regularized_cg.outputs[0]
-                                   ).get_parameter_dict().values(),
+            parameters=Model(regularized_cg.outputs[0]).get_parameter_dict().values(),
             **reg_config.get('adaptive_noise')
         )
         train_cost.name = 'train_cost'
@@ -453,19 +459,14 @@ def initialize_all(config, save_path, bokeh_name,
             regularized_cg.outputs[-2],  # model prior mean
             regularized_cg.outputs[-1]]  # model prior variance
 
-    # Model is weird class, we spend lots of time arguing with Bart
-    # what it should be. However it can already nice things, e.g.
-    # one extract all the parameters from the computation graphs
-    # and give them hierahical names. This help to notice when a
-    # because of some bug a parameter is not in the computation
-    # graph.
-    model = SpeechModel(train_cost)
+    model = Model(train_cost)
     if params:
         logger.info("Load parameters from " + params)
         # please note: we cannot use recognizer.load_params
         # as it builds a new computation graph that dies not have
         # shapred variables added by adaptive weight noise
-        param_values = load_parameter_values(params)
+        with open(params, 'r') as src:
+            param_values = load_parameters(src)
         model.set_parameter_values(param_values)
 
     parameters = model.get_parameter_dict()
@@ -620,8 +621,8 @@ def initialize_all(config, save_path, bokeh_name,
         SwitchOffLengthFilter(
             data.length_filter,
             after_n_batches=train_conf.get('stop_filtering')),
-        FinishAfter(after_n_batches=train_conf['num_batches'],
-                    after_n_epochs=train_conf['num_epochs'])
+        FinishAfter(after_n_batches=train_conf.get('num_batches'),
+                    after_n_epochs=train_conf.get('num_epochs'))
             .add_condition(["after_batch"], _gradient_norm_is_none),
     ]
     channels = [
@@ -795,15 +796,17 @@ def search(config, params, load_path, part, decode_only, report,
 
         before = time.time()
         try:
+            search_kwargs = dict(
+                char_discount=search_conf.get('char_discount'),
+                round_to_inf=search_conf.get('round_to_inf'),
+                stop_on=search_conf.get('stop_on'),
+                validate_solution_function=getattr(
+                    data.info_dataset, 'validate_solution', None))
+            search_kwargs = {k: v for k, v in search_kwargs.items() if v}
             outputs, search_costs = recognizer.beam_search(
-                required_inputs,
-                char_discount=search_conf['char_discount'],
-                round_to_inf=search_conf['round_to_inf'],
-                stop_on=search_conf['stop_on'],
-                validate_solution_function=getattr(data.info_dataset,
-                                                   'validate_solution',
-                                                   None))
+                required_inputs, **search_kwargs)
         except CandidateNotFoundError:
+            logger.error('Candidate not found!')
             outputs = [[]]
             search_costs = [[numpy.NaN]]
 
@@ -876,10 +879,10 @@ def sample(config, params, load_path, part):
         print("Utterance {} ({})".format(number, uttids),
               file=print_to)
         raw_groundtruth = data.pop('labels')
-        groundtruth_text = dataset.pretty_print(raw_groundtruth)
+        groundtruth_text = dataset.pretty_print(raw_groundtruth, data)
         print("Groundtruth:", groundtruth_text, file=print_to)
-        sample = recognizer.sample(data)['outputs'][:, 0]
-        recognized_text = dataset.pretty_print(sample)
+        sample = recognizer.sample(data)[:, 0]
+        recognized_text = dataset.pretty_print(sample, data)
         print("Recognized:", recognized_text, file=print_to)
 
 

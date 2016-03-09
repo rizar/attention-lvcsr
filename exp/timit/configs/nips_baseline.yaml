@@ -1,4 +1,4 @@
-parent: $LVSR/lvsr/configs/prototype.yaml
+parent: $LVSR/lvsr/configs/prototype_speech.yaml
 data:
     dataset_filename: timit.h5
     dataset_class: !!python/name:lvsr.datasets.h5py.H5PYAudioDatasetTimit
@@ -12,6 +12,8 @@ data:
         recordings: fbank40_dd
         labels: phones60
         uttids: uttids
+
+    default_sources: [recordings, labels]
 
     max_length: 10000000000000
     normalization: ''
