@@ -1,0 +1,6 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper7.yaml
+stages:
+    pretraining: null
+    main:
+        training:
+            num_epochs: 20
