@@ -1,0 +1,3 @@
+parent: $LVSR/exp/wsj/configs/wsj_paper7.yaml
+regularization:
+    max_norm: -1.
