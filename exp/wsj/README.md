@@ -42,7 +42,6 @@ Check that `$LVSR` environment variable points to this repository and
    ```
    $LVSR/bin/run.py train <model> $LVSR/exp/wsj/configs/<model>.yaml
    ```
-   ```
 
    This will start training and save the model to the folder `<model>`.
 
