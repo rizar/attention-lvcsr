@@ -620,7 +620,8 @@ def initialize_all(config, save_path, bokeh_name,
             ['after_epoch'],
             OnLogRecord(track_the_best_cost.notification_name),
             (root_path + "_best_ll" + extension,)),
-        ProgressBar()]
+        #ProgressBar()
+        ]
     extensions.append(EmbedIPython(use_main_loop_run_caller_env=True))
     if config['net']['criterion']['name'].startswith('mse'):
         extensions.append(
