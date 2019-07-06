@@ -14,6 +14,9 @@ _Dzmitry Bahdanau, Dmitriy Serdyuk, Philémon Brakel, Nan Rosemary Ke,
 Jan Chorowski, Aaron Courville, Yoshua Bengio_
 ([arxiv draft](http://arxiv.org/pdf/1511.06456), submitted to ICLR 2016).
 
+# This code is no longer maintained
+
+This codebase is based on outdated techonologies (Theano, Blocks, etc) and is no longer maintained. We recommend you to look for more modern speech recognition implemenations (see e.g. https://github.com/Alexander-H-Liu/End-to-end-ASR-Pytorch).
 
 ### How to use
 
